@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Add New Compound — Neurobin{% endblock %}
+{% block content %}
+<div class="container">
+  <h2>Add a New Compound</h2>
+
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit" class="btn btn-primary">Submit</button>
+  </form>
+
+  <p><a href="{% url 'compound_list' %}">← Back to compound list</a></p>
+</div>
+{% endblock %}

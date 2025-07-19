@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container">
+  <h1>{{ compound.name }}</h1>
+  <p><strong>Aliases:</strong> {{ compound.aliases }}</p>
+  <p><strong>Mechanism:</strong> {{ compound.mechanism_of_action }}</p>
+  <p><strong>Receptor Targets:</strong> {{ compound.receptor_targets }}</p>
+
+  <h2>Average Community Rating</h2>
+  {% if avg_rating %}
+    <p>⭐ {{ avg_rating }}/5</p>
+  {% else %}
+    <p>No ratings yet.</p>
+  {% endif %}
+
+  <h2>Safety Overview</h2>
+  <ul>
+    <li>Liver Toxicity: {{ avg_safety.liver|default:"—" }}</li>
+    <li>Kidney Toxicity: {{ avg_safety.kidney|default:"—" }}</li>
+    <li>Cardiovascular Risk: {{ avg_safety.cardio|default:"—" }}</li>
+    <li>HPTA Suppression: {{ avg_safety.hpta|default:"—" }}</li>
+    <li>Neurotoxicity: {{ avg_safety.neuro|default:"—" }}</li>
+  </ul>
+
+  <h2>Safety Reports</h2>
+  {% for report in safety_reports %}
+    <div class="safety-report">
+      <p><strong>Submitted by:</strong> {{ report.user|default:"Anonymous" }}</p>
+      <p><strong>Confidence:</strong> {{ report.confidence_score }}/5</p>
+      <p>{{ report.notes }}</p>
+      {% if report.reference_links.exists %}
+        <ul>
+          {% for link in report.reference_links.all %}
+            <li><a href="{{ link.url }}" target="_blank">{{ link.url }}</a></li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+    <hr>
+  {% empty %}
+    <p>No safety reports submitted yet.</p>
+  {% endfor %}
+
+  <a href="{% url 'submit_safety' compound.slug %}">📝 Submit Safety Report</a>
+</div>
+{% endblock %}

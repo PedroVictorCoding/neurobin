@@ -85,11 +85,67 @@ class CompoundRating(models.Model):
 
 
 class CompoundSafetyScreening(models.Model):
-    compound    = models.ForeignKey('Compound', unique=True, on_delete=models.CASCADE, related_name='safety_screening')
+    compound    = models.OneToOneField('Compound', on_delete=models.CASCADE, related_name='safety_screening')
 
     liver_toxicity = models.PositiveSmallIntegerField(
         choices=[(i, str(i)) for i in range(1,6)],
+        blank=True, null=True,
+        help_text="1 = No toxicity observed; 5 = Lethal toxicity",
     )
+    kidney_toxicity = models.PositiveSmallIntegerField(
+        choices=[(i, str(i)) for i in range(1,6)],
+        blank=True, null=True,
+        help_text="1 = No toxicity observed; 5 = Lethal toxicity",
+    )
+    cardiovascular_risk = models.PositiveSmallIntegerField(
+        choices=[(i, str(i)) for i in range(1,6)],
+        blank=True, null=True,
+        help_text="1 = No risk observed; 5 = Lethal risk",
+    )
+    hpta_suppression = models.PositiveSmallIntegerField(
+        choices=[(i, str(i)) for i in range(1, 6)],
+        blank=True, null=True,
+        help_text="1 = No suppression observed; 5 = Full suppression",
+    )
+    neurotoxicity = models.PositiveSmallIntegerField(
+        choices=[(i, str(i)) for i in range(1, 6)],
+        blank=True, null=True,
+        help_text="1 = No toxicity observed; 5 = Lethal toxicity",
+    )
+    lung_toxicity = models.PositiveSmallIntegerField(
+        choices=[(i, str(i)) for i in range(1,6)],
+        blank=True, null=True,
+        help_text="1 = No toxicity observed; 5 = Lethal toxicity",
+    )
+    pancreas_toxicity = models.PositiveSmallIntegerField(
+        choices=[(i, str(i)) for i in range(1,6)],
+        blank=True, null=True,
+        help_text="1 = No toxicity observed; 5 = Lethal toxicity",
+    )
+    bladder_toxicity = models.PositiveSmallIntegerField(
+        choices=[(i, str(i)) for i in range(1,6)],
+        blank=True, null=True,
+        help_text="1 = No toxicity observed; 5 = Lethal toxicity",
+    )
+
+    confidence_score = models.PositiveSmallIntegerField(
+        choices=[(i, f"{i}/5") for i in range (1,6)],
+        blank=True, null=True,
+        help_text="How confident are you in the data provided?"
+    )
+    reference_link = models.URLField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Compound Safety Screening"
+
+    def __str__(self):
+        f"{self.compound.name} Safety Report by {self.created_by or 'Anonymous'}"
+
+
 
 
 
