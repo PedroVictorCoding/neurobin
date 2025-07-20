@@ -28,8 +28,20 @@ class CompoundMechanismOfAction(models.Model):
     def __str__(self):
         return self.name
     
-class CompoundReceptorTargets(models.Model):
+class Targets(models.Model):
     name = models.CharField(max_length=255, unique=True)
+    target_type = models.CharField(
+        max_length=100,
+        choices=[
+            ('receptor', 'Receptor'),
+            ('enzyme', 'Enzyme'),
+            ('ion_channel', 'Ion Channel'),
+            ('transporter', 'Transporter'),
+            ('other', 'Other'),
+        ],
+        blank=True,
+        help_text="Type of target (e.g., receptor, enzyme, ion channel, transporter)"
+    )
     description = models.TextField(blank=True)
 
     class Meta:
@@ -60,17 +72,49 @@ class Compound(models.Model):
         related_name='compounds',
         blank=True,
     )
-    receptor_targets = models.ManyToManyField(
-        CompoundReceptorTargets,
-        related_name='compounds',
-        blank=True,
-    )
     image = models.ImageField(
         upload_to='compound_images/',
         blank=True,
         null=True,
         help_text="Optional image for this compound."
     )
+
+
+class CompoundTargetInteraction(models.Model):
+    INTERACTION_TYPES = [
+        ('agonist', 'Agonist'),
+        ('antagonist', 'Antagonist'),
+        ('partial_agonist', 'Partial Agonist'),
+        ('inverse_agonist', 'Inverse Agonist'),
+        ('pam', 'Positive Allosteric Modulator'),
+        ('nam', 'Negative Allosteric Modulator'),
+        ('binder', 'Binder'),
+        ('inhibitor', 'Inhibitor'),
+        ('activator', 'Activator'),
+        ('unknown', 'Unknown'),
+    ]
+
+    compound = models.ForeignKey('Compound', on_delete=models.CASCADE, related_name='target_interactions')
+    target = models.ForeignKey(Targets, on_delete=models.CASCADE, related_name='compound_interactions')
+    interaction_type = models.CharField(
+        max_length=50,
+        choices=INTERACTION_TYPES,
+        blank=True,
+        help_text="Type of interaction with the target (e.g., agonist, antagonist, etc.)"
+    )
+    affinity = models.FloatField(null=True, blank=True, help_text="Binding affinity (e.g., Ki, IC50) in nM or pM")
+    affinity_unit = models.CharField(max_length=10, blank=True, help_text="Unit of the affinity (e.g., nM, pM)")
+    affinity_type = models.CharField(max_length=50, blank=True, help_text="Type of affinity measurement (e.g., Ki, IC50)")
+    notes = models.TextField(blank=True, help_text="Additional notes about the interaction")
+
+    class Meta:
+        unique_together = ('compound', 'target', 'interaction_type')
+        verbose_name = "Compound Target Interaction"
+        verbose_name_plural = "Compound Target Interactions"
+        ordering = ['compound__name', 'target__name']
+
+    def __str__(self):
+        return f"{self.compound.name} - {self.target.name} ({self.interaction_type})"
 
 
 class CompoundRating(models.Model):
@@ -88,6 +132,7 @@ class CompoundRating(models.Model):
 
     def __str__(self):
         return f"{self.user} & {self.compound}: {self.score}"
+
 
 
 class CompoundSafetyScreening(models.Model):

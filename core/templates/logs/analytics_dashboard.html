@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Analytics Dashboard{% endblock %}
+{% block content %}
+<div class="container" style="max-width: 900px;">
+  <h2 class="mb-4">Analytics Dashboard</h2>
+  <div class="card bg-neurobin-card p-4 shadow mb-4">
+    <canvas id="intakeChart" style="width:100%;max-width:100%;"></canvas>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  // Example: You can pass data from Django context and render a responsive chart
+  const ctx = document.getElementById('intakeChart').getContext('2d');
+  // Replace with real data from your context
+  const chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: [], // e.g. ['2024-07-01', ...]
+      datasets: [{
+        label: 'Intakes',
+        data: [], // e.g. [2, 1, ...]
+        backgroundColor: '#FFF',
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: { x: { ticks: { color: '#FFF' } }, y: { ticks: { color: '#FFF' } } }
+    }
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Log Compound Intake{% endblock %}
+{% block content %}
+<div class="d-flex flex-column align-items-center justify-content-center" style="min-height: 70vh;">
+  <div class="text-center">
+    <h2 class="fw-bold mb-4" style="color:#FFF;">Log Compound Intake</h2>
+    <form method="post" class="card bg-neurobin-card p-4 shadow" style="max-width: 400px; margin: 0 auto;">
+      {% csrf_token %}
+      <div class="mb-3 text-start">
+        <label class="form-label text-light" for="id_compound">Compound</label>
+        {{ form.compound }}
+      </div>
+      <div class="mb-3 text-start">
+        <label class="form-label text-light" for="id_amount">Amount</label>
+        {{ form.amount }}
+      </div>
+      <div class="mb-3 text-start">
+        <label class="form-label text-light" for="id_unit">Unit</label>
+        {{ form.unit }}
+      </div>
+      <div class="mb-3 text-start">
+        <label class="form-label text-light" for="id_taken_at">Taken at</label>
+        {{ form.taken_at }}
+      </div>
+      <div class="mb-3 text-start">
+        <label class="form-label text-light" for="id_notes">Notes</label>
+        {{ form.notes }}
+      </div>
+      <button type="submit" class="btn btn-lg w-100" style="background:#FFF; color:#111;">Log Intake</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

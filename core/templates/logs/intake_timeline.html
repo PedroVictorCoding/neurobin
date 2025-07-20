@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Intake Timeline{% endblock %}
+{% block content %}
+<div class="container" style="max-width: 700px;">
+  <h2 class="mb-4">Your Intake Timeline</h2>
+  <ul class="list-group">
+    {% for log in logs %}
+      <li class="list-group-item bg-dark text-light">
+        <strong>{{ log.compound }}</strong> — {{ log.amount }}<br>
+        <small>{{ log.taken_at|date:"Y-m-d H:i" }}</small>
+        {% if log.notes %}<div class="text-secondary small mt-1">{{ log.notes }}</div>{% endif %}
+      </li>
+    {% empty %}
+      <li class="list-group-item">No intakes logged yet.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

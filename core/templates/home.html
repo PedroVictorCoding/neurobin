@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Neurobin — Research, Track, Stay Safe{% endblock %}
+{% block content %}
+<div class="d-flex flex-column align-items-center justify-content-center" style="min-height: 60vh;">
+  <div class="text-center">
+    <h1 class="fw-bold mb-3" style="color: #FFF;">Research, Track<br>Stay Safe</h1>
+    <p class="lead text-secondary mb-4" style="max-width: 400px; margin: 0 auto;">
+      Discover, document, and share compound research. Neurobin helps you track mechanisms, targets, and safety — all in one place.
+    </p>
+    <div class="d-flex flex-column flex-sm-row justify-content-center gap-3 mt-4">
+      <a href="{% url 'compound_list' %}" class="btn btn-lg px-4" style="background:#FFF; color:#111; border:none;">Browse Compounds</a>
+      {% if user.is_authenticated and user.is_staff %}
+        <a href="{% url 'log_intake' %}" class="btn btn-lg px-4" style="background:transparent; color:#FFF; border:1px solid #FFF;">Log Compound</a>
+      {% endif %}
+    </div>
+  </div>
+  <div class="mt-5">
+    <img src="{% static 'img/brain-wireframe.png' %}" alt="Brain wireframe" style="width: 320px; opacity: 0.15;">
+  </div>
+</div>
+{% endblock %}

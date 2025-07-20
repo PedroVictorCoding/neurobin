@@ -7,8 +7,8 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
 
-from .models import Compound, CompoundSafetyScreening, CompoundRating, CompoundCategories, CompoundMechanismOfAction, CompoundReceptorTargets
-from .forms import CompoundForm
+from .models import Compound, CompoundSafetyScreening, CompoundRating, CompoundCategories, CompoundMechanismOfAction, Targets
+from .forms import CompoundForm, MechanismOfActionForm, TargetForm
 
 
 def compound_detail(request, slug):
@@ -103,4 +103,32 @@ def compound_search(request):
 def compound_list(request):
     compounds = Compound.objects.all()
     return render(request, "compounds/compound_list.html", {"compounds": compounds})
+
+def mechanism_list(request):
+    mechanisms = CompoundMechanismOfAction.objects.all()
+    return render(request, "compounds/mechanism_list.html", {"mechanisms": mechanisms})
+
+def add_mechanism(request):
+    if request.method == "POST":
+        form = MechanismOfActionForm(request.POST)
+        if form.is_valid():
+            form.save()
+            return redirect('mechanism_list')
+    else:
+        form = MechanismOfActionForm()
+    return render(request, "compounds/add_mechanism.html", {"form": form})
+
+def target_list(request):
+    targets = Targets.objects.all()
+    return render(request, "compounds/target_list.html", {"targets": targets})
+
+def add_target(request):
+    if request.method == "POST":
+        form = TargetForm(request.POST)
+        if form.is_valid():
+            form.save()
+            return redirect('target_list')
+    else:
+        form = TargetForm()
+    return render(request, "compounds/add_target.html", {"form": form})
 

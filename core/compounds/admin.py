@@ -26,8 +26,8 @@ class CompoundRatingAdmin(admin.ModelAdmin):
     list_filter = ('score',)
     search_fields = ('compound__name', 'user__username')
 
-@admin.register(CompoundReceptorTargets)
-class CompoundReceptorTargetsAdmin(admin.ModelAdmin):
+@admin.register(Targets)
+class TargetsAdmin(admin.ModelAdmin):
     list_display = ('name',)
     search_fields = ('name',)
 
@@ -36,3 +36,9 @@ class CompoundSafetyScreeningAdmin(admin.ModelAdmin):
     list_display = ('compound', 'created_by', 'confidence_score', 'created_at')
     list_filter = ('confidence_score',)
     search_fields = ('compound__name', 'user__username')
+
+@admin.register(CompoundTargetInteraction)
+class CompoundTargetInteractionAdmin(admin.ModelAdmin):
+    list_display = ('compound', 'target', 'interaction_type', 'affinity', 'affinity_unit', 'affinity_type')
+    list_filter = ('interaction_type',)
+    search_fields = ('compound__name', 'target__name')

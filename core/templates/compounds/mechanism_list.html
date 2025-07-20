@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Mechanisms of Action{% endblock %}
+{% block content %}
+<div class="container" style="max-width: 600px;">
+  <h2 class="mb-4">Mechanisms of Action</h2>
+  <a href="{% url 'add_mechanism' %}" class="btn btn-info mb-3">Add New Mechanism</a>
+  <ul class="list-group">
+    {% for m in mechanisms %}
+      <li class="list-group-item bg-dark text-light">{{ m.name }}</li>
+    {% empty %}
+      <li class="list-group-item">No mechanisms found.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

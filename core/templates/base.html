@@ -12,7 +12,7 @@
       font-family: 'Segoe UI', sans-serif;
     }
     .bg-neurobin-dark { background-color: #161b22 !important; }
-    .text-neurobin-accent { color: #00f9d2 !important; }
+    .text-neurobin-accent { color: #FFF !important; }
     .bg-neurobin-card {
       background-color: #161b22 !important;
       max-width: 700px;
@@ -50,20 +50,20 @@
       <div class="d-flex align-items-center">
         {% if user.is_staff %}
         <div class="dropdown me-3">
-          <button class="btn btn-sm btn-outline-info dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+          <button class="btn btn-sm btn-outline-info dropdown-toggle" style="color:#FFF; border:1px solid #FFF; background:transparent;" type="button" data-bs-toggle="dropdown" aria-expanded="false">
             Admin
           </button>
           <ul class="dropdown-menu dropdown-menu-dark">
             <li><a class="dropdown-item" href="{% url 'add_compound' %}">Add Compounds</a></li>
-            <li><a class="dropdown-item" href="{% url 'add_compound' %}">Add Mechanisms</a></li>
-            <li><a class="dropdown-item" href="{% url 'add_compound' %}">Add Receptors</a></li>
+            <li><a class="dropdown-item" href="{% url 'add_mechanism' %}">Add Mechanisms</a></li>
+            <li><a class="dropdown-item" href="{% url 'add_target' %}">Add Targets</a></li>
           </ul>
         </div>
         {% endif %}
         {% if user.is_authenticated %}
-          <a href="{% url 'logout' %}" class="btn btn-link text-info text-decoration-none">Logout</a>
+          <a href="{% url 'logout' %}" class="btn btn-link text-decoration-none" style="color:#FFF;">Logout</a>
         {% else %}
-          <a href="{% url 'login' %}" class="btn btn-link text-info text-decoration-none">Login</a>
+          <a href="{% url 'login' %}" class="btn btn-link text-decoration-none" style="color:#FFF;">Login</a>
         {% endif %}
       </div>
     </div>
