@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Compounds — Neurobin{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">All Compounds</h1>
+<div class="row g-4">
+  {% for compound in compounds %}
+    <div class="col-12 col-md-6 col-lg-4 d-flex">
+      <div class="card bg-neurobin-card text-light shadow p-4 flex-fill w-100">
+        <div class="d-flex align-items-center mb-3">
+          {% if compound.image %}
+            <img src="{{ compound.image.url }}" alt="{{ compound.name }}" class="rounded me-3" style="width: 60px; height: 60px; object-fit: cover;">
+          {% else %}
+            <div class="bg-dark rounded me-3 d-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
+              <span class="text-secondary small">No Image</span>
+            </div>
+          {% endif %}
+          <div>
+            <a href="{% url 'compound_detail' compound.slug %}" class="h5 text-light text-decoration-none">{{ compound.name }}</a>
+            {% if compound.aliases %}
+              <div class="small text-secondary">{{ compound.aliases }}</div>
+            {% endif %}
+          </div>
+        </div>
+        <p class="mb-2">{{ compound.description|truncatewords:20 }}</p>
+        <a href="{% url 'compound_detail' compound.slug %}" class="btn btn-outline-info btn-sm mt-auto">View Details</a>
+      </div>
+    </div>
+  {% empty %}
+    <div class="col-12">
+      <div class="alert alert-warning">No compounds found.</div>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

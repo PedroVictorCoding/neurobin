@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Search: {{ query }} — Neurobin{% endblock %}
+
+{% block content %}
+<div class="search-results-card">
+  <h2 class="search-title">Search Results for "{{ query }}"</h2>
+
+  {% if results %}
+    <div class="result-list">
+      {% for compound in results %}
+        <a class="result-item" href="{% url 'compound_detail' slug=compound.slug %}">
+          {{ compound.name }}
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="no-results">No results found.</p>
+  {% endif %}
+</div>
+
+<style>
+  .search-results-card {
+    max-width: 600px;
+    margin: 3rem auto;
+    background-color: #161b22;
+    padding: 2rem;
+    border-radius: 12px;
+    box-shadow: 0 0 25px rgba(0, 255, 200, 0.05);
+    text-align: center;
+  }
+
+  .search-title {
+    margin-bottom: 2rem;
+    font-size: 1.6rem;
+  }
+
+  .result-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .result-item {
+    display: block;
+    background-color: #0e1117;
+    border: 1px solid #2b313d;
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+    color: #d1d5db;
+    font-size: 1.1rem;
+    text-decoration: none;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+  }
+
+  .result-item:hover {
+    background-color: #1a1f27;
+    transform: translateY(-2px);
+    color: #00ffe0;
+  }
+
+  .no-results {
+    color: #888;
+    font-style: italic;
+    margin-top: 2rem;
+  }
+</style>
+{% endblock %}

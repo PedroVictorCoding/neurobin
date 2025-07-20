@@ -65,6 +65,12 @@ class Compound(models.Model):
         related_name='compounds',
         blank=True,
     )
+    image = models.ImageField(
+        upload_to='compound_images/',
+        blank=True,
+        null=True,
+        help_text="Optional image for this compound."
+    )
 
 
 class CompoundRating(models.Model):

@@ -28,6 +28,11 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['neurob.in', '192.168.1.119']
 
+CSRF_TRUSTED_ORIGINS = [
+    'https://neurob.in',
+    'http://192.168.1.119'
+]
+
 
 # Application definition
 
