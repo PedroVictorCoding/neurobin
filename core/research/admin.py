@@ -7,6 +7,7 @@ from .models import (
     SnippetReview,
     SnippetTag,
     SnippetTagging,
+    SnippetComment,
     UserRole,
     ResearchSettings
 )
@@ -204,6 +205,23 @@ class ResearchSettingsAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         # Don't allow deletion of settings
         return False
+
+
+@admin.register(SnippetComment)
+class SnippetCommentAdmin(admin.ModelAdmin):
+    list_display = ('snippet_title', 'author', 'content_preview', 'created_at')
+    list_filter = ('created_at', 'snippet__status')
+    search_fields = ('content', 'author__username', 'snippet__title')
+    readonly_fields = ('created_at', 'updated_at')
+    raw_id_fields = ('snippet', 'author')
+    
+    def snippet_title(self, obj):
+        return obj.snippet.title
+    snippet_title.short_description = 'Snippet'
+    
+    def content_preview(self, obj):
+        return obj.content[:100] + '...' if len(obj.content) > 100 else obj.content
+    content_preview.short_description = 'Comment Preview'
 
 
 # Custom admin site configuration

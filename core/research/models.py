@@ -365,3 +365,32 @@ class ResearchSettings(models.Model):
     
     def __str__(self):
         return f"Research Settings (Updated: {self.updated_at.strftime('%Y-%m-%d')})"
+
+
+class SnippetComment(models.Model):
+    """
+    Standalone comment system for research snippets.
+    Independent of the review/voting system.
+    """
+    
+    snippet = models.ForeignKey(
+        ResearchSnippet, 
+        on_delete=models.CASCADE, 
+        related_name='comments'
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.CASCADE, 
+        related_name='snippet_comments'
+    )
+    content = models.TextField(help_text="Your comment about this research")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Snippet Comment"
+        verbose_name_plural = "Snippet Comments"
+    
+    def __str__(self):
+        return f"{self.author.username} on {self.snippet.title}"

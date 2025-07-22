@@ -44,10 +44,17 @@
               {% endif %}
               
               <span class="badge bg-secondary">{{ snippet.get_snippet_type_display }}</span>
+              <span class="badge bg-secondary">
+                <i class="fas fa-chart-line"></i> Confidence: {{ snippet.confidence_level|default:"Confidence" }}
+              </span>
             </div>
             
-            <!-- Action Buttons -->
-            <div class="dropdown">
+            <!-- Top Right Confidence Level Pill Badge -->
+            <div class="d-flex align-items-center">
+
+              
+              <!-- Action Buttons -->
+              <div class="dropdown">
               {% if user.is_authenticated %}
                 <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
                   <i class="fas fa-cog"></i> Actions
@@ -80,6 +87,7 @@
                   {% endif %}
                 </ul>
               {% endif %}
+              </div>
             </div>
           </div>
 
@@ -179,7 +187,7 @@
   <div class="row justify-content-center">
     <!-- Detailed Review Section -->
     {% if can_review %}
-      <div class="col-12 col-md-8 col-lg-6 mb-4">
+      <div class="col-12 col-lg-8 mb-4">
         <div class="card bg-neurobin-card h-100">
           <div class="card-header">
             <h6 class="mb-0"><i class="fas fa-comment-dots"></i> Leave Detailed Feedback (Optional)</h6>
@@ -228,13 +236,12 @@
   <!-- Community Reviews and Related Research - Stacked and Centered -->
   <div class="row justify-content-center">
     <!-- Review Stats -->
-    <div class="col-12 col-md-8 col-lg-6 mb-4">
+    <div class="col-12 col-lg-8 mb-4">
       <div class="card bg-neurobin-card">
         <div class="card-header">
-          <h6 class="mb-0 text-secondary"><i class="fas fa-chart-bar"></i> Community Reviews</h6>
+          <h6 class="mb-0 text-secondary"><i class="fas fa-chart-bar"></i> Community Confidence</h6>
         </div>
         <div class="card-body">
-          {% if review_stats.total_reviews %}
             <!-- Credibility Score -->
             <div class="text-center mb-4">
               <div class="d-inline-block p-3 rounded credibility-score">
@@ -251,7 +258,7 @@
             </div>
             
             <!-- Quick Vote Buttons -->
-            {% if user.is_authenticated and snippet.created_by != user and not user_review %}
+            {% if user.is_authenticated %}
               <div class="text-center mb-4">
                 <div class="btn-group" role="group">
                   <button type="button" class="btn btn-outline-success quick-vote-btn" data-vote="validate">
@@ -330,26 +337,63 @@
                 </div>
               </div>
             {% endif %}
-          {% else %}
-            <div class="text-center">
-              <p class="text-secondary mb-3">No reviews yet</p>
-              
-              <!-- Quick Vote Buttons for first review -->
-              {% if user.is_authenticated and snippet.created_by != user %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Standalone Comments Section -->
+  <div class="row justify-content-center">
+    <div class="col-12 col-lg-8 mb-4">
+      <div class="card bg-neurobin-card">
+        <div class="card-header">
+          <h6 class="mb-0 text-secondary"><i class="fas fa-comments"></i> Community Discussion</h6>
+        </div>
+        <div class="card-body">
+          <!-- Comment Form -->
+          {% if user.is_authenticated %}
+            <div class="mb-4">
+              <form class="comment-form">
                 <div class="mb-3">
-                  <div class="btn-group" role="group">
-                    <button type="button" class="btn btn-outline-success quick-vote-btn" data-vote="validate">
-                      <i class="fas fa-thumbs-up"></i> Approve
-                    </button>
-                    <button type="button" class="btn btn-outline-danger quick-vote-btn" data-vote="reject">
-                      <i class="fas fa-thumbs-down"></i> Reject
-                    </button>
-                  </div>
-                  <div class="small text-muted mt-2">Be the first to review this research</div>
+                  <label class="form-label text-light">
+                    <i class="fas fa-comment"></i> Share your thoughts about this research
+                  </label>
+                  <textarea class="form-control bg-dark text-light comment-input" 
+                           rows="3" 
+                           placeholder="Add your thoughts, questions, or additional insights about this research..."
+                           data-snippet-id="{{ snippet.id }}"></textarea>
                 </div>
-              {% endif %}
+                <button class="btn btn-info submit-comment-btn" type="submit"
+                        data-snippet-id="{{ snippet.id }}">
+                  <i class="fas fa-paper-plane"></i> Post Comment
+                </button>
+              </form>
+            </div>
+          {% else %}
+            <div class="text-center mb-4">
+              <p class="text-muted">
+                <a href="{% url 'login' %}" class="text-info">Login</a> to join the discussion
+              </p>
             </div>
           {% endif %}
+          
+          <!-- Comments Display -->
+          <div class="comments-list" data-snippet-id="{{ snippet.id }}">
+            {% for comment in snippet.comments.all %}
+              <div class="comment mb-3 p-3 bg-dark rounded">
+                <div class="d-flex justify-content-between align-items-start">
+                  <strong class="text-info">{{ comment.author.username }}</strong>
+                  <small class="text-muted">{{ comment.created_at|date:"M d, Y \a\t g:i A" }}</small>
+                </div>
+                <div class="text-light mt-2" style="line-height: 1.6;">{{ comment.content }}</div>
+              </div>
+            {% empty %}
+              <div class="text-center text-muted py-4">
+                <i class="fas fa-comments fa-2x mb-2"></i>
+                <p>No comments yet. Be the first to share your thoughts!</p>
+              </div>
+            {% endfor %}
+          </div>
         </div>
       </div>
     </div>
@@ -357,7 +401,7 @@
 
   <div class="row justify-content-center">
     <!-- Related Snippets -->
-    <div class="col-12 col-md-8 col-lg-6 mb-4">
+    <div class="col-12 col-lg-8 mb-4">
       <div class="card bg-neurobin-card">
         <div class="card-header">
           <h6 class="mb-0 text-secondary"><i class="fas fa-link"></i> Related Research</h6>
@@ -430,6 +474,35 @@
 .credibility-score {
   background: linear-gradient(135deg, rgba(23, 162, 184, 0.1), rgba(23, 162, 184, 0.05));
   border: 1px solid rgba(23, 162, 184, 0.3);
+}
+
+/* Comment section styling */
+.comment {
+  border-left: 3px solid rgba(23, 162, 184, 0.3);
+  transition: all 0.2s ease;
+}
+
+.comment:hover {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+.comment-input {
+  border: 1px solid #495057;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.comment-input:focus {
+  border-color: #17a2b8;
+  box-shadow: 0 0 0 0.2rem rgba(23, 162, 184, 0.25);
+}
+
+.submit-comment-btn {
+  transition: all 0.2s ease;
+}
+
+.submit-comment-btn:hover {
+  transform: translateY(-1px);
 }
 </style>
 
@@ -550,6 +623,81 @@ function copyToClipboard() {
     alert('Link copied to clipboard!');
   });
 }
+
+// Comment submission functionality
+document.querySelectorAll('.comment-form').forEach(form => {
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const snippetId = this.querySelector('.comment-input').dataset.snippetId;
+    const commentInput = this.querySelector('.comment-input');
+    const submitBtn = this.querySelector('.submit-comment-btn');
+    const content = commentInput.value.trim();
+    
+    if (!content || content.length < 5) {
+      alert('Comment must be at least 5 characters long');
+      return;
+    }
+    
+    // Disable form during submission
+    submitBtn.disabled = true;
+    const originalBtnText = submitBtn.innerHTML;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Posting...';
+    
+    fetch(`/research/snippet/${snippetId}/comment/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+      },
+      body: JSON.stringify({
+        content: content
+      })
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        // Add new comment to the list
+        const commentsList = document.querySelector(`.comments-list[data-snippet-id="${snippetId}"]`);
+        const newComment = document.createElement('div');
+        newComment.className = 'comment mb-3 p-3 bg-dark rounded';
+        newComment.innerHTML = `
+          <div class="d-flex justify-content-between align-items-start">
+            <strong class="text-info">${data.comment.author}</strong>
+            <small class="text-muted">now</small>
+          </div>
+          <div class="text-light mt-2" style="line-height: 1.6;">${data.comment.content}</div>
+        `;
+        
+        // Remove empty state if it exists
+        const emptyState = commentsList.querySelector('.text-center.text-muted');
+        if (emptyState) {
+          emptyState.remove();
+        }
+        
+        // Insert at the beginning of comments list
+        commentsList.insertBefore(newComment, commentsList.firstChild);
+        
+        // Clear the input
+        commentInput.value = '';
+        
+      } else {
+        alert(data.error || 'Error submitting comment');
+      }
+      
+      // Re-enable form
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = originalBtnText;
+    })
+    .catch(error => {
+      console.error('Error:', error);
+      alert('Error submitting comment');
+      // Re-enable form
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = originalBtnText;
+    });
+  });
+});
 
 // Moderation functions (staff only)
 {% if user.is_staff %}

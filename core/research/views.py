@@ -15,6 +15,7 @@ from .models import (
     ResearchSnippet, 
     SnippetReview, 
     SnippetTag, 
+    SnippetComment,
     ResearchSettings,
     UserRole
 )
@@ -351,7 +352,7 @@ def compound_snippets(request, slug):
     """
     compound = get_object_or_404(Compound, slug=slug)
     
-    snippets = ResearchSnippet.objects.filter(compound=compound).select_related('created_by').prefetch_related('tags', 'reviews')
+    snippets = ResearchSnippet.objects.filter(compound=compound).select_related('created_by').prefetch_related('tags', 'reviews', 'comments')
     
     # Apply visibility filters
     if request.user.is_authenticated:
@@ -362,6 +363,27 @@ def compound_snippets(request, slug):
             )
     else:
         snippets = snippets.filter(visibility__in=['public', 'public_review'])
+    
+    # Annotate with review stats
+    snippets = snippets.annotate(
+        positive_reviews=Count('reviews', filter=Q(reviews__vote_type='validate')),
+        negative_reviews=Count('reviews', filter=Q(reviews__vote_type='reject')),
+        total_reviews=Count('reviews')
+    )
+    
+    # Get user's reviews for each snippet
+    user_reviews = {}
+    if request.user.is_authenticated:
+        from .models import SnippetReview
+        user_review_qs = SnippetReview.objects.filter(
+            snippet__in=snippets,
+            reviewer=request.user
+        ).values('snippet_id', 'vote_type')
+        user_reviews = {r['snippet_id']: r['vote_type'] for r in user_review_qs}
+    
+    # Add user review vote to each snippet
+    for snippet in snippets:
+        snippet.user_review_vote = user_reviews.get(snippet.id)
     
     # Group by snippet type
     snippet_groups = {}
@@ -375,6 +397,7 @@ def compound_snippets(request, slug):
         'compound': compound,
         'snippet_groups': snippet_groups,
         'total_count': snippets.count(),
+        'user_reviews': user_reviews,
     }
     
     return render(request, 'research/compound_snippets.html', context)
@@ -556,6 +579,98 @@ def toggle_snippet_visibility(request, pk):
             'success': True,
             'new_visibility': snippet.visibility,
             'new_status': snippet.status
+        })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@login_required
+@require_POST
+def quick_vote_snippet(request, pk):
+    """
+    Handle quick vote (approve/reject) for a snippet from compound page.
+    """
+    snippet = get_object_or_404(ResearchSnippet, pk=pk)
+    
+    # Check permissions
+    if snippet.created_by == request.user:
+        return JsonResponse({'error': 'Cannot vote on your own snippet'}, status=400)
+    
+    # Check if user already voted
+    existing_review = SnippetReview.objects.filter(snippet=snippet, reviewer=request.user).first()
+    if existing_review:
+        return JsonResponse({'error': 'You have already voted on this snippet'}, status=400)
+    
+    try:
+        data = json.loads(request.body)
+        vote_type = data.get('vote_type')
+        
+        if vote_type not in ['validate', 'reject']:
+            return JsonResponse({'error': 'Invalid vote type'}, status=400)
+        
+        # Create review without comment (quick vote)
+        review = SnippetReview.objects.create(
+            snippet=snippet,
+            reviewer=request.user,
+            vote_type=vote_type,
+            comment=''
+        )
+        
+        # Update snippet status
+        snippet.update_status()
+        
+        # Get updated stats
+        stats = snippet.reviews.aggregate(
+            total=Count('id'),
+            positive=Count('id', filter=Q(vote_type='validate')),
+            negative=Count('id', filter=Q(vote_type='reject'))
+        )
+        
+        return JsonResponse({
+            'success': True,
+            'vote_type': vote_type,
+            'stats': stats
+        })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@login_required
+@require_POST
+def add_snippet_comment(request, pk):
+    """
+    Add a comment to a research snippet.
+    """
+    snippet = get_object_or_404(ResearchSnippet, pk=pk)
+    
+    try:
+        data = json.loads(request.body)
+        content = data.get('content', '').strip()
+        
+        if not content or len(content) < 5:
+            return JsonResponse({'error': 'Comment must be at least 5 characters long'}, status=400)
+        
+        # Create comment
+        comment = SnippetComment.objects.create(
+            snippet=snippet,
+            author=request.user,
+            content=content
+        )
+        
+        return JsonResponse({
+            'success': True,
+            'comment': {
+                'id': comment.id,
+                'content': comment.content,
+                'author': comment.author.username,
+                'created_at': comment.created_at.strftime('%b %d, %Y at %I:%M %p')
+            }
         })
         
     except json.JSONDecodeError:

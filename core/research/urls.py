@@ -27,4 +27,6 @@ urlpatterns = [
     
     # AJAX endpoints
     path('snippet/<int:pk>/toggle-visibility/', views.toggle_snippet_visibility, name='toggle_visibility'),
+    path('snippet/<int:pk>/quick-vote/', views.quick_vote_snippet, name='quick_vote_snippet'),
+    path('snippet/<int:pk>/comment/', views.add_snippet_comment, name='add_snippet_comment'),
 ]
