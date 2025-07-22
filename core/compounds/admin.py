@@ -5,20 +5,26 @@ from .models import *
 
 @admin.register(Compound)
 class CompoundAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug')
+    list_display = ('name', 'slug', 'smiles')
     prepopulated_fields = {'slug': ('name',)}
     filter_horizontal = ('categories',)
-
+    fields = ('name', 'slug', 'description', 'aliases', 'smiles', 'categories', 'mechanism_of_action', 'image')
 
 @admin.register(CompoundCategories)
 class CompoundCategoriesAdmin(admin.ModelAdmin):
     list_display = ('name',)
     search_fields = ('name',)
 
-@admin.register(CompoundMechanismOfAction)
-class CompoundMechanismOfActionAdmin(admin.ModelAdmin):
+@admin.register(Target)
+class TargetAdmin(admin.ModelAdmin):
     list_display = ('name',)
     search_fields = ('name',)
+
+@admin.register(CompoundMechanismOfAction)
+class CompoundMechanismOfActionAdmin(admin.ModelAdmin):
+    list_display = ('target_name', 'target_type', 'target_interaction')
+    search_fields = ('target_name',)
+    list_filter = ('target_type', 'target_interaction')
 
 @admin.register(CompoundRating)
 class CompoundRatingAdmin(admin.ModelAdmin):
@@ -26,19 +32,8 @@ class CompoundRatingAdmin(admin.ModelAdmin):
     list_filter = ('score',)
     search_fields = ('compound__name', 'user__username')
 
-@admin.register(Targets)
-class TargetsAdmin(admin.ModelAdmin):
-    list_display = ('name',)
-    search_fields = ('name',)
-
 @admin.register(CompoundSafetyScreening)
 class CompoundSafetyScreeningAdmin(admin.ModelAdmin):
     list_display = ('compound', 'created_by', 'confidence_score', 'created_at')
     list_filter = ('confidence_score',)
     search_fields = ('compound__name', 'user__username')
-
-@admin.register(CompoundTargetInteraction)
-class CompoundTargetInteractionAdmin(admin.ModelAdmin):
-    list_display = ('compound', 'target', 'interaction_type', 'affinity', 'affinity_unit', 'affinity_type')
-    list_filter = ('interaction_type',)
-    search_fields = ('compound__name', 'target__name')

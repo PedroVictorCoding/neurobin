@@ -1,5 +1,5 @@
 from django import forms
-from .models import Compound, CompoundMechanismOfAction, Targets
+from .models import Compound, CompoundMechanismOfAction, CompoundCategories, Target
 
 
 class CompoundForm(forms.ModelForm):
@@ -20,17 +20,29 @@ class CompoundForm(forms.ModelForm):
 class MechanismOfActionForm(forms.ModelForm):
     class Meta:
         model = CompoundMechanismOfAction
+        fields = ['description', 'target_name', 'target_type', 'target_interaction']
+        widgets = {
+            'description': forms.Textarea(attrs={'class': 'form-control', 'placeholder': 'Mechanism description'}),
+            'target_name': forms.Select(attrs={'class': 'form-control'}),
+            'target_type': forms.Select(attrs={'class': 'form-control'}),
+            'target_interaction': forms.Select(attrs={'class': 'form-control'}),
+        }
+
+
+class CategoryForm(forms.ModelForm):
+    class Meta:
+        model = CompoundCategories
         fields = ['name', 'description']
         widgets = {
-            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Mechanism name'}),
-            'description': forms.Textarea(attrs={'class': 'form-control', 'placeholder': 'Mechanism description'}),
+            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Category name'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'placeholder': 'Category description'}),
         }
 
 
 class TargetForm(forms.ModelForm):
     class Meta:
-        model = Targets
+        model = Target
         fields = ['name']
         widgets = {
-            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Target name'}),
+            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Target name (e.g., GABA-A receptor)'}),
         }

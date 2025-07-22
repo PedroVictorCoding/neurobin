@@ -26,11 +26,12 @@ SECRET_KEY = 'django-insecure-1nm5fkxv-v3b*&8p*_9vg@29#u**ik+tg9o$9!jdv6so#1$14^
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['neurob.in', '192.168.1.119']
+ALLOWED_HOSTS = ['neurob.in', '192.168.1.119', '0.0.0.0']
 
 CSRF_TRUSTED_ORIGINS = [
     'https://neurob.in',
-    'http://192.168.1.119'
+    'http://192.168.1.119',
+    'http://0.0.0.0',
 ]
 
 
@@ -47,6 +48,7 @@ INSTALLED_APPS = [
     'compounds',
     'logs',
     'accounts',
+    'research',
 ]
 
 MIDDLEWARE = [
@@ -125,6 +127,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+]
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

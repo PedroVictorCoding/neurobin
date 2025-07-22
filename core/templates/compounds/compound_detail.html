@@ -1,7 +1,23 @@
 {% extends "base.html" %}
+{% load compound_extras %}
 {% block title %}{{ compound.name }} — Neurobin{% endblock %}
 
 {% block content %}
+<style>
+  /* Subtle mobile improvements for compound detail */
+  @media (max-width: 768px) {
+    .molecule-container {
+      width: 100% !important;
+      max-width: 250px !important;
+      margin: 0 auto !important;
+    }
+    
+    .compound-smiles-info {
+      font-size: 0.9rem !important;
+      word-break: break-all;
+    }
+  }
+</style>
 
 <div class="card bg-neurobin-card text-light mx-auto my-5 shadow p-4"
      style="max-width: 700px; width: 100%; border-radius: 10px;">
@@ -9,7 +25,12 @@
     <div class="row">
       <div class="col-12 col-md-8">
         <h1 class="card-title">{{ compound.name }}</h1>
-        <p class="card-text">Summary</p>
+        <hr style="margin: left 20px; border-color: #444; max-width: 50%">
+        <h4 class="card-text">Summary</h4>
+        <p class="mb-3 mt-3" style="margin-left:20px;" name="compound-description">
+          {{ compound.description|default:"No description available." }}
+        </p>
+        <hr style="margin: left 20px; border-color: #444; max-width: 50%">
         <div class="d-flex align-items-center mb-3 stars" data-compound-slug="{{ compound.slug }}">
           {% for i in "12345" %}
             <span class="star {% if user_rating >= forloop.counter %}filled text-info{% else %}text-secondary{% endif %} fs-4 me-1"
@@ -19,32 +40,41 @@
           {% endfor %}
           <span class="rating-number ms-2 fw-bold text-info">({{ avg_rating|floatformat:1 }}/5)</span>
         </div>
-        <div>
-          <p>{{ compound.description }}</p>
-        </div>
+        <hr style="margin: left 20px; border-color: #444; max-width: 50%">
         <div class="mt-4">
-          {% if compound.mechanism_of_action.all %}
-            <p class="fw-medium text-secondary mt-3"><strong>Mechanisms</strong></p>
-            {% for m in compound.mechanism_of_action.all %}
-              <span class="badge rounded-pill bg-secondary text-light me-2 mb-2">{{ m }}</span>
-            {% endfor %}
-          {% endif %}
-
-          {% if compound.receptor_targets.all %}
-            <p class="fw-medium text-secondary mt-3"><strong>Receptor Targets</strong></p>
-            {% for r in compound.receptor_targets.all %}
-              <span class="badge rounded-pill bg-secondary text-light me-2 mb-2">{{ r }}</span>
+          <!-- Display targets from mechanisms -->
+          {% with compound.mechanism_of_action.all as mechanisms %}
+            {% if mechanisms %}
+              {% for m in mechanisms %}
+                {% if m.target_name %}
+                  {% if forloop.first %}
+                    <p class="fw-medium text-secondary mt-3"><strong>Mechanisms</strong></p>
+                  {% endif %}
+                  <span class="badge rounded-pill bg-info text-dark me-2 mb-2">
+                    {{ m.target_name }}
+                    {% if m.target_interaction %} {{ m.get_target_type_display }} ({{ m.get_target_interaction_display }}){% endif %}
+                  </span>
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          {% endwith %}
+          {% if compound.categories.all %}
+            <p class="fw-medium text-secondary mt-3"><strong>Categories</strong></p>
+            {% for category in compound.categories.all %}
+              <span class="badge rounded-pill bg-secondary text-light me-2 mb-2">{{ category.name }}</span>
             {% endfor %}
           {% endif %}
         </div>
       </div>
       <div class="col-12 col-md-4 d-flex justify-content-md-end justify-content-center mt-4 mt-md-0">
-        <div class="bg-dark rounded"
+        <div class="bg-dark rounded molecule-container"
              style="width: 200px; height: 200px; border: 2px solid #7c7c7c; display: flex; align-items: center; justify-content: center;">
-          {% if compound.image %}
-            <img src="{{ compound.image.url }}" alt="{{ compound.name }}" class="img-fluid rounded" style="max-width: 100%; max-height: 100%;">
+          {% if compound.smiles %}
+            <div id="moleculeContainer" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
+              <svg id="moleculeViewer" data-smiles="{{ compound.smiles }}" width="196" height="196" style="border-radius: 8px;"></svg>
+            </div>
           {% else %}
-            <span class="text-secondary small">No Image</span>
+            <span class="text-secondary small">No Structure</span>
           {% endif %}
         </div>
       </div>
@@ -63,12 +93,138 @@
 <div class="card bg-neurobin-card text-light mx-auto my-4 shadow p-4"
      style="max-width: 700px; width: 100%; border-radius: 10px;">
   <div class="card-body">
-    <h2 class="card-title">Research Snippets</h2>
+    <h2 class="card-title mb-4 text-white fw-semibold">
+      <i class="fas fa-microscope text-info"></i> Research Snippets
+    </h2>
+    
+    {% if research_snippets %}
+      {% for snippet in research_snippets %}
+        <div class="card bg-dark border-secondary mb-3" data-snippet-id="{{ snippet.id }}">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start mb-3">
+              <div class="flex-grow-1">
+                <h5 class="card-title text-white">
+                  <a href="{% url 'research:snippet_detail' snippet.pk %}" 
+                     class="text-decoration-none text-white">
+                    {{ snippet.title }}
+                  </a>
+                </h5>
+                
+                <!-- Status badges -->
+                <div class="mb-2">
+                  {% if snippet.status == 'verified' %}
+                    <span class="badge bg-success">
+                      <i class="fas fa-check"></i> Verified
+                    </span>
+                  {% elif snippet.status == 'needs_review' %}
+                    <span class="badge bg-warning text-dark">
+                      <i class="fas fa-clock"></i> Needs Review
+                    </span>
+                  {% elif snippet.status == 'flagged' %}
+                    <span class="badge bg-danger">
+                      <i class="fas fa-flag"></i> Flagged
+                    </span>
+                  {% elif snippet.status == 'draft' %}
+                    <span class="badge bg-secondary">
+                      <i class="fas fa-edit"></i> Draft
+                    </span>
+                  {% elif snippet.ai_generated %}
+                    <span class="badge bg-info">
+                      <i class="fas fa-robot"></i> AI-Generated
+                    </span>
+                  {% endif %}
+                  
+                  <span class="badge bg-secondary">
+                    {{ snippet.get_snippet_type_display }}
+                  </span>
+                  
+                  <!-- Confidence level badge -->
+                  <span class="badge bg-{{ snippet.confidence_color }}">
+                    <i class="fas fa-chart-line"></i> Confidence: {{ snippet.confidence_level }}
+                  </span>
+                </div>
+                
+                <p class="card-text text-light mb-2" style="line-height: 1.6;">
+                  {{ snippet.content|truncatewords:30 }}
+                </p>
+                
+                <small class="text-muted">
+                  <i class="fas fa-user text-info"></i> {{ snippet.created_by.username }} •
+                  <i class="fas fa-calendar text-info"></i> {{ snippet.created_at|date:"M d, Y" }}
+                </small>
+              </div>
+              
+              <!-- Review buttons -->
+              {% if user.is_authenticated and user != snippet.created_by %}
+                <div class="ms-3">
+                  {% if snippet.id in user_reviews %}
+                    <div class="text-muted small">
+                      {% if user_reviews|get_item:snippet.id == 'validate' %}
+                        <i class="fas fa-thumbs-up text-success"></i> You approved this
+                      {% else %}
+                        <i class="fas fa-thumbs-down text-danger"></i> You rejected this
+                      {% endif %}
+                    </div>
+                  {% else %}
+                    <div class="btn-group-vertical" role="group">
+                      <button type="button" 
+                              class="btn btn-sm btn-outline-success review-btn" 
+                              data-vote="validate"
+                              data-snippet-id="{{ snippet.id }}">
+                        <i class="fas fa-thumbs-up"></i> Approve
+                      </button>
+                      <button type="button" 
+                              class="btn btn-sm btn-outline-danger review-btn mt-1" 
+                              data-vote="reject"
+                              data-snippet-id="{{ snippet.id }}">
+                        <i class="fas fa-thumbs-down"></i> Reject
+                      </button>
+                    </div>
+                  {% endif %}
+                </div>
+              {% endif %}
+            </div>
+            
+            <!-- Review counts -->
+            <div class="d-flex justify-content-between align-items-center small text-light">
+              <div>
+                <span class="review-counts" data-snippet-id="{{ snippet.id }}">
+                  <i class="fas fa-thumbs-up text-success"></i> 
+                  <span class="positive-count">{{ snippet.positive_reviews }}</span>
+                  <span class="ms-3">
+                    <i class="fas fa-thumbs-down text-danger"></i> 
+                    <span class="negative-count">{{ snippet.negative_reviews }}</span>
+                  </span>
+                </span>
+              </div>
+              
+              {% if snippet.source_url %}
+                <a href="{{ snippet.source_url }}" target="_blank" class="text-info text-decoration-none">
+                  <i class="fas fa-external-link-alt"></i> Source
+                </a>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="text-center py-4">
+        <i class="fas fa-search fa-2x text-muted mb-3"></i>
+        <p class="text-light">No research snippets available for this compound yet.</p>
+        {% if user.is_authenticated %}
+          <a href="{% url 'research:create_snippet' %}?compound={{ compound.id }}" 
+             class="btn btn-outline-info">
+            <i class="fas fa-plus"></i> Add Research
+          </a>
+        {% endif %}
+      </div>
+    {% endif %}
   </div>
 </div>
 
 <script>
   document.addEventListener('DOMContentLoaded', function () {
+    // Star rating functionality
     const container = document.querySelector('.stars');
     const stars = container.querySelectorAll('.star');
     const compoundSlug = container.dataset.compoundSlug;
@@ -103,6 +259,67 @@
               container.querySelector('.rating-number').textContent = `(${data.new_avg.toFixed(1)}/5)`;
             }
           }
+        });
+      });
+    });
+
+    // Research snippet review functionality
+    const reviewButtons = document.querySelectorAll('.review-btn');
+    
+    reviewButtons.forEach(button => {
+      button.addEventListener('click', function() {
+        const snippetId = this.dataset.snippetId;
+        const voteType = this.dataset.vote;
+        const compoundSlug = '{{ compound.slug }}';
+        
+        // Disable button to prevent double-clicks
+        this.disabled = true;
+        
+        fetch(`/compounds/${compoundSlug}/snippet/${snippetId}/review/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}',
+          },
+          body: JSON.stringify({ 
+            vote_type: voteType,
+            comment: ''
+          })
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            // Update review counts
+            const countsElement = document.querySelector(`[data-snippet-id="${snippetId}"] .review-counts`);
+            if (countsElement) {
+              countsElement.querySelector('.positive-count').textContent = data.positive_count;
+              countsElement.querySelector('.negative-count').textContent = data.negative_count;
+            }
+            
+            // Replace buttons with feedback message
+            const buttonGroup = this.parentElement;
+            const feedbackMessage = voteType === 'validate' 
+              ? '<div class="text-success small"><i class="fas fa-thumbs-up"></i> You approved this</div>'
+              : '<div class="text-danger small"><i class="fas fa-thumbs-down"></i> You rejected this</div>';
+            
+            buttonGroup.innerHTML = feedbackMessage;
+            
+            // Update status badge if needed
+            if (data.new_status) {
+              const card = document.querySelector(`[data-snippet-id="${snippetId}"]`);
+              const statusBadges = card.querySelector('.mb-2');
+              // You could update the status badge here based on data.new_status
+            }
+            
+          } else {
+            alert(data.error || 'Failed to submit review');
+            this.disabled = false;
+          }
+        })
+        .catch(error => {
+          console.error('Error:', error);
+          alert('An error occurred while submitting your review');
+          this.disabled = false;
         });
       });
     });

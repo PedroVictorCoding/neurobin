@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% block title %}AI Research Analysis — Neurobin{% endblock %}
+{% block content %}
+<div class="container" style="max-width: 900px;">
+  <div class="row">
+    <div class="col-12">
+      <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h2 class="text-light mb-1">
+            <i class="fas fa-robot"></i> AI Research Analysis
+          </h2>
+          <p class="text-secondary mb-0">
+            Extract key findings and summaries from research content
+          </p>
+        </div>
+        <a href="{% url 'research:snippet_list' %}" class="btn btn-outline-secondary">
+          <i class="fas fa-arrow-left"></i> Back to Research
+        </a>
+      </div>
+
+      {% if ai_result %}
+        <!-- AI Analysis Results -->
+        <div class="row mb-4">
+          <div class="col-12">
+            <div class="card bg-neurobin-card">
+              <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-magic"></i> Analysis Results</h5>
+              </div>
+              <div class="card-body">
+                <div class="row">
+                  <div class="col-md-8">
+                    <h6 class="text-light">AI Summary</h6>
+                    <p class="text-secondary">{{ ai_result.summary }}</p>
+                    
+                    {% if ai_result.suggested_tags %}
+                      <h6 class="text-light mt-3">Suggested Tags</h6>
+                      <div class="mb-3">
+                        {% for tag in ai_result.suggested_tags %}
+                          <span class="pill me-2">{{ tag }}</span>
+                        {% endfor %}
+                      </div>
+                    {% endif %}
+                  </div>
+                  
+                  <div class="col-md-4">
+                    <div class="card bg-dark">
+                      <div class="card-body text-center">
+                        <h6 class="text-light">Confidence Score</h6>
+                        <div class="display-4 text-info">{{ ai_result.confidence|floatformat:0 }}%</div>
+                        
+                        <hr>
+                        
+                        <h6 class="text-light mt-3">Detected Compound</h6>
+                        <p class="text-secondary">{{ ai_result.compound_detected }}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="row mt-4">
+                  <div class="col-12">
+                    <div class="d-flex justify-content-between">
+                      <button class="btn btn-outline-secondary" onclick="toggleOriginalContent()">
+                        <i class="fas fa-eye"></i> View Original Content
+                      </button>
+                      <div>
+                        <button class="btn btn-outline-info me-2" onclick="createSnippetFromAI()">
+                          <i class="fas fa-plus"></i> Create Snippet
+                        </button>
+                        <button class="btn btn-info" onclick="runNewAnalysis()">
+                          <i class="fas fa-sync"></i> New Analysis
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Original Content (Hidden by default) -->
+        <div class="row mb-4" id="originalContent" style="display: none;">
+          <div class="col-12">
+            <div class="card bg-neurobin-card">
+              <div class="card-header">
+                <h6 class="mb-0">Original Content</h6>
+              </div>
+              <div class="card-body">
+                <div class="bg-dark p-3 rounded" style="white-space: pre-wrap; max-height: 300px; overflow-y: auto;">{{ original_content }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endif %}
+
+      <!-- Analysis Form -->
+      <div class="card bg-neurobin-card">
+        <div class="card-header">
+          <h5 class="mb-0">
+            <i class="fas fa-paste"></i> Paste Research Content for Analysis
+          </h5>
+        </div>
+        <div class="card-body">
+          <form method="post">
+            {% csrf_token %}
+            
+            <div class="row mb-4">
+              <div class="col-md-8 mb-3">
+                <label for="{{ form.content.id_for_label }}" class="form-label text-light">
+                  Research Content <span class="text-danger">*</span>
+                </label>
+                {{ form.content }}
+                <div class="form-text text-secondary">
+                  {{ form.content.help_text }}
+                </div>
+                {% if form.content.errors %}
+                  {% for error in form.content.errors %}
+                    <div class="text-danger small mt-1">{{ error }}</div>
+                  {% endfor %}
+                {% endif %}
+              </div>
+              
+              <div class="col-md-4">
+                <div class="mb-3">
+                  <label for="{{ form.analysis_type.id_for_label }}" class="form-label text-light">
+                    Analysis Type
+                  </label>
+                  {{ form.analysis_type }}
+                  <div class="form-text text-secondary">
+                    {{ form.analysis_type.help_text }}
+                  </div>
+                </div>
+                
+                <div class="mb-3">
+                  <label for="{{ form.target_compound.id_for_label }}" class="form-label text-light">
+                    Target Compound
+                  </label>
+                  {{ form.target_compound }}
+                  <div class="form-text text-secondary">
+                    {{ form.target_compound.help_text }}
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="d-flex justify-content-center">
+              <button type="submit" class="btn btn-info px-4">
+                <i class="fas fa-magic"></i> Analyze with AI
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Instructions -->
+      <div class="card bg-neurobin-card mt-4">
+        <div class="card-header">
+          <h6 class="mb-0"><i class="fas fa-lightbulb"></i> How to Use AI Analysis</h6>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-6">
+              <h6 class="text-light">What You Can Analyze:</h6>
+              <ul class="text-secondary small">
+                <li>Research paper abstracts</li>
+                <li>Study excerpts and findings</li>
+                <li>Clinical trial summaries</li>
+                <li>Pharmacological data</li>
+                <li>Safety and toxicity reports</li>
+              </ul>
+            </div>
+            <div class="col-md-6">
+              <h6 class="text-light">AI Will Help You:</h6>
+              <ul class="text-secondary small">
+                <li>Extract key findings and conclusions</li>
+                <li>Generate concise summaries</li>
+                <li>Identify relevant compounds</li>
+                <li>Suggest appropriate tags</li>
+                <li>Assess content confidence</li>
+              </ul>
+            </div>
+          </div>
+          
+          <div class="alert alert-info mt-3">
+            <small>
+              <i class="fas fa-info-circle"></i>
+              <strong>Note:</strong> AI analysis is a tool to assist your research. Always verify findings with original sources and use your expertise to evaluate the results.
+            </small>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sample Content Examples -->
+      <div class="card bg-neurobin-card mt-4">
+        <div class="card-header">
+          <h6 class="mb-0"><i class="fas fa-file-alt"></i> Sample Content to Try</h6>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-4">
+              <h6 class="text-light">Clinical Study Example</h6>
+              <button class="btn btn-outline-info btn-sm" onclick="loadSample('clinical')">
+                Load Sample
+              </button>
+            </div>
+            <div class="col-md-4">
+              <h6 class="text-light">Pharmacology Research</h6>
+              <button class="btn btn-outline-info btn-sm" onclick="loadSample('pharmacology')">
+                Load Sample
+              </button>
+            </div>
+            <div class="col-md-4">
+              <h6 class="text-light">Safety Assessment</h6>
+              <button class="btn btn-outline-info btn-sm" onclick="loadSample('safety')">
+                Load Sample
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleOriginalContent() {
+  const content = document.getElementById('originalContent');
+  const isVisible = content.style.display !== 'none';
+  content.style.display = isVisible ? 'none' : 'block';
+}
+
+function createSnippetFromAI() {
+  // Redirect to create snippet form with pre-filled AI data
+  const url = new URL('{% url "research:create_snippet" %}', window.location.origin);
+  window.location.href = url.toString();
+}
+
+function runNewAnalysis() {
+  // Clear form and focus on content field
+  document.getElementById('id_content').value = '';
+  document.getElementById('id_content').focus();
+  
+  // Hide results if visible
+  const originalContent = document.getElementById('originalContent');
+  if (originalContent) {
+    originalContent.style.display = 'none';
+  }
+}
+
+function loadSample(type) {
+  const samples = {
+    clinical: "In a double-blind, placebo-controlled study of 120 participants, compound X demonstrated significant efficacy in reducing anxiety symptoms. The treatment group (n=60) received 10mg daily for 8 weeks, showing a 45% reduction in HAM-A scores compared to 12% in placebo group (p<0.001). Side effects were mild, primarily consisting of transient drowsiness (15% incidence) and dry mouth (8% incidence). No serious adverse events were attributed to the compound.",
+    
+    pharmacology: "Compound Y exhibits high selectivity for the 5-HT2A receptor with a Ki value of 2.3 nM, compared to 850 nM for 5-HT2C and >1000 nM for other serotonin receptor subtypes. The compound demonstrates rapid CNS penetration with a brain:plasma ratio of 3.2:1 at 2 hours post-administration. Metabolism occurs primarily via CYP2D6 (65%) and CYP3A4 (25%) pathways, with a half-life of 8.4 hours in healthy volunteers.",
+    
+    safety: "Acute toxicity studies in rodents established an LD50 of 250 mg/kg (oral, rats). Chronic administration (90 days) at therapeutic doses showed no significant organ toxicity. However, doses above 5x therapeutic levels resulted in reversible hepatic enzyme elevation (ALT, AST) in 30% of subjects. Reproductive toxicity studies revealed no teratogenic effects, though a slight reduction in fertility was observed at high doses. Cardiotoxicity screening showed no QT prolongation or arrhythmic potential."
+  };
+  
+  document.getElementById('id_content').value = samples[type];
+}
+
+// Character counter
+const contentField = document.getElementById('id_content');
+if (contentField) {
+  const counter = document.createElement('div');
+  counter.className = 'form-text text-secondary text-end mt-1';
+  contentField.parentNode.appendChild(counter);
+  
+  function updateCounter() {
+    const length = contentField.value.length;
+    counter.textContent = `${length} characters`;
+    
+    if (length < 100) {
+      counter.className = 'form-text text-warning text-end mt-1';
+    } else if (length > 5000) {
+      counter.className = 'form-text text-danger text-end mt-1';
+    } else {
+      counter.className = 'form-text text-secondary text-end mt-1';
+    }
+  }
+  
+  contentField.addEventListener('input', updateCounter);
+  updateCounter();
+}
+</script>
+{% endblock %}

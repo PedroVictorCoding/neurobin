@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% block title %}Research Snippets — Neurobin{% endblock %}
+{% block content %}
+<div class="container-fluid">
+  <!-- Header Section -->
+  <div class="row mb-4">
+    <div class="col-12">
+      <div class="d-flex flex-column align-items-center text-center">
+        <div>
+          <h1 class="text-white mb-1">Research Snippets</h1>
+          <p class="text-muted mb-0">Community-contributed research findings and data</p>
+        </div>
+        {% if user.is_authenticated and settings.public_submissions_enabled %}
+          <a href="{% url 'research:create_snippet' %}" class="btn btn-info mt-3">
+            <i class="fas fa-plus"></i> Add Research
+          </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Search & Filter Section -->
+  <div class="row mb-4">
+    <div class="col-12">
+      <div class="card bg-neurobin-card">
+        <div class="card-body">
+          <form method="get" class="row g-3 align-items-end">
+            <div class="col-md-4">
+              <label for="{{ form.query.id_for_label }}" class="form-label text-white fw-medium small">{{ form.query.label }}</label>
+              {{ form.query }}
+            </div>
+            <div class="col-md-2">
+              <label for="{{ form.compound.id_for_label }}" class="form-label text-white fw-medium small">{{ form.compound.label }}</label>
+              {{ form.compound }}
+            </div>
+            <div class="col-md-2">
+              <label for="{{ form.snippet_type.id_for_label }}" class="form-label text-white fw-medium small">{{ form.snippet_type.label }}</label>
+              {{ form.snippet_type }}
+            </div>
+            <div class="col-md-2">
+              <label for="{{ form.status.id_for_label }}" class="form-label text-white fw-medium small">{{ form.status.label }}</label>
+              {{ form.status }}
+            </div>
+            <div class="col-md-2">
+              <label for="{{ form.sort_by.id_for_label }}" class="form-label text-white fw-medium small">{{ form.sort_by.label }}</label>
+              {{ form.sort_by }}
+            </div>
+            <div class="col-12 pt-2">
+              <button type="submit" class="btn btn-info me-2">
+                <i class="fas fa-search"></i> Search
+              </button>
+              <a href="{% url 'research:snippet_list' %}" class="btn btn-outline-light">
+                <i class="fas fa-times"></i> Clear
+              </a>
+              {% if user.is_staff %}
+                <a href="{% url 'research:moderation_queue' %}" class="btn btn-outline-warning ms-2">
+                  <i class="fas fa-gavel"></i> Moderation Queue
+                </a>
+              {% endif %}
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results Info -->
+  <div class="row mb-3">
+    <div class="col-12">
+      <div class="d-flex justify-content-between align-items-center">
+        <span class="text-muted">
+          {% if total_count %}
+            Showing {{ snippets.start_index }}–{{ snippets.end_index }} of {{ total_count }} snippet{{ total_count|pluralize }}
+          {% endif %}
+        </span>
+        {% if settings.ai_summaries_enabled and user.is_authenticated %}
+          <a href="{% url 'research:ai_analysis' %}" class="btn btn-sm btn-outline-info">
+            <i class="fas fa-robot"></i> AI Analysis
+          </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Snippets Grid -->
+  <div class="row">
+    {% for snippet in snippets %}
+      <div class="col-lg-6 col-xl-4 mb-4">
+        <div class="card bg-neurobin-card h-100 snippet-card">
+          <div class="card-body d-flex flex-column">
+            <!-- Status Badges -->
+            <div class="mb-2">
+              {% if snippet.status == 'verified' %}
+                <span class="badge bg-success">
+                  <i class="fas fa-check"></i> Verified
+                </span>
+              {% elif snippet.status == 'needs_review' %}
+                <span class="badge bg-warning text-dark">
+                  <i class="fas fa-clock"></i> Needs Review
+                </span>
+              {% elif snippet.status == 'flagged' %}
+                <span class="badge bg-danger">
+                  <i class="fas fa-flag"></i> Flagged
+                </span>
+              {% elif snippet.status == 'draft' %}
+                <span class="badge bg-secondary">
+                  <i class="fas fa-edit"></i> Draft
+                </span>
+              {% elif snippet.ai_generated %}
+                <span class="badge bg-info">
+                  <i class="fas fa-robot"></i> AI-Generated
+                </span>
+              {% endif %}
+              
+              <!-- Confidence level badge -->
+              <span class="badge bg-{{ snippet.confidence_color }}">
+                <i class="fas fa-chart-line"></i> {{ snippet.confidence_level }}
+              </span>
+            </div>
+
+            <!-- Title & Compound -->
+            <h5 class="card-title text-white">
+              <a href="{% url 'research:snippet_detail' snippet.pk %}" class="text-decoration-none text-white">
+                {{ snippet.title }}
+              </a>
+            </h5>
+            <p class="text-info small mb-2">
+              <i class="fas fa-pills"></i> 
+              <a href="{% url 'research:compound_snippets' snippet.compound.slug %}" class="text-info text-decoration-none">
+                {{ snippet.compound.name }}
+              </a>
+            </p>
+
+            <!-- Content Preview -->
+            <p class="card-text text-light mb-3 flex-grow-1" style="line-height: 1.6;">
+              {{ snippet.content|truncatewords:25 }}
+            </p>
+
+            <!-- Tags -->
+            {% if snippet.tags.exists %}
+              <div class="mb-3">
+                {% for tag in snippet.tags.all %}
+                  <span class="pill" style="background-color: {{ tag.color }};">
+                    {{ tag.name }}
+                  </span>
+                {% endfor %}
+              </div>
+            {% endif %}
+
+            <!-- Footer Info -->
+            <div class="card-footer-info">
+              <div class="d-flex justify-content-between align-items-center text-light small">
+                <div>
+                  <i class="fas fa-user text-info"></i> {{ snippet.created_by.username }}
+                  <span class="ms-2">
+                    <i class="fas fa-calendar text-info"></i> {{ snippet.created_at|date:"M d" }}
+                  </span>
+                </div>
+                <div>
+                  {% if snippet.view_count %}
+                    <i class="fas fa-eye text-info"></i> {{ snippet.view_count }}
+                  {% endif %}
+                  {% with reviews=snippet.reviews.all %}
+                    {% if reviews %}
+                      <span class="ms-2">
+                        <i class="fas fa-thumbs-up text-success"></i> {{ reviews|length }}
+                      </span>
+                    {% endif %}
+                  {% endwith %}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="col-12">
+        <div class="card bg-neurobin-card text-center py-5">
+          <div class="card-body">
+            <i class="fas fa-search fa-3x text-muted mb-3"></i>
+            <h4 class="text-white">No Research Snippets Found</h4>
+            <p class="text-muted mb-3">
+              {% if request.GET %}
+                Try adjusting your search filters or 
+                <a href="{% url 'research:snippet_list' %}" class="text-info text-decoration-none">clear all filters</a>.
+              {% else %}
+                Be the first to contribute research data to the community!
+              {% endif %}
+            </p>
+            {% if user.is_authenticated and settings.public_submissions_enabled %}
+              <a href="{% url 'research:create_snippet' %}" class="btn btn-info">
+                <i class="fas fa-plus"></i> Create First Snippet
+              </a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <!-- Pagination -->
+  {% if snippets.has_other_pages %}
+    <div class="row mt-4">
+      <div class="col-12">
+        <nav aria-label="Snippet pagination">
+          <ul class="pagination justify-content-center">
+            {% if snippets.has_previous %}
+              <li class="page-item">
+                <a class="page-link bg-dark text-white border-secondary" href="?page=1{% if request.GET.q %}&q={{ request.GET.q }}{% endif %}">First</a>
+              </li>
+              <li class="page-item">
+                <a class="page-link bg-dark text-white border-secondary" href="?page={{ snippets.previous_page_number }}{% if request.GET.q %}&q={{ request.GET.q }}{% endif %}">Previous</a>
+              </li>
+            {% endif %}
+
+            <li class="page-item active">
+              <span class="page-link bg-info border-info text-white">
+                Page {{ snippets.number }} of {{ snippets.paginator.num_pages }}
+              </span>
+            </li>
+
+            {% if snippets.has_next %}
+              <li class="page-item">
+                <a class="page-link bg-dark text-white border-secondary" href="?page={{ snippets.next_page_number }}{% if request.GET.q %}&q={{ request.GET.q }}{% endif %}">Next</a>
+              </li>
+              <li class="page-item">
+                <a class="page-link bg-dark text-white border-secondary" href="?page={{ snippets.paginator.num_pages }}{% if request.GET.q %}&q={{ request.GET.q }}{% endif %}">Last</a>
+              </li>
+            {% endif %}
+          </ul>
+        </nav>
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+<style>
+.snippet-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid #2d3748;
+}
+
+.snippet-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.15);
+}
+
+.card-footer-info {
+  border-top: 1px solid #2d3748;
+  padding-top: 0.75rem;
+  margin-top: auto;
+}
+
+/* Form styling improvements */
+.form-control, .form-select {
+  background-color: #0d1117 !important;
+  border: 1px solid #30363d !important;
+  color: #f0f6fc !important;
+}
+
+.form-control:focus, .form-select:focus {
+  background-color: #0d1117 !important;
+  border-color: #1f6feb !important;
+  box-shadow: 0 0 0 0.2rem rgba(31, 111, 235, 0.25) !important;
+  color: #f0f6fc !important;
+}
+
+.form-label {
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+/* Improved button spacing and alignment */
+.btn-group-form {
+  margin-top: 0.5rem;
+}
+
+/* Better dropdown menu styling */
+.form-select option {
+  background-color: #161b22 !important;
+  color: #f0f6fc !important;
+}
+</style>
+{% endblock %}

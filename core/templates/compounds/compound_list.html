@@ -2,29 +2,56 @@
 {% block title %}Compounds — Neurobin{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">All Compounds</h1>
+<style>
+  .compound-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3) !important;
+  }
+  
+  .compound-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+</style>
+
+<div class="d-flex justify-content-center">
+  <h1 class="mb-4 text-center">All Compounds</h1>
+</div>
 <div class="row g-4">
   {% for compound in compounds %}
     <div class="col-12 col-md-6 col-lg-4 d-flex">
-      <div class="card bg-neurobin-card text-light shadow p-4 flex-fill w-100">
-        <div class="d-flex align-items-center mb-3">
-          {% if compound.image %}
-            <img src="{{ compound.image.url }}" alt="{{ compound.name }}" class="rounded me-3" style="width: 60px; height: 60px; object-fit: cover;">
-          {% else %}
-            <div class="bg-dark rounded me-3 d-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
-              <span class="text-secondary small">No Image</span>
-            </div>
-          {% endif %}
-          <div>
-            <a href="{% url 'compound_detail' compound.slug %}" class="h5 text-light text-decoration-none">{{ compound.name }}</a>
-            {% if compound.aliases %}
-              <div class="small text-secondary">{{ compound.aliases }}</div>
+      <a href="{% url 'compound_detail' compound.slug %}" class="text-decoration-none w-100">
+        <div class="card bg-neurobin-card text-light shadow p-3 flex-fill w-100 h-100 compound-card">
+          <div class="d-flex align-items-center">
+            {% if compound.smiles %}
+              <div class="bg-dark rounded me-3 d-flex align-items-center justify-content-center" style="width: 120px; height: 120px; border: 2px solid #7c7c7c;">
+                <svg class="molecule-viewer" data-smiles="{{ compound.smiles }}" width="116" height="116" style="border-radius: 10px;"></svg>
+              </div>
+            {% else %}
+              <div class="bg-dark rounded me-3 d-flex align-items-center justify-content-center" style="width: 120px; height: 120px;">
+                <span class="text-secondary small">No Structure</span>
+              </div>
             {% endif %}
+            <div class="flex-fill">
+              <div class="mb-2">
+                <h5 class="text-light mb-0">{{ compound.name }}</h5>
+              </div>
+              {% if compound.categories.all %}
+                <div class="text-secondary mb-2">
+                  {% for category in compound.categories.all %}
+                    <span class="badge bg-secondary text-light me-1">{{ category.name }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+              {% if compound.description %}
+              <p class="text-secondary small mb-0">{{ compound.description }}</p>
+              {% endif %}
+              {% if compound.aliases %}
+                <div class="small text-secondary">{{ compound.aliases }}</div>
+              {% endif %}
+            </div>
           </div>
         </div>
-        <p class="mb-2">{{ compound.description|truncatewords:20 }}</p>
-        <a href="{% url 'compound_detail' compound.slug %}" class="btn btn-outline-info btn-sm mt-auto">View Details</a>
-      </div>
+      </a>
     </div>
   {% empty %}
     <div class="col-12">

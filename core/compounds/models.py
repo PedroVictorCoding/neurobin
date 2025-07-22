@@ -16,42 +16,69 @@ class CompoundCategories(models.Model):
     def __str__(self):
         return self.name
 
+class Target(models.Model):
+    name = models.CharField(max_length=255, unique=True, help_text="Name of the target (e.g., GABA-A receptor, Dopamine transporter)")
+
+    class Meta:
+        verbose_name = "Target"
+        verbose_name_plural = "Targets"
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
 class CompoundMechanismOfAction(models.Model):
-    name = models.CharField(max_length=200, unique=True)
+    INTERACTION_TYPES = [
+        ('agonist', 'Agonist'),
+        ('antagonist', 'Antagonist'),
+        ('partial_agonist', 'Partial Agonist'),
+        ('inverse_agonist', 'Inverse Agonist'),
+        ('pam', 'Positive Allosteric Modulator'),
+        ('nam', 'Negative Allosteric Modulator'),
+        ('binder', 'Binder'),
+        ('inhibitor', 'Inhibitor'),
+        ('activator', 'Activator'),
+        ('unknown', 'Unknown'),
+    ]
+    
+    TARGET_TYPES = [
+        ('receptor', 'Receptor'),
+        ('enzyme', 'Enzyme'),
+        ('ion_channel', 'Ion Channel'),
+        ('transporter', 'Transporter'),
+        ('other', 'Other'),
+    ]
+    
+    target_name = models.ForeignKey(
+        Target,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='mechanisms',
+        help_text="Target this mechanism acts on"
+    )
+    target_type = models.CharField(
+        max_length=100,
+        choices=TARGET_TYPES,
+        blank=True,
+        help_text="Type of target (e.g., receptor, enzyme, ion channel, transporter)"
+    )
+    target_interaction = models.CharField(
+        max_length=50,
+        choices=INTERACTION_TYPES,
+        blank=True,
+        help_text="Type of interaction with the target (e.g., agonist, antagonist, etc.)"
+    )
     description = models.TextField(blank=True)
 
     class Meta:
         verbose_name = "Compound Mechanism of Action"
         verbose_name_plural = "Compound Mechanisms of Action"
-        ordering = ['name']
+        ordering = ['target_name']
 
     def __str__(self):
-        return self.name
+        return f"{self.target_name} - {self.target_interaction}" if self.target_name else "Mechanism"
     
-class Targets(models.Model):
-    name = models.CharField(max_length=255, unique=True)
-    target_type = models.CharField(
-        max_length=100,
-        choices=[
-            ('receptor', 'Receptor'),
-            ('enzyme', 'Enzyme'),
-            ('ion_channel', 'Ion Channel'),
-            ('transporter', 'Transporter'),
-            ('other', 'Other'),
-        ],
-        blank=True,
-        help_text="Type of target (e.g., receptor, enzyme, ion channel, transporter)"
-    )
-    description = models.TextField(blank=True)
-
-    class Meta:
-        verbose_name = "Compound Receptor Target"
-        verbose_name_plural = "Compound Receptor Targets"
-        ordering = ['name']
-
-    def __str__(self):
-        return self.name
-
 
 class Compound(models.Model):
     name = models.CharField(max_length=500, unique=True)
@@ -61,6 +88,11 @@ class Compound(models.Model):
         max_length=255,
         blank=True,
         help_text="Comma-saparated alternative names or acronyms."
+    )
+    smiles = models.CharField(
+        max_length=1000,
+        blank=True,
+        help_text="SMILES notation for molecular structure"
     )
     categories = models.ManyToManyField(
         CompoundCategories,
@@ -79,42 +111,13 @@ class Compound(models.Model):
         help_text="Optional image for this compound."
     )
 
-
-class CompoundTargetInteraction(models.Model):
-    INTERACTION_TYPES = [
-        ('agonist', 'Agonist'),
-        ('antagonist', 'Antagonist'),
-        ('partial_agonist', 'Partial Agonist'),
-        ('inverse_agonist', 'Inverse Agonist'),
-        ('pam', 'Positive Allosteric Modulator'),
-        ('nam', 'Negative Allosteric Modulator'),
-        ('binder', 'Binder'),
-        ('inhibitor', 'Inhibitor'),
-        ('activator', 'Activator'),
-        ('unknown', 'Unknown'),
-    ]
-
-    compound = models.ForeignKey('Compound', on_delete=models.CASCADE, related_name='target_interactions')
-    target = models.ForeignKey(Targets, on_delete=models.CASCADE, related_name='compound_interactions')
-    interaction_type = models.CharField(
-        max_length=50,
-        choices=INTERACTION_TYPES,
-        blank=True,
-        help_text="Type of interaction with the target (e.g., agonist, antagonist, etc.)"
-    )
-    affinity = models.FloatField(null=True, blank=True, help_text="Binding affinity (e.g., Ki, IC50) in nM or pM")
-    affinity_unit = models.CharField(max_length=10, blank=True, help_text="Unit of the affinity (e.g., nM, pM)")
-    affinity_type = models.CharField(max_length=50, blank=True, help_text="Type of affinity measurement (e.g., Ki, IC50)")
-    notes = models.TextField(blank=True, help_text="Additional notes about the interaction")
-
-    class Meta:
-        unique_together = ('compound', 'target', 'interaction_type')
-        verbose_name = "Compound Target Interaction"
-        verbose_name_plural = "Compound Target Interactions"
-        ordering = ['compound__name', 'target__name']
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.compound.name} - {self.target.name} ({self.interaction_type})"
+        return self.name
 
 
 class CompoundRating(models.Model):

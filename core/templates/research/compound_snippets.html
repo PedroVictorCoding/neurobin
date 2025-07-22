@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}{{ compound.name }} Research — Neurobin{% endblock %}
+{% block content %}
+<div class="container-fluid">
+  <!-- Header -->
+  <div class="row justify-content-center mb-4">
+    <div class="col-12 col-md-10 col-lg-8">
+      <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <a href="{% url 'research:snippet_list' %}" class="text-info">Research</a>
+            <span class="text-muted mx-1">/</span>
+          <li class="breadcrumb-item active text-light">{{ compound.name }}</li>
+        </ol>
+      </nav>
+      
+      <div class="text-center">
+        <div class="mb-3">
+          <h1 class="text-light mb-2">{{ compound.name }} Research</h1>
+          <p class="text-secondary mb-0">{{ total_count }} research snippet{{ total_count|pluralize }} available</p>
+        </div>
+        <div>
+          <a href="{% url 'compound_detail' compound.slug %}" class="btn btn-outline-secondary me-2">
+            <i class="fas fa-pills"></i> View Compound
+          </a>
+          {% if user.is_authenticated %}
+            <a href="{% url 'research:create_snippet' %}?compound={{ compound.pk }}" class="btn btn-info">
+              <i class="fas fa-plus"></i> Add Research
+            </a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if snippet_groups %}
+    <!-- Research by Category -->
+    {% for category, snippets in snippet_groups.items %}
+      <div class="row justify-content-center mb-5">
+        <div class="col-12 col-md-10 col-lg-8">
+          <h3 class="text-light mb-3 text-center">
+            <i class="fas fa-folder-open"></i> {{ category }}
+            <span class="badge bg-secondary ms-2">{{ snippets|length }}</span>
+          </h3>
+          
+          <div class="row justify-content-center">
+            {% for snippet in snippets %}
+              <div class="col-12 mb-4">
+                <div class="card bg-neurobin-card h-100 snippet-card">
+                  <div class="card-body d-flex flex-column">
+                    <!-- Status Badges -->
+                    <div class="mb-2">
+                      {% if snippet.status == 'verified' %}
+                        <span class="badge bg-success">
+                          <i class="fas fa-check"></i> Verified
+                        </span>
+                      {% elif snippet.status == 'needs_review' %}
+                        <span class="badge bg-warning text-dark">
+                          <i class="fas fa-clock"></i> Needs Review
+                        </span>
+                      {% elif snippet.status == 'flagged' %}
+                        <span class="badge bg-danger">
+                          <i class="fas fa-flag"></i> Flagged
+                        </span>
+                      {% elif snippet.ai_generated %}
+                        <span class="badge bg-info">
+                          <i class="fas fa-robot"></i> AI-Generated
+                        </span>
+                      {% endif %}
+                      
+                      {% if snippet.visibility == 'private' %}
+                        <span class="badge bg-secondary">
+                          <i class="fas fa-lock"></i> Private
+                        </span>
+                      {% endif %}
+                    </div>
+
+                    <!-- Title -->
+                    <h5 class="card-title text-light">
+                      <a href="{% url 'research:snippet_detail' snippet.pk %}" class="text-decoration-none text-light">
+                        {{ snippet.title }}
+                      </a>
+                    </h5>
+
+                    <!-- Content Preview -->
+                    <p class="card-text text-secondary mb-3 flex-grow-1">
+                      {{ snippet.content|truncatewords:20 }}
+                    </p>
+
+                    <!-- Source Link -->
+                    {% if snippet.source_url %}
+                      <p class="small mb-2">
+                        <a href="{{ snippet.source_url }}" target="_blank" class="text-info">
+                          <i class="fas fa-external-link-alt"></i> View Source
+                        </a>
+                      </p>
+                    {% endif %}
+
+                    <!-- Tags -->
+                    {% if snippet.tags.exists %}
+                      <div class="mb-3">
+                        {% for tag in snippet.tags.all %}
+                          <span class="pill me-1" style="background-color: {{ tag.color }}; font-size: 0.75rem;">
+                            {{ tag.name }}
+                          </span>
+                        {% endfor %}
+                      </div>
+                    {% endif %}
+
+                    <!-- Footer Info -->
+                    <div class="card-footer-info">
+                      <div class="d-flex justify-content-between align-items-center text-secondary small">
+                        <div>
+                          <i class="fas fa-user"></i> {{ snippet.created_by.username }}
+                        </div>
+                        <div>
+                          <i class="fas fa-calendar"></i> {{ snippet.created_at|date:"M d" }}
+                          {% if snippet.view_count %}
+                            <span class="ms-2">
+                              <i class="fas fa-eye"></i> {{ snippet.view_count }}
+                            </span>
+                          {% endif %}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  {% else %}
+    <!-- Empty State -->
+    <div class="row justify-content-center">
+      <div class="col-12 col-md-10 col-lg-8">
+        <div class="card bg-neurobin-card text-center py-5">
+          <div class="card-body">
+            <i class="fas fa-flask fa-3x text-secondary mb-3"></i>
+            <h4 class="text-light">No Research Available</h4>
+            <p class="text-secondary mb-3">
+              No research snippets have been submitted for {{ compound.name }} yet.
+            </p>
+            {% if user.is_authenticated %}
+              <a href="{% url 'research:create_snippet' %}?compound={{ compound.pk }}" class="btn btn-info">
+                <i class="fas fa-plus"></i> Be the First to Add Research
+              </a>
+            {% else %}
+              <a href="{% url 'login' %}" class="btn btn-outline-info">
+                <i class="fas fa-sign-in-alt"></i> Login to Add Research
+              </a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  <!-- Related Information -->
+  <div class="row mt-5 justify-content-center">
+    <div class="col-12 col-md-10 col-lg-8 mb-4">
+      <div class="card bg-neurobin-card">
+        <div class="card-header">
+          <h6 class="mb-0 text-secondary"><i class="fas fa-lightbulb"></i> Research Tips</h6>
+        </div>
+        <div class="card-body">
+          <ul class="text-secondary small mb-3">
+            <li>Look for verified snippets with <span class="badge bg-success badge-sm">✓ Verified</span> status</li>
+            <li>Check source links for additional information</li>
+            <li>Consider confidence scores when evaluating data</li>
+            <li>Review multiple sources for comprehensive understanding</li>
+          </ul>
+          <a href="{% url 'research:snippet_list' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-search"></i> Browse All Research
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.snippet-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid #2d3748;
+}
+
+.snippet-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.15);
+}
+
+.card-footer-info {
+  border-top: 1px solid #2d3748;
+  padding-top: 0.75rem;
+  margin-top: auto;
+}
+
+.badge-sm {
+  font-size: 0.65rem;
+}
+</style>
+{% endblock %}

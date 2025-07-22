@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+{% block title %}{% if snippet %}Edit{% else %}Create{% endif %} Research Snippet — Neurobin{% endblock %}
+{% block content %}
+<div class="container" style="max-width: 800px;">
+  <div class="row">
+    <div class="col-12">
+      <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h2 class="text-white mb-1">{{ title }}</h2>
+          <p class="text-muted mb-0">
+            {% if snippet %}
+              Update your research snippet with new information
+            {% else %}
+              Share research findings with the community
+            {% endif %}
+          </p>
+        </div>
+        {% if selected_compound %}
+          <a href="/compounds/{{ selected_compound.slug }}/" 
+           class="btn btn-outline-secondary">
+          <i class="fas fa-arrow-left"></i> Back to Compound
+        </a>
+        {% else %}
+          <a href="{% if snippet %}{% url 'research:snippet_detail' snippet.pk %}{% else %}{% url 'research:snippet_list' %}{% endif %}" 
+             class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Back
+          </a>
+        {% endif %}
+      </div>
+
+      {% if settings and not settings.public_submissions_enabled and not user.is_staff %}
+        <div class="alert alert-warning">
+          <i class="fas fa-exclamation-triangle"></i>
+          Public research submissions are currently disabled. Only staff members can create research snippets.
+        </div>
+      {% endif %}
+
+      <form method="post" class="card bg-neurobin-card">
+        {% csrf_token %}
+        <div class="card-body">
+          <!-- Basic Information -->
+          <div class="row mb-3">
+            <div class="col-12">
+              <h5 class="text-white mb-3 fw-semibold">
+                <i class="fas fa-info-circle text-info"></i> Basic Information
+              </h5>
+            </div>
+            <div class="col-12 mb-3">
+              <label for="{{ form.title.id_for_label }}" class="form-label text-white fw-medium">
+                {{ form.title.label }}{% if form.title.field.required %} <span class="text-danger">*</span>{% endif %}
+              </label>
+              {{ form.title }}
+              {% if form.title.errors %}
+                {% for error in form.title.errors %}
+                  <div class="text-danger small mt-1">{{ error }}</div>
+                {% endfor %}
+              {% endif %}
+            </div>
+            <div class="col-md-6 mb-3">
+              <label for="{{ form.compound.id_for_label }}" class="form-label text-white fw-medium">
+                {{ form.compound.label }}{% if form.compound.field.required %} <span class="text-danger">*</span>{% endif %}
+              </label>
+              {{ form.compound }}
+              {% if form.compound.errors %}
+                {% for error in form.compound.errors %}
+                  <div class="text-danger small mt-1">{{ error }}</div>
+                {% endfor %}
+              {% endif %}
+            </div>
+            <div class="col-md-6 mb-3">
+              <label for="{{ form.snippet_type.id_for_label }}" class="form-label text-white fw-medium">
+                {{ form.snippet_type.label }}{% if form.snippet_type.field.required %} <span class="text-danger">*</span>{% endif %}
+              </label>
+              {{ form.snippet_type }}
+              {% if form.snippet_type.errors %}
+                {% for error in form.snippet_type.errors %}
+                  <div class="text-danger small mt-1">{{ error }}</div>
+                {% endfor %}
+              {% endif %}
+            </div>
+            <div class="col-12 mb-3">
+              <label for="{{ form.content.id_for_label }}" class="form-label text-white fw-medium">
+                {{ form.content.label }}{% if form.content.field.required %} <span class="text-danger">*</span>{% endif %}
+              </label>
+              {{ form.content }}
+              <div class="form-text text-muted small">
+                Provide detailed research findings, observations, or data. Include specific information that would be valuable to other researchers.
+              </div>
+              {% if form.content.errors %}
+                {% for error in form.content.errors %}
+                  <div class="text-danger small mt-1">{{ error }}</div>
+                {% endfor %}
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Source Information -->
+          <div class="row mb-4">
+            <div class="col-12">
+              <h5 class="text-white mb-3 fw-semibold">
+                <i class="fas fa-book text-info"></i> Source Information 
+                <small class="text-muted">(Optional)</small>
+              </h5>
+              <p class="text-muted small mb-3">
+                Help others verify your research by providing source information. This increases credibility and helps with peer review.
+              </p>
+            </div>
+            <div class="col-12 mb-3">
+              <label for="{{ form.source_title.id_for_label }}" class="form-label text-white fw-medium">
+                {{ form.source_title.label }}
+              </label>
+              {{ form.source_title }}
+              {% if form.source_title.errors %}
+                {% for error in form.source_title.errors %}
+                  <div class="text-danger small mt-1">{{ error }}</div>
+                {% endfor %}
+              {% endif %}
+            </div>
+            <div class="col-12 mb-3">
+              <label for="{{ form.source_url.id_for_label }}" class="form-label text-white fw-medium">
+                {{ form.source_url.label }}
+              </label>
+              {{ form.source_url }}
+              {% if form.source_url.errors %}
+                {% for error in form.source_url.errors %}
+                  <div class="text-danger small mt-1">{{ error }}</div>
+                {% endfor %}
+              {% endif %}
+            </div>
+            <div class="col-12 mb-3">
+              <label for="{{ form.doi.id_for_label }}" class="form-label text-white fw-medium">
+                {{ form.doi.label }}
+              </label>
+              {{ form.doi }}
+              {% if form.doi.errors %}
+                {% for error in form.doi.errors %}
+                  <div class="text-danger small mt-1">{{ error }}</div>
+                {% endfor %}
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Guidelines -->
+          <div class="alert alert-info border-0">
+            <h6 class="text-dark fw-semibold">
+              <i class="fas fa-lightbulb text-warning"></i> Research Snippet Guidelines
+            </h6>
+            <ul class="mb-0 small text-dark">
+              <li><strong>Be Accurate:</strong> Only share information you're confident about</li>
+              <li><strong>Cite Sources:</strong> Include links to research papers when possible</li>
+              <li><strong>Be Specific:</strong> Include dosages, timeframes, and specific findings</li>
+              <li><strong>Stay Objective:</strong> Focus on factual data rather than personal opinions</li>
+              <li><strong>Consider Community:</strong> Choose appropriate visibility based on content sensitivity</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card-footer bg-transparent">
+          <div class="d-flex justify-content-between">
+            <div>
+              {% if snippet %}
+                <a href="{% url 'research:snippet_detail' snippet.pk %}" class="btn btn-outline-secondary">
+                  <i class="fas fa-times"></i> Cancel
+                </a>
+              {% else %}
+                <a href="{% url 'research:snippet_list' %}" class="btn btn-outline-secondary">
+                  <i class="fas fa-times"></i> Cancel
+                </a>
+              {% endif %}
+            </div>
+            <div>
+              {% if not snippet %}
+                <button type="submit" name="save_draft" value="1" class="btn btn-outline-info me-2">
+                  <i class="fas fa-save"></i> Save as Draft
+                </button>
+              {% endif %}
+              <button type="submit" class="btn btn-info">
+                <i class="fas fa-check"></i> 
+                {% if snippet %}Update Snippet{% else %}Submit Snippet{% endif %}
+              </button>
+            </div>
+          </div>
+        </div>
+      </form>
+
+      <!-- AI Analysis Helper -->
+      {% if settings.ai_summaries_enabled and user.is_authenticated %}
+        <div class="card bg-neurobin-card mt-4">
+          <div class="card-header">
+            <h6 class="mb-0"><i class="fas fa-robot"></i> AI Research Assistant</h6>
+          </div>
+          <div class="card-body">
+            <p class="text-secondary mb-3">
+              Need help analyzing research content? Use our AI assistant to extract key findings from papers and abstracts.
+            </p>
+            <a href="{% url 'research:ai_analysis' %}" class="btn btn-outline-info btn-sm">
+              <i class="fas fa-magic"></i> Try AI Analysis
+            </a>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+// Auto-save draft functionality (for create form only)
+{% if not snippet %}
+let autoSaveTimer;
+const form = document.querySelector('form');
+const inputs = form.querySelectorAll('input, textarea, select');
+
+function autoSave() {
+  // Simple localStorage backup
+  const formData = {};
+  inputs.forEach(input => {
+    if (input.name && input.value) {
+      formData[input.name] = input.value;
+    }
+  });
+  localStorage.setItem('research_snippet_draft', JSON.stringify(formData));
+}
+
+// Load saved draft
+window.addEventListener('load', () => {
+  const saved = localStorage.getItem('research_snippet_draft');
+  if (saved) {
+    try {
+      const data = JSON.parse(saved);
+      Object.keys(data).forEach(key => {
+        const input = form.querySelector(`[name="${key}"]`);
+        if (input && !input.value) {
+          input.value = data[key];
+        }
+      });
+    } catch (e) {
+      console.error('Error loading draft:', e);
+    }
+  }
+});
+
+// Auto-save on input
+inputs.forEach(input => {
+  input.addEventListener('input', () => {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(autoSave, 2000); // Save after 2 seconds of no typing
+  });
+});
+
+// Clear draft on successful submit
+form.addEventListener('submit', () => {
+  localStorage.removeItem('research_snippet_draft');
+});
+{% endif %}
+
+// Character counter for content field
+const contentField = document.querySelector('#id_content');
+if (contentField) {
+  const counter = document.createElement('div');
+  counter.className = 'form-text text-secondary text-end';
+  contentField.parentNode.appendChild(counter);
+  
+  function updateCounter() {
+    const length = contentField.value.length;
+    counter.textContent = `${length} characters`;
+    
+    if (length < 100) {
+      counter.className = 'form-text text-warning text-end';
+    } else if (length > 2000) {
+      counter.className = 'form-text text-danger text-end';
+    } else {
+      counter.className = 'form-text text-secondary text-end';
+    }
+  }
+  
+  contentField.addEventListener('input', updateCounter);
+  updateCounter();
+}
+</script>
+{% endblock %}

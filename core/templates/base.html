@@ -2,15 +2,286 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Neurobin{% endblock %}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- SmilesDrawer for molecular structure visualization -->
+  <script defer src="https://unpkg.com/smiles-drawer@2.0.1/dist/smiles-drawer.min.js"></script>
+  <!-- Embedded molecular viewer to avoid CSP issues -->
+  <script defer>
+    // Molecular Viewer using SmilesDrawer
+    class MolecularViewer {
+      constructor() {
+        this.drawer = null;
+        this.isInitialized = false;
+      }
+
+      // Initialize SmilesDrawer with settings
+      init(settings = {}) {
+        if (typeof SmilesDrawer === 'undefined') {
+          console.error('SmilesDrawer not loaded');
+          return false;
+        }
+
+        const defaultSettings = {
+          width: 196,
+          height: 196,
+          bondThickness: 2,
+          bondLength: 20,
+          shortBondLength: 0.85,
+          bondSpacing: 0.18 * 20,
+          atomVisualization: 'default',
+          isomeric: true,
+          debug: false,
+          terminalCarbons: false,
+          explicitHydrogens: false,
+          overlapSensitivity: 0.42,
+          overlapResolutionIterations: 1,
+          compactDrawing: true,
+          fontSizeLarge: 12,
+          fontSizeSmall: 10,
+          padding: 10,
+          experimental: false,
+          themes: {
+            dark: {
+              C: '#ffffff',
+              O: '#ff4757',
+              N: '#3742fa',
+              F: '#7bed9f',
+              CL: '#70a1ff',
+              BR: '#5f27cd',
+              I: '#341f97',
+              P: '#ff6348',
+              S: '#ffa502',
+              B: '#ff9ff3',
+              SI: '#636e72',
+              H: '#ddd',
+              BACKGROUND: '#2a2a2a'
+            }
+          }
+        };
+
+        const config = Object.assign({}, defaultSettings, settings);
+        this.drawer = new SmilesDrawer.SvgDrawer(config);
+        this.isInitialized = true;
+        return true;
+      }
+
+      // Draw a single molecule
+      drawMolecule(smiles, targetElement, theme = 'dark') {
+        if (!this.isInitialized) {
+          console.error('MolecularViewer not initialized');
+          return Promise.reject(new Error('MolecularViewer not initialized'));
+        }
+
+        // Validate SMILES input
+        if (!smiles || typeof smiles !== 'string' || smiles.trim() === '') {
+          console.error('Invalid SMILES input:', smiles);
+          return Promise.reject(new Error('Invalid SMILES input'));
+        }
+
+        const cleanSmiles = smiles.trim();
+        console.log('Drawing SMILES:', cleanSmiles);
+
+        return new Promise((resolve, reject) => {
+          try {
+            SmilesDrawer.parse(cleanSmiles, (tree) => {
+              try {
+                this.drawer.draw(tree, targetElement, theme, false);
+                
+                // Apply styling
+                if (typeof targetElement === 'string') {
+                  const svg = document.getElementById(targetElement);
+                  if (svg) {
+                    svg.style.backgroundColor = '#2a2a2a';
+                    svg.style.borderRadius = '8px';
+                  }
+                } else {
+                  targetElement.style.backgroundColor = '#2a2a2a';
+                  targetElement.style.borderRadius = '8px';
+                }
+                
+                console.log('Successfully drew molecule:', cleanSmiles);
+                resolve(true);
+              } catch (error) {
+                console.error('Error drawing molecule:', error);
+                reject(error);
+              }
+            }, (parseError) => {
+              console.error('Error parsing SMILES:', parseError, 'for SMILES:', cleanSmiles);
+              reject(parseError);
+            });
+          } catch (outerError) {
+            console.error('Outer error in drawMolecule:', outerError);
+            reject(outerError);
+          }
+        });
+      }
+
+      // Draw all molecules in a container
+      drawAllMolecules(containerSelector = '.molecule-viewer') {
+        if (!this.isInitialized) {
+          console.error('MolecularViewer not initialized');
+          return;
+        }
+
+        const moleculeViewers = document.querySelectorAll(containerSelector);
+        console.log(`Found ${moleculeViewers.length} molecule viewers to process`);
+        
+        moleculeViewers.forEach((svg, index) => {
+          const smiles = svg.getAttribute('data-smiles');
+          if (!smiles) {
+            console.warn(`No SMILES data for molecule viewer ${index + 1}`);
+            return;
+          }
+
+          console.log(`Processing molecule ${index + 1}:`, smiles);
+          
+          this.drawMolecule(smiles, svg)
+            .then(() => {
+              console.log(`Successfully drew molecule ${index + 1}`);
+            })
+            .catch((err) => {
+              console.error(`Failed to draw molecule ${index + 1}:`, err);
+              console.error(`SMILES that failed:`, smiles);
+              this.showFallback(svg);
+            });
+        });
+      }
+
+      // Show fallback for failed molecules
+      showFallback(svg) {
+        const container = svg.parentElement;
+        if (container) {
+          // Check if this is a detail view (larger container)
+          const isDetailView = container.id === 'moleculeContainer';
+          
+          if (isDetailView) {
+            container.innerHTML = 
+              '<div class="text-center p-3">' +
+                '<div class="text-warning small mb-2">' +
+                  '<i class="fas fa-exclamation-triangle"></i> Structure Loading Failed' +
+                '</div>' +
+                '<div class="text-light small fw-bold mb-1">Molecular Structure</div>' +
+                '<div class="text-secondary" style="font-size: 9px; word-break: break-all; line-height: 1.3; font-family: monospace;">' +
+                  'Unable to render structure' +
+                '</div>' +
+              '</div>';
+          } else {
+            // List view fallback
+            container.innerHTML = 
+              '<div class="text-center p-1" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">' +
+                '<div class="text-warning" style="font-size: 10px;">' +
+                  '<i class="fas fa-exclamation-triangle"></i>' +
+                '</div>' +
+              '</div>';
+          }
+        }
+      }
+    }
+
+    // Global molecular viewer instance
+    window.molecularViewer = new MolecularViewer();
+
+    // Initialize when DOM and SmilesDrawer are ready
+    document.addEventListener('DOMContentLoaded', function() {
+      // Wait for SmilesDrawer to load with improved detection
+      const checkSmilesDrawer = () => {
+        if (typeof SmilesDrawer !== 'undefined' && SmilesDrawer.SvgDrawer) {
+          console.log('SmilesDrawer loaded successfully');
+          
+          // Initialize for compound list (small thumbnails)
+          if (document.querySelector('.molecule-viewer')) {
+            console.log('Initializing molecular viewer for compound list');
+            window.molecularViewer.init({
+              width: 116,
+              height: 116,
+              bondThickness: 2,
+              bondLength: 18,
+              shortBondLength: 0.85,
+              bondSpacing: 0.18 * 18,
+              fontSizeLarge: 10,
+              fontSizeSmall: 8,
+              padding: 6
+            });
+            window.molecularViewer.drawAllMolecules();
+          }
+          
+          // Initialize for compound detail (large view)
+          if (document.getElementById('moleculeViewer')) {
+            console.log('Initializing molecular viewer for compound detail');
+            const detailViewer = new MolecularViewer();
+            const initSuccess = detailViewer.init(); // Use default settings for detail view
+            
+            if (initSuccess) {
+              const compoundSmiles = document.getElementById('moleculeViewer').getAttribute('data-smiles');
+              if (compoundSmiles) {
+                console.log('Drawing detail molecule with SMILES:', compoundSmiles);
+                detailViewer.drawMolecule(compoundSmiles, 'moleculeViewer')
+                  .catch((err) => {
+                    console.error('Failed to draw compound detail molecule:', err);
+                    detailViewer.showFallback(document.getElementById('moleculeViewer'));
+                  });
+              } else {
+                console.warn('No SMILES data found for detail viewer');
+              }
+            }
+          }
+        } else {
+          console.log('Waiting for SmilesDrawer to load...');
+          setTimeout(checkSmilesDrawer, 100);
+        }
+      };
+      
+      checkSmilesDrawer();
+    });
+  </script>
   <style>
     body {
       background-color: #0d1117;
       color: #d1d5db;
       font-family: 'Segoe UI', sans-serif;
+      font-size: 16px;
     }
+    
+    /* Subtle mobile improvements */
+    @media (max-width: 768px) {
+      body {
+        font-size: 17px; /* Slightly larger base font on mobile */
+      }
+      
+      /* Better touch targets for interactive elements */
+      .star {
+        font-size: 1.25rem !important;
+        padding: 0.2rem !important;
+      }
+      
+      .btn {
+        padding: 0.6rem 1rem !important;
+      }
+      
+      /* Mobile navbar improvements */
+      .navbar {
+        padding: 0.5rem 1rem !important;
+      }
+      
+      .navbar-brand {
+        font-size: 1.3rem !important;
+      }
+      
+      .search-container {
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0.5rem 0 !important;
+      }
+      
+      .auth-buttons {
+        font-size: 0.9rem !important;
+      }
+    }
+    
     .bg-neurobin-dark { background-color: #161b22 !important; }
     .text-neurobin-accent { color: #FFF !important; }
     .bg-neurobin-card {
@@ -30,46 +301,103 @@
       display: inline-block;
       font-size: 0.85rem;
     }
+    
     /* Change placeholder color to #FFF in search bar */
     .form-control::placeholder {
-      color: #fff !important;
+      color: #9ca3af !important;
       opacity: 1;
+    }
+    
+    /* Global form styling for better contrast */
+    .form-control, .form-select {
+      background-color: #0d1117 !important;
+      border: 1px solid #30363d !important;
+      color: #f0f6fc !important;
+    }
+    
+    .form-control:focus, .form-select:focus {
+      background-color: #0d1117 !important;
+      border-color: #1f6feb !important;
+      box-shadow: 0 0 0 0.2rem rgba(31, 111, 235, 0.25) !important;
+      color: #f0f6fc !important;
+    }
+    
+    .form-label {
+      color: #f0f6fc !important;
+    }
+    
+    /* Better text contrast */
+    .text-muted {
+      color: #8b949e !important;
+    }
+    
+    .text-white {
+      color: #ffffff !important;
     }
   </style>
 </head>
 <body class="bg-dark text-light">
 
-  <nav class="navbar navbar-expand-lg bg-neurobin-dark px-4 py-3">
+  <nav class="navbar navbar-expand-lg bg-neurobin-dark px-3 py-2">
     <div class="container-fluid">
       <a class="navbar-brand fw-bold text-light" href="/">Neurobin</a>
-      <form action="{% url 'compound_search' %}" method="get" class="d-flex mx-3 flex-grow-1" style="max-width: 350px;">
-        <div class="input-group input-group-sm">
-          <input type="text" name="q" placeholder="Search" class="form-control bg-dark text-light border-secondary">
+      
+      <!-- Mobile toggle button -->
+      <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent" aria-controls="navbarContent" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon" style="filter: invert(1);"></span>
+      </button>
+      
+      <div class="collapse navbar-collapse" id="navbarContent">
+        <div class="w-100 d-flex justify-content-end align-items-center">
+          <!-- Right-aligned search bar and options button group -->
+          <div class="btn-group" role="group">
+            <!-- Search form as first button in group -->
+            <form action="{% url 'compound_search' %}" method="get" class="d-flex my-2 my-lg-0" style="margin: 0;">
+              <div class="input-group">
+                <input type="text" name="q" placeholder="Search compounds..." class="btn-outline-secondary form-control text-light" style="border-top-right-radius: 0; border-bottom-right-radius: 0;">
+                <button class="btn btn-outline-secondary" type="submit" style="border-top-left-radius: 0; border-bottom-left-radius: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; border-left: 0;">
+                  <i class="fas fa-search"></i>
+                </button>
+              </div>
+            </form>
+            
+            <!-- Options dropdown as second button in group -->
+            <div class="dropdown">
+              <button class="btn btn-outline-secondary dropdown-toggle" style="color:#FFF; border:1px solid #6c757d; background:transparent; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 0;" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                Options
+              </button>
+              <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
+                <!-- Primary Links Section -->
+                <li><h6 class="dropdown-header text-white fw-bold">Primary</h6></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'compound_list' %}">Compounds List</a></li>
+                <li><a class="dropdown-item ps-4" href="">Add Research</a></li>
+                
+                {% if user.is_staff %}
+                  <!-- Admin Section -->
+                  <li><hr class="dropdown-divider"></li>
+                  <li><h6 class="dropdown-header text-white fw-bold">Admin</h6></li>
+                  <li><a class="dropdown-item ps-4" href="{% url 'add_compound' %}">Add Compounds</a></li>
+                  <li><a class="dropdown-item ps-4" href="{% url 'add_mechanism' %}">Add Mechanisms</a></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'research:snippet_list' %}">Research Review</a></li>
+                {% endif %}
+                
+                <!-- Profile Section -->
+                <li><hr class="dropdown-divider"></li>
+                <li><h6 class="dropdown-header text-white fw-bold">Profile</h6></li>
+                {% if user.is_authenticated %}
+                  <li><a class="dropdown-item ps-4" href="{% url 'logout' %}">Logout</a></li>
+                {% else %}
+                  <li><a class="dropdown-item ps-4" href="{% url 'login' %}">Login</a></li>
+                {% endif %}
+              </ul>
+            </div>
+          </div>
         </div>
-      </form>
-      <div class="d-flex align-items-center">
-        {% if user.is_staff %}
-        <div class="dropdown me-3">
-          <button class="btn btn-sm btn-outline-info dropdown-toggle" style="color:#FFF; border:1px solid #FFF; background:transparent;" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-            Admin
-          </button>
-          <ul class="dropdown-menu dropdown-menu-dark">
-            <li><a class="dropdown-item" href="{% url 'add_compound' %}">Add Compounds</a></li>
-            <li><a class="dropdown-item" href="{% url 'add_mechanism' %}">Add Mechanisms</a></li>
-            <li><a class="dropdown-item" href="{% url 'add_target' %}">Add Targets</a></li>
-          </ul>
-        </div>
-        {% endif %}
-        {% if user.is_authenticated %}
-          <a href="{% url 'logout' %}" class="btn btn-link text-decoration-none" style="color:#FFF;">Logout</a>
-        {% else %}
-          <a href="{% url 'login' %}" class="btn btn-link text-decoration-none" style="color:#FFF;">Login</a>
-        {% endif %}
       </div>
     </div>
   </nav>
 
-  <main class="container py-5">
+  <main class="container-fluid px-3 py-4">
     {% block content %}{% endblock %}
   </main>
 

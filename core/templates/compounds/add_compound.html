@@ -10,6 +10,15 @@
       <div class="mb-3">
         <label for="{{ field.id_for_label }}" class="form-label text-light mb-0">
           {{ field.label }}{% if field.field.required %}*{% endif %}
+          {% if field.name == 'mechanism_of_action' %}
+            <button type="button" class="btn btn-sm btn-outline-info ms-2" data-bs-toggle="modal" data-bs-target="#addMechanismModal">
+              <i class="fas fa-plus"></i> Add New
+            </button>
+          {% elif field.name == 'categories' %}
+            <button type="button" class="btn btn-sm btn-outline-info ms-2" data-bs-toggle="modal" data-bs-target="#addCategoryModal">
+              <i class="fas fa-plus"></i> Add New
+            </button>
+          {% endif %}
         </label>
         {% if field.field.widget|default:''|stringformat:"s" == "CheckboxSelectMultiple" %}
           <div class="bg-dark rounded p-2" style="max-height: 120px; overflow-y: auto;">
@@ -30,4 +39,590 @@
   </form>
   <p class="mt-3"><a href="{% url 'compound_list' %}" class="text-info">&larr; Back to compound list</a></p>
 </div>
+
+<!-- Add Mechanism Modal -->
+<div class="modal fade" id="addMechanismModal" tabindex="-1" aria-labelledby="addMechanismModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark text-light">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addMechanismModalLabel">Add New Mechanism of Action</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="addMechanismForm">
+          {% csrf_token %}
+          <div class="mb-3">
+            <label for="mechanism_description" class="form-label">Description</label>
+            <textarea class="form-control bg-dark text-light" id="mechanism_description" name="description" rows="3" placeholder="Describe this mechanism of action"></textarea>
+          </div>
+          <div class="mb-3">
+            <label for="mechanism_target_name" class="form-label">Target Name
+              <button type="button" class="btn btn-sm btn-outline-info ms-2" data-bs-toggle="modal" data-bs-target="#addTargetModal">
+                <i class="fas fa-plus"></i> Add New
+              </button>
+            </label>
+            <select class="form-control bg-dark text-light" id="mechanism_target_name" name="target_name">
+              <option value="">---------</option>
+              <!-- Target options will be populated by JavaScript -->
+            </select>
+            <div class="form-text text-secondary">Target this mechanism acts on</div>
+          </div>
+          <div class="mb-3">
+            <label for="mechanism_target_type" class="form-label">Target Type</label>
+            <select class="form-control bg-dark text-light" id="mechanism_target_type" name="target_type">
+              <option value="">---------</option>
+              <option value="receptor">Receptor</option>
+              <option value="enzyme">Enzyme</option>
+              <option value="ion_channel">Ion Channel</option>
+              <option value="transporter">Transporter</option>
+              <option value="other">Other</option>
+            </select>
+            <div class="form-text text-secondary">Type of target (e.g., receptor, enzyme, ion channel, transporter)</div>
+          </div>
+          <div class="mb-3">
+            <label for="mechanism_target_interaction" class="form-label">Target Interaction</label>
+            <select class="form-control bg-dark text-light" id="mechanism_target_interaction" name="target_interaction">
+              <option value="">---------</option>
+              <option value="agonist">Agonist</option>
+              <option value="antagonist">Antagonist</option>
+              <option value="partial_agonist">Partial Agonist</option>
+              <option value="inverse_agonist">Inverse Agonist</option>
+              <option value="pam">Positive Allosteric Modulator</option>
+              <option value="nam">Negative Allosteric Modulator</option>
+              <option value="binder">Binder</option>
+              <option value="inhibitor">Inhibitor</option>
+              <option value="activator">Activator</option>
+              <option value="unknown">Unknown</option>
+            </select>
+            <div class="form-text text-secondary">Type of interaction with the target (e.g., agonist, antagonist, etc.)</div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-info" onclick="saveMechanism()">Save Mechanism</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Category Modal -->
+<div class="modal fade" id="addCategoryModal" tabindex="-1" aria-labelledby="addCategoryModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark text-light">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addCategoryModalLabel">Add New Category</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="addCategoryForm">
+          {% csrf_token %}
+          <div class="mb-3">
+            <label for="category_name" class="form-label">Name*</label>
+            <input type="text" class="form-control bg-dark text-light" id="category_name" name="name" required>
+          </div>
+          <div class="mb-3">
+            <label for="category_description" class="form-label">Description</label>
+            <textarea class="form-control bg-dark text-light" id="category_description" name="description" rows="3"></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-info" onclick="saveCategory()">Save Category</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Target Modal -->
+<div class="modal fade" id="addTargetModal" tabindex="-1" aria-labelledby="addTargetModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content bg-dark text-light">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addTargetModalLabel">Add New Target(s)</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Quick Add Common Targets -->
+        <div class="mb-4">
+          <h6 class="text-info mb-2">Quick Add Common Targets:</h6>
+          <div class="row g-2">
+            <div class="col-6 col-md-4">
+              <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="quickAddTarget('GABA-A receptor')">GABA-A receptor</button>
+            </div>
+            <div class="col-6 col-md-4">
+              <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="quickAddTarget('GABA-B receptor')">GABA-B receptor</button>
+            </div>
+            <div class="col-6 col-md-4">
+              <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="quickAddTarget('Dopamine transporter')">Dopamine transporter</button>
+            </div>
+            <div class="col-6 col-md-4">
+              <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="quickAddTarget('Serotonin transporter')">Serotonin transporter</button>
+            </div>
+            <div class="col-6 col-md-4">
+              <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="quickAddTarget('5-HT2A receptor')">5-HT2A receptor</button>
+            </div>
+            <div class="col-6 col-md-4">
+              <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="quickAddTarget('D2 receptor')">D2 receptor</button>
+            </div>
+            <div class="col-6 col-md-4">
+              <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="quickAddTarget('NMDA receptor')">NMDA receptor</button>
+            </div>
+            <div class="col-6 col-md-4">
+              <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="quickAddTarget('AMPA receptor')">AMPA receptor</button>
+            </div>
+            <div class="col-6 col-md-4">
+              <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="quickAddTarget('Acetylcholinesterase')">Acetylcholinesterase</button>
+            </div>
+          </div>
+        </div>
+        
+        <hr class="border-secondary">
+        
+        <!-- Custom Target Entry -->
+        <div class="mb-3">
+          <h6 class="text-info mb-2">Add Custom Target:</h6>
+          <form id="addTargetForm">
+            {% csrf_token %}
+            <div class="mb-3">
+              <label for="target_name" class="form-label">Name*</label>
+              <input type="text" class="form-control bg-dark text-light" id="target_name" name="name" placeholder="e.g., GABA-A receptor" required>
+              <div class="form-text text-secondary">Name of the target (e.g., GABA-A receptor, Dopamine transporter)</div>
+            </div>
+          </form>
+        </div>
+        
+        <!-- Bulk Add Targets -->
+        <div class="mb-3">
+          <h6 class="text-info mb-2">Bulk Add Targets:</h6>
+          <textarea class="form-control bg-dark text-light" id="bulk_targets" rows="4" placeholder="Enter multiple target names, one per line:&#10;Example:&#10;GABA-A receptor&#10;Dopamine transporter&#10;5-HT2A receptor"></textarea>
+          <div class="form-text text-secondary">Enter one target name per line to add multiple targets at once</div>
+          <button type="button" class="btn btn-outline-info btn-sm mt-2" onclick="bulkAddTargets()">
+            <i class="fas fa-plus"></i> Add All Targets
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-info" onclick="saveTarget()">Save Custom Target</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Save form data to localStorage
+function saveFormData() {
+    const formData = {};
+    const form = document.querySelector('form[method="post"]');
+    
+    // Save text inputs
+    form.querySelectorAll('input[type="text"], input[type="url"], textarea').forEach(input => {
+        if (input.name && input.value) {
+            formData[input.name] = input.value;
+        }
+    });
+    
+    // Save file inputs (store filename only for display)
+    form.querySelectorAll('input[type="file"]').forEach(input => {
+        if (input.name && input.files.length > 0) {
+            formData[input.name + '_filename'] = input.files[0].name;
+        }
+    });
+    
+    // Save checkboxes
+    form.querySelectorAll('input[type="checkbox"]:checked').forEach(input => {
+        if (input.name) {
+            if (!formData[input.name]) {
+                formData[input.name] = [];
+            }
+            formData[input.name].push(input.value);
+        }
+    });
+    
+    localStorage.setItem('compoundFormData', JSON.stringify(formData));
+}
+
+// Restore form data from localStorage
+function restoreFormData() {
+    const savedData = localStorage.getItem('compoundFormData');
+    if (!savedData) return;
+    
+    const formData = JSON.parse(savedData);
+    const form = document.querySelector('form[method="post"]');
+    
+    // Restore text inputs
+    Object.keys(formData).forEach(key => {
+        if (key.endsWith('_filename')) return; // Skip filename entries
+        
+        const input = form.querySelector(`[name="${key}"]`);
+        if (input && (input.type === 'text' || input.type === 'url' || input.tagName === 'TEXTAREA')) {
+            input.value = formData[key];
+        }
+        
+        // Restore checkboxes
+        if (Array.isArray(formData[key])) {
+            formData[key].forEach(value => {
+                const checkbox = form.querySelector(`input[name="${key}"][value="${value}"]`);
+                if (checkbox) {
+                    checkbox.checked = true;
+                }
+            });
+        }
+    });
+    
+    // Show message about file inputs if any were saved
+    Object.keys(formData).forEach(key => {
+        if (key.endsWith('_filename')) {
+            const fieldName = key.replace('_filename', '');
+            showAlert(`Note: Previously selected file "${formData[key]}" for ${fieldName} needs to be re-selected.`, 'info');
+        }
+    });
+}
+
+// Clear saved form data
+function clearSavedFormData() {
+    localStorage.removeItem('compoundFormData');
+}
+
+// Add new mechanism or category ID to saved data for auto-selection
+function addNewItemToSavedData(fieldName, itemId) {
+    const savedData = localStorage.getItem('compoundFormData');
+    const formData = savedData ? JSON.parse(savedData) : {};
+    
+    if (!formData[fieldName]) {
+        formData[fieldName] = [];
+    }
+    
+    if (!formData[fieldName].includes(itemId.toString())) {
+        formData[fieldName].push(itemId.toString());
+    }
+    
+    localStorage.setItem('compoundFormData', JSON.stringify(formData));
+}
+
+// Load targets into the select dropdown
+function loadTargets() {
+    return fetch('/compounds/api/targets/')
+    .then(response => response.json())
+    .then(data => {
+        const targetSelect = document.getElementById('mechanism_target_name');
+        targetSelect.innerHTML = '<option value="">---------</option>';
+        
+        data.forEach(target => {
+            const option = document.createElement('option');
+            option.value = target.id;
+            option.textContent = target.name;
+            targetSelect.appendChild(option);
+        });
+        
+        return data; // Return the data for chaining
+    })
+    .catch(error => {
+        console.error('Error loading targets:', error);
+        throw error;
+    });
+}
+
+function saveTarget() {
+    const form = document.getElementById('addTargetForm');
+    const formData = new FormData(form);
+    
+    if (!formData.get('name') || formData.get('name').trim() === '') {
+        showAlert('Please enter a target name.', 'warning');
+        return;
+    }
+    
+    fetch('/compounds/ajax/add-target/', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Add the new target to the select dropdown
+            const targetSelect = document.getElementById('mechanism_target_name');
+            const option = document.createElement('option');
+            option.value = data.id;
+            option.textContent = data.name;
+            option.selected = true;
+            targetSelect.appendChild(option);
+            
+            // Reset form
+            form.reset();
+            
+            // Show success message
+            showAlert('Target "' + data.name + '" added successfully!', 'success');
+        } else {
+            showAlert('Error: ' + JSON.stringify(data.errors), 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('An error occurred while adding the target.', 'danger');
+    });
+}
+
+function quickAddTarget(targetName) {
+    // Create FormData for the quick add
+    const formData = new FormData();
+    formData.append('name', targetName);
+    
+    fetch('/compounds/ajax/add-target/', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Add the new target to the select dropdown
+            const targetSelect = document.getElementById('mechanism_target_name');
+            const option = document.createElement('option');
+            option.value = data.id;
+            option.textContent = data.name;
+            option.selected = true;
+            targetSelect.appendChild(option);
+            
+            // Show success message
+            showAlert('Target "' + data.name + '" added successfully!', 'success');
+            
+            // Close modal after successful quick add
+            bootstrap.Modal.getInstance(document.getElementById('addTargetModal')).hide();
+        } else {
+            if (data.errors && data.errors.name && data.errors.name.includes('already exists')) {
+                // If target already exists, just select it
+                const targetSelect = document.getElementById('mechanism_target_name');
+                const existingOption = Array.from(targetSelect.options).find(option => option.textContent === targetName);
+                if (existingOption) {
+                    existingOption.selected = true;
+                    showAlert('Target "' + targetName + '" already exists and has been selected.', 'info');
+                    bootstrap.Modal.getInstance(document.getElementById('addTargetModal')).hide();
+                } else {
+                    // Reload targets to get the existing one
+                    loadTargets().then(() => {
+                        const targetSelect = document.getElementById('mechanism_target_name');
+                        const option = Array.from(targetSelect.options).find(opt => opt.textContent === targetName);
+                        if (option) {
+                            option.selected = true;
+                            showAlert('Target "' + targetName + '" already exists and has been selected.', 'info');
+                        }
+                        bootstrap.Modal.getInstance(document.getElementById('addTargetModal')).hide();
+                    });
+                }
+            } else {
+                showAlert('Error adding target: ' + JSON.stringify(data.errors), 'danger');
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('An error occurred while adding the target.', 'danger');
+    });
+}
+
+function bulkAddTargets() {
+    const bulkTextarea = document.getElementById('bulk_targets');
+    const targetNames = bulkTextarea.value.split('\n')
+        .map(name => name.trim())
+        .filter(name => name.length > 0);
+    
+    if (targetNames.length === 0) {
+        showAlert('Please enter at least one target name.', 'warning');
+        return;
+    }
+    
+    let addedCount = 0;
+    let existingCount = 0;
+    let errorCount = 0;
+    let totalTargets = targetNames.length;
+    
+    // Function to process targets sequentially
+    function addTargetSequentially(index) {
+        if (index >= targetNames.length) {
+            // All targets processed, show summary
+            bulkTextarea.value = '';
+            loadTargets(); // Refresh the dropdown
+            
+            let message = `Bulk add complete: ${addedCount} new targets added`;
+            if (existingCount > 0) message += `, ${existingCount} already existed`;
+            if (errorCount > 0) message += `, ${errorCount} errors`;
+            
+            showAlert(message, addedCount > 0 ? 'success' : 'info');
+            return;
+        }
+        
+        const targetName = targetNames[index];
+        const formData = new FormData();
+        formData.append('name', targetName);
+        
+        fetch('/compounds/ajax/add-target/', {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                addedCount++;
+            } else if (data.errors && data.errors.name && data.errors.name.includes('already exists')) {
+                existingCount++;
+            } else {
+                errorCount++;
+                console.error('Error adding target:', targetName, data.errors);
+            }
+            
+            // Process next target
+            addTargetSequentially(index + 1);
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            errorCount++;
+            // Process next target even if this one failed
+            addTargetSequentially(index + 1);
+        });
+    }
+    
+    // Start processing
+    addTargetSequentially(0);
+}
+
+function saveMechanism() {
+    const form = document.getElementById('addMechanismForm');
+    const formData = new FormData(form);
+    
+    fetch('{% url "ajax_add_mechanism" %}', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Find the mechanism checkbox container
+            const mechanismField = document.querySelector('input[name="mechanism_of_action"]');
+            if (mechanismField) {
+                const container = mechanismField.closest('div').parentElement;
+                
+                // Create new checkbox element
+                const newCheckboxDiv = document.createElement('div');
+                newCheckboxDiv.innerHTML = `
+                    <label for="id_mechanism_of_action_${data.id}">
+                        <input type="checkbox" name="mechanism_of_action" value="${data.id}" id="id_mechanism_of_action_${data.id}" class="form-check-input" checked>
+                        ${data.display_name}
+                    </label>
+                `;
+                
+                // Append to the container
+                container.appendChild(newCheckboxDiv);
+            }
+            
+            // Close modal and reset form
+            bootstrap.Modal.getInstance(document.getElementById('addMechanismModal')).hide();
+            form.reset();
+            
+            // Reset target dropdown in the modal to default state
+            const targetSelect = document.getElementById('mechanism_target_name');
+            if (targetSelect) {
+                targetSelect.selectedIndex = 0; // Reset to first option ("---------")
+            }
+            
+            // Show success message
+            showAlert('Mechanism added successfully!', 'success');
+        } else {
+            showAlert('Error: ' + JSON.stringify(data.errors), 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('An error occurred while adding the mechanism.', 'danger');
+    });
+}
+
+function saveCategory() {
+    const form = document.getElementById('addCategoryForm');
+    const formData = new FormData(form);
+    
+    fetch('{% url "ajax_add_category" %}', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Find the categories checkbox container
+            const categoryField = document.querySelector('input[name="categories"]');
+            if (categoryField) {
+                const container = categoryField.closest('div').parentElement;
+                
+                // Create new checkbox element
+                const newCheckboxDiv = document.createElement('div');
+                newCheckboxDiv.innerHTML = `
+                    <label for="id_categories_${data.id}">
+                        <input type="checkbox" name="categories" value="${data.id}" id="id_categories_${data.id}" class="form-check-input" checked>
+                        ${data.name}
+                    </label>
+                `;
+                
+                // Append to the container
+                container.appendChild(newCheckboxDiv);
+            }
+            
+            // Close modal and reset form
+            bootstrap.Modal.getInstance(document.getElementById('addCategoryModal')).hide();
+            form.reset();
+            
+            // Show success message
+            showAlert('Category added successfully!', 'success');
+        } else {
+            showAlert('Error: ' + JSON.stringify(data.errors), 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('An error occurred while adding the category.', 'danger');
+    });
+}
+
+// Restore form data on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadTargets();
+    restoreFormData();
+});
+
+// Clear saved data when form is successfully submitted
+document.querySelector('form[method="post"]').addEventListener('submit', function() {
+    clearSavedFormData();
+});
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.card'));
+    
+    // Auto-dismiss after 3 seconds
+    setTimeout(() => {
+        if (alertDiv) {
+            alertDiv.remove();
+        }
+    }, 3000);
+}
+</script>
 {% endblock %}
