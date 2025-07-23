@@ -139,7 +139,7 @@ class ResearchSnippet(models.Model):
         elif total_votes >= 3 and approval_ratio >= 0.6:
             return 'Medium'
         elif total_votes >= 1:
-            return 'Low/None'
+            return 'Low/No'
         else:
             return 'Unknown'
     
@@ -149,7 +149,7 @@ class ResearchSnippet(models.Model):
         confidence_colors = {
             'High': 'success',
             'Medium': 'warning',
-            'Low/None': 'danger',
+            'Low/No': 'danger',
             'Unknown': 'secondary'
         }
         return confidence_colors.get(self.confidence_level, 'secondary')

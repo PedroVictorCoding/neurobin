@@ -8,7 +8,7 @@ class CompoundAdmin(admin.ModelAdmin):
     list_display = ('name', 'slug', 'smiles')
     prepopulated_fields = {'slug': ('name',)}
     filter_horizontal = ('categories',)
-    fields = ('name', 'slug', 'description', 'aliases', 'smiles', 'categories', 'mechanism_of_action', 'image')
+    fields = ('name', 'slug', 'description', 'aliases', 'smiles', 'categories', 'mechanism_of_action')
 
 @admin.register(CompoundCategories)
 class CompoundCategoriesAdmin(admin.ModelAdmin):

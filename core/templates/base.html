@@ -4,8 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Neurobin{% endblock %}</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Stylesheets -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  
+  <!-- Scripts -->
   <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <!-- SmilesDrawer for molecular structure visualization -->
   <script defer src="https://unpkg.com/smiles-drawer@2.0.1/dist/smiles-drawer.min.js"></script>
@@ -239,17 +248,57 @@
     });
   </script>
   <style>
+    /* ===== NEUROBIN DESIGN SYSTEM ===== */
+    :root {
+      /* Background Layers - Near-black base */
+      --bg-primary: #0d0d0d;       /* Main background - near-black canvas */
+      --bg-secondary: #111111;     /* Card backgrounds */
+      --bg-tertiary: #1a1a1a;     /* Elevated elements */
+      --bg-interactive: #222222;   /* Hover states */
+      
+      /* Text Colors - High contrast */
+      --text-primary: #cccccc;     /* Primary text - pure white */
+      --text-secondary: #c4c4c4;   /* Secondary text - light gray */
+      --text-muted: #888888;       /* Muted text - medium gray */
+      
+      /* Accent & Interactive - Cyber cyan */
+      --accent-primary: #fff;   /* Primary accent - bright cyan */
+      --accent-hover: #00cccc;     /* Accent hover state */
+      --accent-subtle: #003333;    /* Subtle accent background */
+      --accent-glow: #ffffff09;    /* Glowing effect */
+      
+      /* Borders & Separators - Light gray */
+      --border-primary: #333333;   /* Default borders - light gray */
+      --border-secondary: #555555; /* Subtle separators */
+      --border-light: #ffffff;     /* White borders for emphasis */
+      
+      /* Semantic Colors (refined for dark) */
+      --success: #00ff88;          /* Success actions - bright green */
+      --warning: #ffaa00;          /* Warning states - bright orange */
+      --danger: #ff4444;           /* Danger/error states - bright red */
+      --info: var(--accent-primary); /* Info uses our cyan accent */
+    }
+
     body {
-      background-color: #0d1117;
-      color: #d1d5db;
-      font-family: 'Segoe UI', sans-serif;
-      font-size: 16px;
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      letter-spacing: -0.011em;
+    }
+    
+    /* Typography Scale */
+    h1, h2, h3, h4, h5, h6 {
+      color: var(--text-primary);
+      font-weight: 600;
+      letter-spacing: -0.025em;
     }
     
     /* Subtle mobile improvements */
     @media (max-width: 768px) {
       body {
-        font-size: 17px; /* Slightly larger base font on mobile */
+        font-size: 16px; /* Slightly larger base font on mobile */
       }
       
       /* Better touch targets for interactive elements */
@@ -271,10 +320,56 @@
         font-size: 1.3rem !important;
       }
       
-      .search-container {
-        width: 100% !important;
-        max-width: none !important;
-        margin: 0.5rem 0 !important;
+      /* Mobile navigation content */
+      .mobile-nav-content {
+        padding-top: 1rem;
+      }
+      
+      .mobile-nav-content .form-control {
+        background-color: var(--bg-tertiary) !important;
+        border-color: var(--border-primary) !important;
+        color: var(--text-primary) !important;
+        padding: 0.75rem 1rem;
+      }
+      
+      .mobile-nav-content .form-control:focus {
+        border-color: var(--accent-primary) !important;
+        box-shadow: 0 0 0 2px var(--accent-glow) !important;
+        background-color: var(--bg-secondary) !important;
+      }
+      
+      .mobile-nav-content .btn {
+        padding: 0.75rem 1rem !important;
+        font-weight: 500;
+      }
+      
+      .mobile-nav-content .dropdown-menu {
+        border: 1px solid var(--border-primary) !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+        margin-top: 0.25rem !important;
+        z-index: 9999 !important; /* Ensure mobile dropdown appears above all content */
+      }
+      
+      .mobile-nav-content .dropdown {
+        z-index: 9998 !important; /* Ensure mobile dropdown container is elevated */
+      }
+      
+      .mobile-nav-content .dropdown-item {
+        padding: 0.75rem 1rem !important;
+        font-size: 0.95rem !important;
+        transition: all 0.2s ease;
+      }
+      
+      .mobile-nav-content .dropdown-item:hover {
+        background-color: var(--bg-interactive) !important;
+        color: var(--accent-primary) !important;
+      }
+      
+      .mobile-nav-content .dropdown-header {
+        padding: 0.75rem 1rem 0.5rem !important;
+        font-size: 0.8rem !important;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
       }
       
       .auth-buttons {
@@ -282,61 +377,349 @@
       }
     }
     
-    .bg-neurobin-dark { background-color: #161b22 !important; }
-    .text-neurobin-accent { color: #FFF !important; }
+    /* ===== COMPONENT STYLES ===== */
+    
+    /* Cards & Containers */
+    .bg-neurobin-dark { 
+      background-color: var(--bg-secondary) !important; 
+    }
+    
     .bg-neurobin-card {
-      background-color: #161b22 !important;
+      background-color: var(--bg-secondary) !important;
+      border: 1px solid var(--border-primary);
+      border-radius: 12px;
       max-width: 700px;
       width: 100%;
-      border-radius: 10px;
       margin-left: auto;
       margin-right: auto;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border-primary);
+      position: relative; /* Ensure cards don't interfere with dropdowns */
+      z-index: 1; /* Lower z-index than navbar dropdowns */
     }
+    
+    .compound-card:hover {
+      background-color: var(--bg-interactive) !important;
+      border-color: var(--accent-primary);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 20px var(--accent-glow);
+      transform: translateY(-2px);
+    }
+    
+    /* Navigation - Inverted for dark theme */
+    .navbar {
+      background-color: var(--bg-secondary) !important;
+      border-bottom: 1px solid var(--border-primary);
+      backdrop-filter: blur(20px);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+      position: relative;
+      z-index: 1030; /* Bootstrap navbar z-index to ensure it's above other content */
+    }
+    
+    .navbar-brand {
+      color: var(--text-primary) !important;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      text-shadow: 0 0 10px var(--accent-glow);
+    }
+    
+    /* Ensure navbar content is properly layered */
+    .navbar .btn-group,
+    .navbar .dropdown {
+      z-index: 1031 !important;
+    }
+    
+    /* Pills & Tags - Cyber glow style */
     .pill {
-      background-color: #1f2937;
-      color: #cbd5e1;
-      padding: 0.3rem 0.8rem;
-      border-radius: 999px;
-      margin: 0.2rem 0.3rem 0.2rem 0;
+      background-color: var(--bg-tertiary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-primary);
+      padding: 0.25rem 0.75rem;
+      border-radius: 6px;
+      margin: 0.125rem 0.25rem 0.125rem 0;
       display: inline-block;
-      font-size: 0.85rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      transition: all 0.25s ease;
     }
     
-    /* Change placeholder color to #FFF in search bar */
-    .form-control::placeholder {
-      color: #9ca3af !important;
-      opacity: 1;
+    .pill:hover {
+      background-color: var(--bg-interactive);
+      color: var(--accent-primary);
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 10px var(--accent-glow);
+      transform: translateY(-1px);
     }
     
-    /* Global form styling for better contrast */
+    /* Form Controls - Cyber style */
     .form-control, .form-select {
-      background-color: #0d1117 !important;
-      border: 1px solid #30363d !important;
-      color: #f0f6fc !important;
+      background-color: var(--bg-primary) !important;
+      border: 1px solid var(--border-primary) !important;
+      color: var(--text-primary) !important;
+      border-radius: 8px;
+      font-size: 0.9375rem;
+      transition: all 0.3s ease;
     }
     
     .form-control:focus, .form-select:focus {
-      background-color: #0d1117 !important;
-      border-color: #1f6feb !important;
-      box-shadow: 0 0 0 0.2rem rgba(31, 111, 235, 0.25) !important;
-      color: #f0f6fc !important;
+      background-color: var(--bg-secondary) !important;
+      border-color: var(--accent-primary) !important;
+      box-shadow: 0 0 0 3px var(--accent-glow), 0 0 15px var(--accent-glow) !important;
+      color: var(--text-primary) !important;
+    }
+    
+    .form-control::placeholder {
+      color: var(--text-muted) !important;
+      opacity: 0.8;
     }
     
     .form-label {
-      color: #f0f6fc !important;
+      color: var(--text-primary) !important;
+      font-weight: 500;
+      font-size: 0.875rem;
     }
     
-    /* Better text contrast */
+    /* Search Input Specific - Glowing effect */
+    .navbar .form-control {
+      background-color: var(--bg-tertiary) !important;
+      border-color: var(--border-primary) !important;
+      color: var(--text-primary) !important;
+    }
+    
+    .navbar .form-control:focus {
+      border-color: var(--accent-primary) !important;
+      box-shadow: 0 0 0 2px var(--accent-glow), inset 0 0 5px var(--accent-glow) !important;
+      background-color: var(--bg-secondary) !important;
+    }
+    
+    /* Buttons - Cyber-minimal style */
+    .btn-outline-secondary {
+      color: var(--text-primary) !important;
+      border-color: var(--border-primary) !important;
+      background-color: transparent !important;
+      transition: all 0.3s ease;
+    }
+    
+    .btn-outline-secondary:hover {
+      color: var(--bg-primary) !important;
+      border-color: var(--accent-primary) !important;
+      background-color: var(--accent-primary) !important;
+      box-shadow: 0 0 20px var(--accent-glow);
+      transform: translateY(-1px);
+    }
+    
+    .btn-info {
+      background-color: var(--accent-primary) !important;
+      border-color: var(--accent-primary) !important;
+      color: var(--bg-primary) !important;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+    
+    .btn-info:hover {
+      background-color: var(--accent-hover) !important;
+      border-color: var(--accent-hover) !important;
+      color: var(--bg-primary) !important;
+      box-shadow: 0 0 25px var(--accent-glow);
+      transform: translateY(-1px);
+    }
+    
+    /* Navigation buttons with glow effect */
+    .navbar .btn-outline-secondary {
+      border-color: var(--border-primary) !important;
+      color: var(--text-secondary) !important;
+    }
+    
+    .navbar .btn-outline-secondary:hover {
+      border-color: var(--accent-primary) !important;
+      background-color: var(--bg-tertiary) !important;
+      color: var(--accent-primary) !important;
+      box-shadow: 0 0 15px var(--accent-glow);
+    }
+    
+    /* Text Colors */
+    .text-neurobin-accent { 
+      color: var(--accent-primary) !important; 
+    }
+    
+    .text-info {
+      color: var(--accent-primary) !important;
+    }
+    
     .text-muted {
-      color: #8b949e !important;
+      color: var(--text-muted) !important;
     }
     
-    .text-white {
-      color: #ffffff !important;
+    .text-secondary {
+      color: var(--text-secondary) !important;
+    }
+    
+    .text-white, .text-light {
+      color: var(--text-primary) !important;
+    }
+    
+    /* Semantic Colors */
+    .text-success {
+      color: var(--success) !important;
+    }
+    
+    .text-warning {
+      color: var(--warning) !important;
+    }
+    
+    .text-danger {
+      color: var(--danger) !important;
+    }
+    
+    .bg-success {
+      background-color: var(--success) !important;
+    }
+    
+    .bg-warning {
+      background-color: var(--warning) !important;
+      color: var(--bg-primary) !important;
+    }
+    
+    .bg-danger {
+      background-color: var(--danger) !important;
+    }
+    
+    /* Badges - Enhanced cyber style */
+    .badge {
+      font-weight: 500;
+      font-size: 0.75rem;
+      padding: 0.375em 0.75em;
+      border-radius: 6px;
+      border: 1px solid transparent;
+    }
+    
+    .badge.bg-secondary {
+      background-color: var(--bg-tertiary) !important;
+      color: var(--text-secondary) !important;
+      border-color: var(--border-primary);
+    }
+    
+    .badge.bg-info {
+      background-color: var(--accent-primary) !important;
+      color: var(--bg-primary) !important;
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+    
+    /* Links - Cyber glow effect */
+    a {
+      color: var(--accent-primary);
+      text-decoration: none;
+      transition: all 0.3s ease;
+    }
+    
+    a:hover {
+      color: var(--accent-hover);
+      text-shadow: 0 0 8px var(--accent-glow);
+    }
+    
+    /* Breadcrumbs */
+    .breadcrumb-item.active {
+      color: var(--text-primary) !important;
+    }
+    
+    /* Dropdowns - Dark cyber style */
+    .dropdown-menu-dark {
+      background-color: var(--bg-tertiary) !important;
+      border: 1px solid var(--border-primary) !important;
+      border-radius: 8px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border-primary);
+      z-index: 9999 !important; /* Ensure dropdown appears above all content */
+    }
+    
+    .dropdown {
+      z-index: 9998 !important; /* Ensure dropdown container is elevated */
+    }
+    
+    .dropdown-menu {
+      z-index: 9999 !important; /* Force dropdown menu to top */
+    }
+    
+    .dropdown-item {
+      color: var(--text-secondary) !important;
+      transition: all 0.2s ease;
+    }
+    
+    .dropdown-item:hover {
+      background-color: var(--bg-interactive) !important;
+      color: var(--accent-primary) !important;
+      box-shadow: inset 3px 0 0 var(--accent-primary);
+    }
+    
+    .dropdown-header {
+      color: var(--text-primary) !important;
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border-primary);
+      padding-bottom: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    
+    .dropdown-divider {
+      border-color: var(--border-primary) !important;
+    }
+    
+    /* Star Rating (if used) */
+    .star {
+      color: var(--text-muted);
+      transition: color 0.15s ease;
+      cursor: pointer;
+    }
+    
+    .star.filled,
+    .star:hover {
+      color: var(--accent-primary) !important;
+    }
+    
+    /* Borders - Light gray for dark mode */
+    .border-top {
+      border-top-color: var(--border-primary) !important;
+    }
+    
+    .border {
+      border-color: var(--border-primary) !important;
+    }
+    
+    /* Card headers and footers */
+    .card-header {
+      background-color: transparent !important;
+      border-bottom: 1px solid var(--border-primary) !important;
+    }
+    
+    .card-footer {
+      background-color: transparent !important;
+      border-top: 1px solid var(--border-primary) !important;
+    }
+    
+    /* Focus states for accessibility with cyber glow */
+    *:focus {
+      outline: 2px solid var(--accent-primary);
+      outline-offset: 2px;
+      box-shadow: 0 0 15px var(--accent-glow);
+    }
+    
+    .btn:focus,
+    .form-control:focus,
+    .form-select:focus {
+      outline: none; /* These have custom focus styles */
+    }
+    
+    /* Molecular structure containers - Dark mode */
+    .molecule-viewer,
+    #moleculeContainer,
+    #moleculeViewer {
+      background-color: var(--bg-tertiary) !important;
+      border: 1px solid var(--border-primary) !important;
+      border-radius: 8px;
     }
   </style>
 </head>
-<body class="bg-dark text-light">
+<body class="text-light" style="background-color: var(--bg-primary);"">
 
   <nav class="navbar navbar-expand-lg bg-neurobin-dark px-3 py-2">
     <div class="container-fluid">
@@ -348,8 +731,8 @@
       </button>
       
       <div class="collapse navbar-collapse" id="navbarContent">
-        <div class="w-100 d-flex justify-content-end align-items-center">
-          <!-- Right-aligned search bar and options button group -->
+        <!-- Desktop layout -->
+        <div class="w-100 d-lg-flex d-none justify-content-end align-items-center">
           <div class="btn-group" role="group">
             <!-- Search form as first button in group -->
             <form action="{% url 'compound_search' %}" method="get" class="d-flex my-2 my-lg-0" style="margin: 0;">
@@ -396,6 +779,69 @@
             </div>
           </div>
         </div>
+        
+        <!-- Mobile layout -->
+        <div class="d-lg-none w-100 mobile-nav-content">
+          <!-- Search form full width -->
+          <form action="{% url 'compound_search' %}" method="get" class="mb-3">
+            <div class="input-group">
+              <input type="text" name="q" placeholder="Search compounds..." class="form-control bg-dark text-light" style="border: 1px solid #6c757d;">
+              <button class="btn btn-outline-secondary" type="submit">
+                <i class="fas fa-search"></i>
+              </button>
+            </div>
+          </form>
+          
+          <!-- Options dropdown full width -->
+          <div class="dropdown w-100">
+            <button class="btn btn-outline-secondary dropdown-toggle w-100" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+              <i class="fas fa-cog me-2"></i>Options
+            </button>
+            <ul class="dropdown-menu dropdown-menu-dark w-100">
+              <!-- Primary Links Section -->
+              <li><h6 class="dropdown-header text-white fw-bold">Quick Links</h6></li>
+              <li><a class="dropdown-item ps-4" href="{% url 'compound_list' %}">
+                <i class="fas fa-pills me-2"></i>Browse Compounds
+              </a></li>
+              <li><a class="dropdown-item ps-4" href="{% url 'research:snippet_list' %}">
+                <i class="fas fa-flask me-2"></i>Browse Research
+              </a></li>
+              {% if user.is_autheticated %}
+              <li><a class="dropdown-item ps-4" href="">
+                <i class="fas fa-plus me-2"></i>Add Research
+              </a></li>
+              {% endif %}
+
+              {% if user.is_staff %}
+                <!-- Admin Section -->
+                <li><hr class="dropdown-divider"></li>
+                <li><h6 class="dropdown-header text-white fw-bold">Admin</h6></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'add_compound' %}">
+                  <i class="fas fa-plus-circle me-2"></i>Add Compounds
+                </a></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'add_mechanism' %}">
+                  <i class="fas fa-cogs me-2"></i>Add Mechanisms
+                </a></li>
+              <li><a class="dropdown-item ps-4" href="{% url 'research:snippet_list' %}">
+                <i class="fas fa-search me-2"></i>Research Review
+              </a></li>
+              {% endif %}
+              
+              <!-- Profile Section -->
+              <li><hr class="dropdown-divider"></li>
+              <li><h6 class="dropdown-header text-white fw-bold">Profile</h6></li>
+              {% if user.is_authenticated %}
+                <li><a class="dropdown-item ps-4" href="{% url 'logout' %}">
+                  <i class="fas fa-sign-out-alt me-2"></i>Logout
+                </a></li>
+              {% else %}
+                <li><a class="dropdown-item ps-4" href="{% url 'login' %}">
+                  <i class="fas fa-sign-in-alt me-2"></i>Login
+                </a></li>
+              {% endif %}
+            </ul>
+          </div>
+        </div>
       </div>
     </div>
   </nav>
@@ -404,8 +850,8 @@
     {% block content %}{% endblock %}
   </main>
 
-  <footer class="text-center text-secondary py-4 small">
+  <!--<footer class="text-center text-secondary py-4 small">
     © {{ now|date:"Y" }} Neurobin
-  </footer>
+  </footer>-->
 </body>
 </html>

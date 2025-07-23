@@ -44,8 +44,8 @@
               {% endif %}
               
               <span class="badge bg-secondary">{{ snippet.get_snippet_type_display }}</span>
-              <span class="badge bg-secondary">
-                <i class="fas fa-chart-line"></i> Confidence: {{ snippet.confidence_level|default:"Confidence" }}
+              <span class="badge bg-{{ snippet.confidence_color }}">
+                <i class="fas fa-chart-line"></i> Confidence: {{ snippet.confidence_level|default:"Unknown" }}
               </span>
             </div>
             
@@ -95,7 +95,7 @@
           
           <!-- Compound Link -->
           <div class="mb-3">
-            <a href="{% url 'compound_detail' snippet.compound.slug %}" class="text-info text-decoration-none">
+            <a href="{% url 'compound_detail' snippet.compound.slug %}" class="btn btn-outline-secondary text-decoration-none">
               <i class="fas fa-pills"></i> {{ snippet.compound.name }}
             </a>
           </div>
@@ -104,14 +104,16 @@
         <div class="card-body">
           <!-- Main Content -->
           <div class="mb-4">
-            <h5 class="text-light mb-3">Content</h5>
-            <div class="text-white" style="line-height: 1.8; white-space: pre-wrap;">{{ snippet.content }}</div>
+            <h6 class="text-white mb-3 fw-bold">
+                <i class="fas fa-lightbulb text-info"></i> Snippet
+            </h6>
+            <div class="text-white" style="line-height: 1.8; white-space: pre-wrap; margin-left: 10px;">{{ snippet.content }}</div>
           </div>
 
           <!-- AI Summary -->
           {% if snippet.ai_summary %}
             <div class="alert alert-info border-0">
-              <h6 class="text-dark fw-semibold">
+              <h6 class="text-white fw-bold">
                 <i class="fas fa-robot text-primary"></i> AI Summary
               </h6>
               <p class="mb-0 text-dark">{{ snippet.ai_summary }}</p>
@@ -121,16 +123,16 @@
           <!-- Source Information -->
           {% if snippet.source_title or snippet.source_url or snippet.doi or snippet.pubmed_id %}
             <div class="border-top pt-3">
-              <h6 class="text-white mb-3 fw-semibold">
+              <h6 class="text-white mb-3 fw-bold">
                 <i class="fas fa-book text-info"></i> Source Information
               </h6>
               {% if snippet.source_title %}
-                <p class="mb-2 text-light">
+                <p class="mb-2 text-light" style="margin-left: 10px;">
                   <strong class="text-secondary fw-bold">Title:</strong> {{ snippet.source_title }}
                 </p>
               {% endif %}
               {% if snippet.source_url %}
-                <p class="mb-2 text-light">
+                <p class="mb-2 text-light" style="margin-left: 10px;">
                   <strong class="text-secondary fw-bold">URL:</strong> 
                   <a href="{{ snippet.source_url }}" target="_blank" class="text-info">
                     {{ snippet.source_url|truncatechars:60 }} <i class="fas fa-external-link-alt"></i>
@@ -138,7 +140,7 @@
                 </p>
               {% endif %}
               {% if snippet.doi %}
-                <p class="mb-2 text-light">
+                <p class="mb-2 text-light" style="margin-left: 10px;">
                   <strong class="text-secondary fw-bold">DOI:</strong> 
                   <a href="https://doi.org/{{ snippet.doi }}" target="_blank" class="text-info">
                     {{ snippet.doi }} <i class="fas fa-external-link-alt"></i>
@@ -186,27 +188,61 @@
   <!-- Sidebar Cards - Now Below Main Content -->
   <div class="row justify-content-center">
     <!-- Detailed Review Section -->
-    {% if can_review %}
+    {% if user.is_authenticated and snippet.created_by != user and snippet.visibility in 'public,public_review' %}
       <div class="col-12 col-lg-8 mb-4">
         <div class="card bg-neurobin-card h-100">
           <div class="card-header">
-            <h6 class="mb-0"><i class="fas fa-comment-dots"></i> Leave Detailed Feedback (Optional)</h6>
+            <h6 class="mb-0">
+              <i class="fas fa-comment-dots"></i> 
+              {% if user_review %}
+                Edit Your Detailed Feedback
+              {% else %}
+                Leave Detailed Feedback (Optional)
+              {% endif %}
+            </h6>
           </div>
           <div class="card-body">
-            <p class="text-muted small mb-3">
-              <i class="fas fa-info-circle"></i> Already voted? You can also provide detailed feedback to help the community understand your reasoning.
-            </p>
+            {% if user_review %}
+              <div class="alert alert-light text-dark border-0 mb-3">
+                <div class="d-flex align-items-center">
+                  <i class="fas fa-info-circle me-2"></i>
+                  <div>
+                    <strong>Your Current Review:</strong> 
+                    {% if user_review.vote_type == 'validate' %}
+                      <span class="badge bg-success ms-1">Approved</span>
+                    {% else %}
+                      <span class="badge bg-danger ms-1">Rejected</span>
+                    {% endif %}
+                  </div>
+                </div>
+                {% if user_review.comment %}
+                  <div class="mt-2 small">
+                    <strong>Your feedback:</strong> "{{ user_review.comment|truncatewords:20 }}"
+                  </div>
+                {% endif %}
+              </div>
+              <p class="text-muted small mb-3">
+                <i class="fas fa-edit"></i> You can update your vote and detailed feedback below.
+              </p>
+            {% else %}
+              <p class="text-muted small mb-3">
+                <i class="fas fa-info-circle"></i> Share your detailed feedback to help the community understand your reasoning.
+              </p>
+            {% endif %}
+            
             <form id="reviewForm">
               {% csrf_token %}
               <div class="mb-3">
                 <div class="form-check">
-                  <input class="form-check-input" type="radio" name="vote_type" value="validate" id="validate">
+                  <input class="form-check-input" type="radio" name="vote_type" value="validate" id="validate"
+                         {% if user_review.vote_type == 'validate' %}checked{% endif %}>
                   <label class="form-check-label text-success" for="validate">
                     <i class="fas fa-check"></i> Approve - This information appears accurate
                   </label>
                 </div>
                 <div class="form-check">
-                  <input class="form-check-input" type="radio" name="vote_type" value="reject" id="reject">
+                  <input class="form-check-input" type="radio" name="vote_type" value="reject" id="reject"
+                         {% if user_review.vote_type == 'reject' %}checked{% endif %}>
                   <label class="form-check-label text-danger" for="reject">
                     <i class="fas fa-times"></i> Reject - This information seems inaccurate
                   </label>
@@ -214,17 +250,21 @@
               </div>
               <div class="mb-3">
                 <label for="comment" class="form-label text-light fw-semibold">
-                  <i class="fas fa-comment"></i> Your Detailed Feedback <span class="text-warning">(Required for detailed reviews)</span>
+                  <i class="fas fa-comment"></i> Your Detailed Feedback <span class="text-muted">(Optional)</span>
                 </label>
                 <textarea name="comment" id="comment" class="form-control bg-dark text-light" rows="4" 
-                  placeholder="Please explain your reasoning for this review. What makes this information accurate or inaccurate? Your feedback helps the community understand the quality of this research."
-                  required></textarea>
+                  placeholder="Please explain your reasoning for this review. What makes this information accurate or inaccurate? Your feedback helps the community understand the quality of this research.">{% if user_review.comment %}{{ user_review.comment }}{% endif %}</textarea>
                 <div class="form-text text-secondary">
                   Detailed feedback helps others understand your perspective and improves the overall quality of reviews.
                 </div>
               </div>
-              <button type="submit" class="btn btn-info w-100">
-                <i class="fas fa-paper-plane"></i> Submit Detailed Review
+              <button type="submit" class="btn btn-outline-secondary w-100">
+                <i class="fas fa-paper-plane"></i> 
+                {% if user_review %}
+                  Update Detailed Review
+                {% else %}
+                  Submit Detailed Review
+                {% endif %}
               </button>
             </form>
           </div>
@@ -254,29 +294,11 @@
                     </div>
                     <div class="text-light small">
                       <span class="badge bg-{{ snippet.confidence_color }}">
-                        {{ snippet.confidence_level }} Confidence
+                        {{ snippet.confidence_level|default:"Unknown" }} Confidence
                       </span>
                     </div>
                   </div>
                 </div>
-                
-                <!-- Quick Vote Buttons -->
-                {% if user.is_authenticated %}
-                  
-                {% elif user_review %}
-                  <div class="text-center mb-4">
-                    <div class="text-muted">
-                      {% if user_review.vote_type == 'validate' %}
-                        <i class="fas fa-thumbs-up text-success"></i> You approved this research
-                      {% else %}
-                        <i class="fas fa-thumbs-down text-danger"></i> You rejected this research
-                      {% endif %}
-                      {% if user_review.comment %}
-                        <div class="small mt-1">Your feedback: "{{ user_review.comment|truncatewords:10 }}"</div>
-                      {% endif %}
-                    </div>
-                  </div>
-                {% endif %}
               </div>
               
               <!-- Right Side: Pie Chart -->
@@ -354,7 +376,7 @@
                            placeholder="Add your thoughts, questions, or additional insights about this research..."
                            data-snippet-id="{{ snippet.id }}"></textarea>
                 </div>
-                <button class="btn btn-info submit-comment-btn" type="submit"
+                <button class="btn btn-outline-secondary submit-comment-btn" type="submit"
                         data-snippet-id="{{ snippet.id }}">
                   <i class="fas fa-paper-plane"></i> Post Comment
                 </button>
@@ -398,7 +420,7 @@
           <h6 class="mb-0 text-secondary"><i class="fas fa-link"></i> Related Research</h6>
         </div>
         <div class="card-body">
-          <a href="{% url 'research:compound_snippets' snippet.compound.slug %}" class="btn btn-outline-info btn-sm w-100 mb-2">
+          <a href="{% url 'research:compound_snippets' snippet.compound.slug %}" class="btn btn-sm btn-light w-100 mb-2">
             All {{ snippet.compound.name }} Research
           </a>
           <a href="{% url 'compound_detail' snippet.compound.slug %}" class="btn btn-outline-secondary btn-sm w-100">
@@ -411,18 +433,21 @@
 </div>
 
 <style>
+/* Component-specific overrides using design system variables */
 .review-comments {
   max-height: 400px;
   overflow-y: auto;
 }
 
 .review-comment {
-  border-left: 3px solid transparent;
+  border-left: 3px solid var(--accent-subtle);
   transition: all 0.2s ease;
+  background-color: var(--bg-tertiary) !important;
 }
 
 .review-comment:hover {
-  background-color: rgba(255, 255, 255, 0.05) !important;
+  background-color: var(--bg-interactive) !important;
+  border-left-color: var(--accent-primary);
 }
 
 .review-comment .badge {
@@ -436,24 +461,82 @@
 
 /* Enhanced form styling */
 #reviewForm textarea:focus {
-  border-color: #17a2b8;
-  box-shadow: 0 0 0 0.2rem rgba(23, 162, 184, 0.25);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.1);
+}
+
+/* Radio button styling */
+#reviewForm .form-check {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  background-color: var(--bg-tertiary);
+  cursor: pointer;
+}
+
+#reviewForm .form-check:hover {
+  background-color: var(--bg-interactive);
+  border-color: var(--accent-primary);
+}
+
+#reviewForm .form-check.selected {
+  background-color: var(--accent-subtle);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+#reviewForm .form-check-input {
+  background-color: var(--bg-primary);
+  border-color: var(--border-primary);
+  margin-top: 0.25rem;
 }
 
 #reviewForm .form-check-input:checked {
-  background-color: #17a2b8;
-  border-color: #17a2b8;
+  background-color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+#reviewForm .form-check-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+#reviewForm .form-check-label {
+  cursor: pointer;
+  font-weight: 500;
+  margin-left: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+#reviewForm .form-check.selected .form-check-label {
+  color: var(--text-primary);
+}
+
+/* Success/Danger specific styling */
+#reviewForm .form-check.selected.validate-option {
+  background-color: rgba(0, 255, 136, 0.1);
+  border-color: var(--success);
+  box-shadow: 0 0 0 2px rgba(0, 255, 136, 0.2);
+}
+
+#reviewForm .form-check.selected.reject-option {
+  background-color: rgba(255, 68, 68, 0.1);
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px rgba(255, 68, 68, 0.2);
 }
 
 /* Quick vote button styling */
 .quick-vote-btn {
   min-width: 120px;
   transition: all 0.2s ease;
+  font-weight: 500;
 }
 
 .quick-vote-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .quick-vote-btn:disabled {
@@ -461,10 +544,65 @@
   box-shadow: none;
 }
 
+.btn-outline-success {
+  color: var(--success) !important;
+  border-color: var(--success) !important;
+}
+
+.btn-outline-success:hover {
+  background-color: var(--success) !important;
+  border-color: var(--success) !important;
+  color: var(--bg-primary) !important;
+}
+
+.btn-outline-danger {
+  color: var(--danger) !important;
+  border-color: var(--danger) !important;
+}
+
+.btn-outline-danger:hover {
+  background-color: var(--danger) !important;
+  border-color: var(--danger) !important;
+  color: var(--bg-primary) !important;
+}
+
 /* Credibility score styling */
 .credibility-score {
-  background: linear-gradient(135deg, rgba(23, 162, 184, 0.1), rgba(23, 162, 184, 0.05));
-  border: 1px solid rgba(23, 162, 184, 0.3);
+  background: linear-gradient(135deg, rgba(0, 212, 170, 0.08), rgba(0, 212, 170, 0.04));
+  border: 1px solid var(--accent-subtle);
+  border-radius: 12px;
+}
+
+/* Comment section styling */
+.comment {
+  border-left: 3px solid #a3a3a3;
+  transition: all 0.2s ease;
+  background-color: var(--bg-tertiary) !important;
+}
+
+.comment:hover {
+  background-color: var(--bg-interactive) !important;
+  border-left-color: var(--accent-primary);
+}
+
+.comment-input {
+  border: 1px solid var(--border-primary);
+  resize: vertical;
+  min-height: 80px;
+  background-color: var(--bg-primary) !important;
+}
+
+.comment-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.1);
+}
+
+.submit-comment-btn {
+  transition: all 0.2s ease;
+}
+
+.submit-comment-btn:hover {
+  transform: translateY(-1px);
 }
 
 /* Pie chart container styling */
@@ -478,43 +616,75 @@
   gap: 1rem !important;
 }
 
-/* Comment section styling */
-.comment {
-  border-left: 3px solid rgba(23, 162, 184, 0.3);
-  transition: all 0.2s ease;
+/* Better spacing and typography */
+.card-header h6 {
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
-.comment:hover {
-  background-color: rgba(255, 255, 255, 0.05) !important;
-}
-
-.comment-input {
-  border: 1px solid #495057;
-  resize: vertical;
-  min-height: 80px;
-}
-
-.comment-input:focus {
-  border-color: #17a2b8;
-  box-shadow: 0 0 0 0.2rem rgba(23, 162, 184, 0.25);
-}
-
-.submit-comment-btn {
-  transition: all 0.2s ease;
-}
-
-.submit-comment-btn:hover {
-  transform: translateY(-1px);
+.text-center .text-muted {
+  color: var(--text-muted) !important;
 }
 </style>
 
+
 <script>
+// Radio button visual feedback
+document.addEventListener('DOMContentLoaded', function() {
+  const radioInputs = document.querySelectorAll('#reviewForm input[type="radio"]');
+  
+  // Initialize pre-selected radio buttons
+  radioInputs.forEach(input => {
+    if (input.checked) {
+      const parentCheck = input.closest('.form-check');
+      if (parentCheck) {
+        parentCheck.classList.add('selected');
+        
+        // Add specific class based on the selected option
+        if (input.value === 'validate') {
+          parentCheck.classList.add('validate-option');
+        } else if (input.value === 'reject') {
+          parentCheck.classList.add('reject-option');
+        }
+      }
+    }
+    
+    input.addEventListener('change', function() {
+      // Remove selected class from all form-check containers
+      document.querySelectorAll('#reviewForm .form-check').forEach(check => {
+        check.classList.remove('selected', 'validate-option', 'reject-option');
+      });
+      
+      // Add selected class to the parent form-check container
+      const parentCheck = this.closest('.form-check');
+      if (parentCheck) {
+        parentCheck.classList.add('selected');
+        
+        // Add specific class based on the selected option
+        if (this.value === 'validate') {
+          parentCheck.classList.add('validate-option');
+        } else if (this.value === 'reject') {
+          parentCheck.classList.add('reject-option');
+        }
+      }
+    });
+  });
+});
+
 // Quick vote functionality
 document.querySelectorAll('.quick-vote-btn').forEach(button => {
   button.addEventListener('click', function() {
     const voteType = this.dataset.vote;
+    const buttonText = this.textContent.trim();
     
-    if (!confirm(`Are you sure you want to ${voteType === 'validate' ? 'approve' : 'reject'} this research?`)) {
+    // Determine if this is a new vote or a change
+    const isChange = buttonText.includes('Change to');
+    const actionText = isChange ? 'change your vote to' : (voteType === 'validate' ? 'approve' : 'reject');
+    const confirmMessage = isChange 
+      ? `Are you sure you want to ${actionText} ${voteType === 'validate' ? 'approve' : 'reject'}?`
+      : `Are you sure you want to ${actionText} this research?`;
+    
+    if (!confirm(confirmMessage)) {
       return;
     }
     
@@ -525,6 +695,21 @@ document.querySelectorAll('.quick-vote-btn').forEach(button => {
     
     const originalText = this.innerHTML;
     this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
+    
+    // Debug: Check if CSRF token exists
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]');
+    console.log('CSRF token element:', csrfToken);
+    console.log('CSRF token value:', csrfToken ? csrfToken.value : 'NOT FOUND');
+    console.log('Vote type:', voteType);
+    
+    if (!csrfToken) {
+      alert('CSRF token not found. Please refresh the page and try again.');
+      this.innerHTML = originalText;
+      document.querySelectorAll('.quick-vote-btn').forEach(btn => {
+        btn.disabled = false;
+      });
+      return;
+    }
     
     fetch(`{% url 'research:submit_review' snippet.pk %}`, {
       method: 'POST',
@@ -537,14 +722,26 @@ document.querySelectorAll('.quick-vote-btn').forEach(button => {
         comment: '' // Quick votes don't require comments
       })
     })
-    .then(response => response.json())
+    .then(response => {
+      console.log('Response status:', response.status);
+      console.log('Response headers:', response.headers);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      return response.json();
+    })
     .then(data => {
+      console.log('Response data:', data);
       if (data.success) {
         // Show success message and refresh page
         const voteLabel = voteType === 'validate' ? 'approved' : 'rejected';
-        alert(`Thank you! You have ${voteLabel} this research.`);
+        const successMessage = isChange 
+          ? `Vote updated! You have now ${voteLabel} this research.`
+          : `Thank you! You have ${voteLabel} this research.`;
+        alert(successMessage);
         location.reload();
       } else {
+        console.error('Server returned error:', data.error);
         alert(data.error || 'Error submitting vote');
         // Re-enable buttons
         document.querySelectorAll('.quick-vote-btn').forEach(btn => {
@@ -554,8 +751,8 @@ document.querySelectorAll('.quick-vote-btn').forEach(button => {
       }
     })
     .catch(error => {
-      console.error('Error:', error);
-      alert('Error submitting vote');
+      console.error('Fetch error:', error);
+      alert('Error submitting vote: ' + error.message);
       // Re-enable buttons
       document.querySelectorAll('.quick-vote-btn').forEach(btn => {
         btn.disabled = false;
@@ -580,8 +777,9 @@ document.getElementById('reviewForm')?.addEventListener('submit', function(e) {
     return;
   }
   
-  if (!data.comment || data.comment.trim().length < 10) {
-    alert('Please provide meaningful feedback (at least 10 characters) to help the community understand your reasoning.');
+  // Comment is now optional - only validate if provided
+  if (data.comment && data.comment.trim().length > 0 && data.comment.trim().length < 5) {
+    alert('If providing feedback, please write at least 5 characters.');
     return;
   }
   
@@ -602,8 +800,13 @@ document.getElementById('reviewForm')?.addEventListener('submit', function(e) {
   .then(response => response.json())
   .then(data => {
     if (data.success) {
-      // Show success message and refresh page
-      alert('Thank you for your detailed review! Your feedback helps improve the quality of research on this platform.');
+      // Determine if this was an update or new review based on button text
+      const isUpdate = document.querySelector('#reviewForm button[type="submit"]').textContent.includes('Update');
+      const successMessage = isUpdate 
+        ? 'Your review has been updated successfully! Thank you for your continued feedback.'
+        : 'Thank you for your review! Your input helps improve the quality of research on this platform.';
+      
+      alert(successMessage);
       location.reload();
     } else {
       alert(data.error || 'Error submitting review');
@@ -662,7 +865,7 @@ document.querySelectorAll('.comment-form').forEach(form => {
         // Add new comment to the list
         const commentsList = document.querySelector(`.comments-list[data-snippet-id="${snippetId}"]`);
         const newComment = document.createElement('div');
-        newComment.className = 'comment mb-3 p-3 bg-dark rounded';
+        newComment.className = 'comment mb-3 p-3 rounded';
         newComment.innerHTML = `
           <div class="d-flex justify-content-between align-items-start">
             <strong class="text-info">${data.comment.author}</strong>
@@ -748,12 +951,12 @@ document.addEventListener('DOMContentLoaded', function() {
           datasets: [{
             data: [approveCount, rejectCount],
             backgroundColor: [
-              '#28a745', // Green for approve
-              '#dc3545'  // Red for reject
+              '#00c851', // Success green for approve
+              '#ff3547',  // Danger red for reject
             ],
             borderColor: [
-              '#1e7e34',
-              '#c82333'
+              '#00a843',
+              '#e62e3e'
             ],
             borderWidth: 2
           }]
@@ -766,6 +969,12 @@ document.addEventListener('DOMContentLoaded', function() {
               display: false // We'll show custom legend below
             },
             tooltip: {
+              backgroundColor: 'rgba(17, 17, 20, 0.95)',
+              titleColor: '#f0f0f2',
+              bodyColor: '#f0f0f2',
+              borderColor: '#252529',
+              borderWidth: 1,
+              cornerRadius: 8,
               callbacks: {
                 label: function(context) {
                   const label = context.label || '';

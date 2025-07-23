@@ -104,12 +104,6 @@ class Compound(models.Model):
         related_name='compounds',
         blank=True,
     )
-    image = models.ImageField(
-        upload_to='compound_images/',
-        blank=True,
-        null=True,
-        help_text="Optional image for this compound."
-    )
 
     def save(self, *args, **kwargs):
         if not self.slug:

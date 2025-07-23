@@ -266,7 +266,7 @@ def edit_snippet(request, pk):
 @require_POST
 def submit_review(request, pk):
     """
-    Submit a review/vote for a research snippet.
+    Submit or update a review/vote for a research snippet.
     """
     snippet = get_object_or_404(ResearchSnippet, pk=pk)
     
@@ -279,8 +279,6 @@ def submit_review(request, pk):
     
     # Check if user already reviewed
     existing_review = SnippetReview.objects.filter(snippet=snippet, reviewer=request.user).first()
-    if existing_review:
-        return JsonResponse({'error': 'You have already reviewed this snippet'}, status=400)
     
     try:
         data = json.loads(request.body)
@@ -290,13 +288,22 @@ def submit_review(request, pk):
         if vote_type not in ['validate', 'reject']:
             return JsonResponse({'error': 'Invalid vote type'}, status=400)
         
-        # Create review (comment is optional for quick votes)
-        review = SnippetReview.objects.create(
-            snippet=snippet,
-            reviewer=request.user,
-            vote_type=vote_type,
-            comment=comment
-        )
+        if existing_review:
+            # Update existing review
+            existing_review.vote_type = vote_type
+            existing_review.comment = comment
+            existing_review.save()
+            review = existing_review
+            action = 'updated'
+        else:
+            # Create new review
+            review = SnippetReview.objects.create(
+                snippet=snippet,
+                reviewer=request.user,
+                vote_type=vote_type,
+                comment=comment
+            )
+            action = 'created'
         
         # Update snippet status
         snippet.update_status()
@@ -311,6 +318,7 @@ def submit_review(request, pk):
         return JsonResponse({
             'success': True,
             'review_id': review.id,
+            'action': action,
             'new_status': snippet.status,
             'stats': stats,
             'confidence_level': snippet.confidence_level,

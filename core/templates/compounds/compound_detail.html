@@ -19,7 +19,7 @@
   }
 </style>
 
-<div class="card bg-neurobin-card text-light mx-auto my-5 shadow p-4"
+<div class="card bg-neurobin-card text-light mb-3 shadow p-3"
      style="max-width: 700px; width: 100%; border-radius: 10px;">
   <div class="card-body position-relative">
     <div class="row">
@@ -83,14 +83,14 @@
 </div>
 
 
-<div class="card bg-neurobin-card text-light mx-auto my-4 shadow p-4"
+<div class="card bg-neurobin-card text-light mb-3 shadow p-3"
      style="max-width: 700px; width: 100%; border-radius: 10px;">
   <div class="card-body">
     <h2 class="card-title">Effect Window</h2>
   </div>
 </div>
 
-<div class="card bg-neurobin-card text-light mx-auto my-4 shadow p-4"
+<div class="card bg-neurobin-card text-light mb-3 shadow p-3"
      style="max-width: 700px; width: 100%; border-radius: 10px;">
   <div class="card-body">
     <h2 class="card-title mb-4 text-white fw-semibold">
@@ -98,8 +98,11 @@
     </h2>
     
     {% if research_snippets %}
+      <div class="mb-3">
+        <a class="btn card btn-block btn-outline-secondary" href="{% url 'research:snippet_detail' research_snippets.0.id %}"> View All </a>
+      </div>
       {% for snippet in research_snippets %}
-        <div class="card bg-dark border-secondary mb-3" data-snippet-id="{{ snippet.id }}">
+        <div class="card border-secondary mb-3" style="background-color: #1a1a1a;" data-snippet-id="{{ snippet.id }}">
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-start mb-3">
               <div class="flex-grow-1">
