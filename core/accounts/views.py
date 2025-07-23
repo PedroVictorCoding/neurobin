@@ -130,3 +130,46 @@ def edit_profile(request):
     }
     
     return render(request, 'accounts/edit_profile.html', context)
+
+
+# REST Framework ViewSets
+from rest_framework import viewsets, permissions, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from django.contrib.auth.models import User
+from .serializers import UserSerializer, UserProfileSerializer
+
+
+class UserViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_field = 'username'
+
+    @action(detail=False, methods=['get'])
+    def me(self, request):
+        """Get current user's information"""
+        serializer = self.get_serializer(request.user)
+        return Response(serializer.data)
+
+
+class UserProfileViewSet(viewsets.ModelViewSet):
+    queryset = UserProfile.objects.all()
+    serializer_class = UserProfileSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        # Users can only access their own profile or view others if staff
+        if self.request.user.is_staff:
+            return UserProfile.objects.all()
+        return UserProfile.objects.filter(user=self.request.user)
+
+    @action(detail=False, methods=['get'])
+    def me(self, request):
+        """Get current user's profile"""
+        try:
+            profile = request.user.profile
+            serializer = self.get_serializer(profile)
+            return Response(serializer.data)
+        except UserProfile.DoesNotExist:
+            return Response({'detail': 'Profile not found'}, status=404)

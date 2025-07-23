@@ -297,3 +297,85 @@ def review_snippet(request, compound_slug, snippet_id):
             'error': str(e)
         })
 
+
+# REST Framework ViewSets
+from rest_framework import viewsets, permissions
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from .serializers import (
+    CompoundCategoriesSerializer,
+    TargetSerializer,
+    CompoundMechanismOfActionSerializer,
+    CompoundSerializer,
+    CompoundRatingSerializer,
+    CompoundSafetyScreeningSerializer
+)
+
+
+class CompoundCategoriesViewSet(viewsets.ModelViewSet):
+    queryset = CompoundCategories.objects.all()
+    serializer_class = CompoundCategoriesSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+
+class TargetViewSet(viewsets.ModelViewSet):
+    queryset = Target.objects.all()
+    serializer_class = TargetSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+
+class CompoundMechanismOfActionViewSet(viewsets.ModelViewSet):
+    queryset = CompoundMechanismOfAction.objects.all()
+    serializer_class = CompoundMechanismOfActionSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+
+class CompoundViewSet(viewsets.ModelViewSet):
+    queryset = Compound.objects.all()
+    serializer_class = CompoundSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    lookup_field = 'slug'
+
+    @action(detail=True, methods=['get'])
+    def ratings(self, request, slug=None):
+        compound = self.get_object()
+        ratings = CompoundRating.objects.filter(compound=compound)
+        serializer = CompoundRatingSerializer(ratings, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get'])
+    def safety_screening(self, request, slug=None):
+        compound = self.get_object()
+        try:
+            safety = compound.safety_screening
+            serializer = CompoundSafetyScreeningSerializer(safety)
+            return Response(serializer.data)
+        except CompoundSafetyScreening.DoesNotExist:
+            return Response({'detail': 'No safety screening data available'}, status=404)
+
+
+class CompoundRatingViewSet(viewsets.ModelViewSet):
+    queryset = CompoundRating.objects.all()
+    serializer_class = CompoundRatingSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = CompoundRating.objects.all()
+        compound_id = self.request.query_params.get('compound', None)
+        if compound_id is not None:
+            queryset = queryset.filter(compound_id=compound_id)
+        return queryset
+
+
+class CompoundSafetyScreeningViewSet(viewsets.ModelViewSet):
+    queryset = CompoundSafetyScreening.objects.all()
+    serializer_class = CompoundSafetyScreeningSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = CompoundSafetyScreening.objects.all()
+        compound_id = self.request.query_params.get('compound', None)
+        if compound_id is not None:
+            queryset = queryset.filter(compound_id=compound_id)
+        return queryset
+

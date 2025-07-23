@@ -15,6 +15,7 @@ from .models import (
     ResearchSnippet, 
     SnippetReview, 
     SnippetTag, 
+    SnippetTagging,
     SnippetComment,
     ResearchSettings,
     UserRole
@@ -685,3 +686,142 @@ def add_snippet_comment(request, pk):
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+
+
+# REST Framework ViewSets
+from rest_framework import viewsets, permissions, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from django.db.models import Count, Q
+from .serializers import (
+    ResearchSnippetSerializer,
+    SnippetReviewSerializer,
+    SnippetTagSerializer,
+    SnippetTaggingSerializer,
+    UserRoleSerializer,
+    ResearchSettingsSerializer,
+    SnippetCommentSerializer
+)
+
+
+class ResearchSnippetViewSet(viewsets.ModelViewSet):
+    serializer_class = ResearchSnippetSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    lookup_field = 'id'
+
+    def get_queryset(self):
+        queryset = ResearchSnippet.objects.select_related('compound', 'created_by').prefetch_related('tags', 'reviews', 'comments')
+        
+        # Apply visibility permissions
+        if self.request.user.is_authenticated:
+            if self.request.user.is_staff:
+                # Staff can see all snippets
+                pass
+            else:
+                # Regular users see public snippets + their own drafts
+                queryset = queryset.filter(
+                    Q(visibility='public') |
+                    Q(created_by=self.request.user, visibility='draft')
+                )
+        else:
+            # Anonymous users only see public snippets
+            queryset = queryset.filter(visibility='public')
+            
+        # Filter by compound if specified
+        compound_id = self.request.query_params.get('compound', None)
+        if compound_id:
+            queryset = queryset.filter(compound_id=compound_id)
+            
+        # Filter by status if specified
+        status_filter = self.request.query_params.get('status', None)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+            
+        return queryset.order_by('-created_at')
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def increment_view(self, request, id=None):
+        """Increment view count for snippet"""
+        snippet = self.get_object()
+        snippet.view_count += 1
+        snippet.save()
+        return Response({'view_count': snippet.view_count})
+
+    @action(detail=True, methods=['get'])
+    def analytics(self, request, id=None):
+        """Get analytics data for snippet"""
+        snippet = self.get_object()
+        reviews = snippet.reviews.aggregate(
+            positive=Count('id', filter=Q(vote_type='validate')),
+            negative=Count('id', filter=Q(vote_type='reject'))
+        )
+        
+        analytics_data = {
+            'view_count': snippet.view_count,
+            'positive_reviews': reviews['positive'] or 0,
+            'negative_reviews': reviews['negative'] or 0,
+            'confidence_level': snippet.confidence_level,
+            'comment_count': snippet.comments.count(),
+        }
+        
+        return Response(analytics_data)
+
+
+class SnippetReviewViewSet(viewsets.ModelViewSet):
+    queryset = SnippetReview.objects.all()
+    serializer_class = SnippetReviewSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = SnippetReview.objects.select_related('snippet', 'reviewer')
+        snippet_id = self.request.query_params.get('snippet', None)
+        if snippet_id:
+            queryset = queryset.filter(snippet_id=snippet_id)
+        return queryset.order_by('-created_at')
+
+
+class SnippetTagViewSet(viewsets.ModelViewSet):
+    queryset = SnippetTag.objects.all()
+    serializer_class = SnippetTagSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+
+class SnippetTaggingViewSet(viewsets.ModelViewSet):
+    queryset = SnippetTagging.objects.all()
+    serializer_class = SnippetTaggingSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = SnippetTagging.objects.select_related('snippet', 'tag', 'tagged_by')
+        snippet_id = self.request.query_params.get('snippet', None)
+        if snippet_id:
+            queryset = queryset.filter(snippet_id=snippet_id)
+        return queryset.order_by('-created_at')
+
+
+class UserRoleViewSet(viewsets.ModelViewSet):
+    queryset = UserRole.objects.all()
+    serializer_class = UserRoleSerializer
+    permission_classes = [permissions.IsAdminUser]
+
+
+class ResearchSettingsViewSet(viewsets.ModelViewSet):
+    queryset = ResearchSettings.objects.all()
+    serializer_class = ResearchSettingsSerializer
+    permission_classes = [permissions.IsAdminUser]
+
+
+class SnippetCommentViewSet(viewsets.ModelViewSet):
+    queryset = SnippetComment.objects.all()
+    serializer_class = SnippetCommentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = SnippetComment.objects.select_related('snippet', 'author')
+        snippet_id = self.request.query_params.get('snippet', None)
+        if snippet_id:
+            queryset = queryset.filter(snippet_id=snippet_id)
+        return queryset.order_by('-created_at')

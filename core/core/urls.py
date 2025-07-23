@@ -18,7 +18,12 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
 from . import views
+from .api_views import api_root
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -28,6 +33,19 @@ urlpatterns = [
     path('logs/', include('logs.urls')),
     path('intake/', include('logs.urls')),
     path('research/', include('research.urls')),
+    
+    # API Root
+    path('api/', api_root, name='api_root'),
+    
+    # API URLs
+    path('api/compounds/', include('compounds.api_urls')),
+    path('api/accounts/', include('accounts.api_urls')),
+    path('api/logs/', include('logs.api_urls')),
+    path('api/research/', include('research.api_urls')),
+    
+    # JWT Authentication
+    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 ]
 
 # Serve static files during development

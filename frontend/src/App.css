@@ -1,0 +1,203 @@
+/* Neurobin Theme Variables */
+:root {
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #2a2a2a;
+  --bg-tertiary: #3a3a3a;
+  --text-primary: #ffffff;
+  --text-secondary: #b0b0b0;
+  --text-muted: #6c757d;
+  --border-primary: #444444;
+  --border-secondary: #555555;
+  --accent-color: #17a2b8;
+  --accent-hover: #138496;
+  --success-color: #28a745;
+  --warning-color: #ffc107;
+  --danger-color: #dc3545;
+}
+
+/* Global Styles */
+body {
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+/* Neurobin Component Classes */
+.bg-neurobin-dark { 
+  background-color: var(--bg-secondary) !important; 
+}
+
+.bg-neurobin-card {
+  background-color: var(--bg-secondary) !important;
+  border: 1px solid var(--border-primary) !important;
+  border-radius: 12px !important;
+  max-width: 700px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border-primary);
+  position: relative;
+  z-index: 1;
+}
+
+/* Override Bootstrap dark theme */
+.card.bg-dark {
+  background-color: var(--bg-secondary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+.form-control.bg-dark {
+  background-color: var(--bg-secondary) !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+.form-control.bg-dark:focus {
+  background-color: var(--bg-secondary) !important;
+  border-color: var(--accent-color) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 0 0 0.2rem rgba(23, 162, 184, 0.25);
+}
+
+/* Navbar Styling */
+.navbar.bg-neurobin-dark {
+  background-color: var(--bg-secondary) !important;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.navbar-brand {
+  color: var(--text-primary) !important;
+  font-weight: 700 !important;
+}
+
+/* Button Styles */
+.btn-outline-secondary {
+  color: var(--text-primary) !important;
+  border-color: var(--border-primary) !important;
+  background: transparent !important;
+}
+
+.btn-outline-secondary:hover {
+  background-color: var(--bg-tertiary) !important;
+  border-color: var(--border-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Dropdown Styles */
+.dropdown-menu-dark {
+  background-color: var(--bg-secondary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+.dropdown-item {
+  color: var(--text-secondary) !important;
+}
+
+.dropdown-item:hover {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+}
+
+.dropdown-header {
+  color: var(--text-primary) !important;
+  font-weight: 600 !important;
+}
+
+/* Badge Styles */
+.badge.bg-secondary {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Alert Styles */
+.alert-warning {
+  background-color: rgba(255, 193, 7, 0.1) !important;
+  border-color: var(--warning-color) !important;
+  color: var(--warning-color) !important;
+}
+
+.alert-danger {
+  background-color: rgba(220, 53, 69, 0.1) !important;
+  border-color: var(--danger-color) !important;
+  color: var(--danger-color) !important;
+}
+
+/* Spinner */
+.spinner-border.text-light {
+  color: var(--text-primary) !important;
+}
+
+/* Text Colors */
+.text-light {
+  color: var(--text-primary) !important;
+}
+
+.text-secondary {
+  color: var(--text-secondary) !important;
+}
+
+.text-muted {
+  color: var(--text-muted) !important;
+}
+
+.text-info {
+  color: var(--accent-color) !important;
+}
+
+/* Link Styles */
+a.text-info {
+  color: var(--accent-color) !important;
+  text-decoration: none;
+}
+
+a.text-info:hover {
+  color: var(--accent-hover) !important;
+  text-decoration: underline;
+}
+
+/* Molecule Viewer Placeholder */
+.molecule-viewer {
+  background-color: var(--bg-primary);
+  border-radius: 8px;
+}
+
+/* Mobile Navigation */
+.mobile-nav-content .list-group-item {
+  background-color: var(--bg-secondary) !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+.mobile-nav-content .list-group-item:hover {
+  background-color: var(--bg-tertiary) !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+/* Form Controls */
+.form-control:focus {
+  box-shadow: 0 0 0 0.2rem rgba(23, 162, 184, 0.25);
+  border-color: var(--accent-color);
+}
+
+/* Loading States */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
