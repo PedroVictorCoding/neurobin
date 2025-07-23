@@ -20,7 +20,10 @@
       </div>
       <div class="mb-3 text-start">
         <label class="form-label text-light" for="id_taken_at">Taken at</label>
-        {{ form.taken_at }}
+        <input type="datetime-local" name="taken_at" id="id_taken_at" class="form-control"
+          {% if form.taken_at.value %}
+        value="{{ form.taken_at.value|date:'Y-m-d\\TH:i' }}"
+          {% endif %}>
       </div>
       <div class="mb-3 text-start">
         <label class="form-label text-light" for="id_notes">Notes</label>

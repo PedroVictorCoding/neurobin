@@ -26,7 +26,7 @@
       <div class="mb-3">
         <label for="{{ field.id_for_label }}" class="form-label text-light mb-0">
           {{ field.label }}{% if field.field.required %}*{% endif %}
-                    {% if field.name == 'mechanism_of_action' %}
+          {% if field.name == 'mechanism_of_action' %}
             <button type="button" class="btn btn-sm btn-outline-info ms-2" data-bs-toggle="modal" data-bs-target="#addMechanismModal">
               <i class="fas fa-plus"></i> Add New
             </button>
@@ -587,19 +587,7 @@ function refreshMechanismsList(newMechanismId) {
     fetch('/compounds/api/mechanisms/')
     .then(response => response.json())
     .then(data => {
-        // Find the mechanism checkbox container (it's the div with bg-dark class containing the checkboxes)
-        const mechanismField = document.querySelector('input[name="mechanism_of_action"]');
-        if (!mechanismField) {
-            console.error('Mechanism field not found');
-            return;
-        }
-        
-        const mechanismContainer = mechanismField.closest('div.bg-dark');
-        if (!mechanismContainer) {
-            console.error('Mechanism container not found');
-            return;
-        }
-        
+        const mechanismContainer = document.querySelector('input[name="mechanism_of_action"]').closest('div');
         mechanismContainer.innerHTML = '';
         
         data.forEach(mechanism => {
@@ -626,19 +614,7 @@ function refreshCategoriesList(newCategoryId) {
     fetch('/compounds/api/categories/')
     .then(response => response.json())
     .then(data => {
-        // Find the categories checkbox container (it's the div with bg-dark class containing the checkboxes)
-        const categoryField = document.querySelector('input[name="categories"]');
-        if (!categoryField) {
-            console.error('Categories field not found');
-            return;
-        }
-        
-        const categoryContainer = categoryField.closest('div.bg-dark');
-        if (!categoryContainer) {
-            console.error('Categories container not found');
-            return;
-        }
-        
+        const categoryContainer = document.querySelector('input[name="categories"]').closest('div');
         categoryContainer.innerHTML = '';
         
         data.forEach(category => {

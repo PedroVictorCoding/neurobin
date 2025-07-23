@@ -1,0 +1,945 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ compound.name }} - Compound Details{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mt-4 mb-4">
+  <div>
+    <div class="d-flex align-items-center mb-2">
+      <h1 class="text-light" id="compoundName">{{ compound.name }}</h1>
+      {% if user.is_staff %}
+        <button class="btn btn-sm btn-outline-secondary ms-3" id="editNameBtn">
+          <i class="fas fa-edit"></i> Edit Name
+        </button>
+      {% endif %}
+    </div>
+    <p class="text-muted mb-0">Compound Details</p>
+  </div>
+  <a href="{% url 'compounds_list' %}" class="btn btn-outline-light">
+    <i class="fas fa-arrow-left me-2"></i>Back to Compounds
+  </a>
+</div>
+
+<!-- Image Section -->
+{% if compound.image %}
+<div class="card bg-neurobin-card text-light mb-4 shadow">
+  <div class="card-body text-center">
+    <img src="{{ compound.image.url }}" alt="{{ compound.name }}" class="img-fluid rounded shadow" style="max-height: 300px;">
+  </div>
+</div>
+{% endif %}
+
+<!-- Main Content Row -->
+<div class="row">
+  <!-- Left Column - Main Details -->
+  <div class="col-lg-8">
+    <!-- Basic Information -->
+    <div class="card bg-neurobin-card text-light mb-4 shadow">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h3 class="card-title mb-0">
+            <i class="fas fa-flask me-2"></i>Basic Information
+          </h3>
+        </div>
+        
+        <!-- Description -->
+        <div class="row mb-3">
+          <div class="col-sm-3"><strong>Description:</strong></div>
+          <div class="col-sm-9">
+            <span id="compoundDescription">{{ compound.description|default:"No description available." }}</span>
+            {% if user.is_staff %}
+              <button class="btn btn-sm btn-outline-secondary ms-2" id="editDescBtn">
+                <i class="fas fa-edit"></i>
+              </button>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Categories -->
+        <div class="row mb-3">
+          <div class="col-sm-3"><strong>Categories:</strong></div>
+          <div class="col-sm-9">
+            <div id="categoryDisplay">
+              {% if compound.categories.all %}
+                {% for category in compound.categories.all %}
+                  <span class="badge rounded-pill bg-secondary text-light me-2 mb-2">{{ category.name }}</span>
+                {% endfor %}
+              {% else %}
+                <p class="text-muted"><em>No categories assigned yet.</em></p>
+              {% endif %}
+            </div>
+            {% if user.is_staff %}
+              <button class="btn btn-sm btn-outline-secondary mt-2" id="editCategoriesBtn">
+                <i class="fas fa-edit me-1"></i>Edit Categories
+              </button>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- User Rating -->
+        <div class="row mb-3">
+          <div class="col-sm-3"><strong>Your Rating:</strong></div>
+          <div class="col-sm-9">
+            <div class="rating-display">
+              {% for i in "12345" %}
+                <span class="star {% if user_rating >= forloop.counter %}filled{% endif %} fs-4 me-1" 
+                      data-rating="{{ forloop.counter }}" style="cursor: pointer;">★</span>
+              {% endfor %}
+              <span class="ms-2 text-muted">
+                {% if user_rating %}({{ user_rating }}/5){% else %}(Not rated){% endif %}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mechanisms of Action -->
+    <div class="card bg-neurobin-card text-light mb-4 shadow">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h3 class="card-title mb-0">
+            <i class="fas fa-cogs me-2"></i>Mechanisms of Action
+          </h3>
+          {% if user.is_staff %}
+            <button class="btn btn-sm btn-outline-secondary" id="addMechanismBtn">
+              <i class="fas fa-plus me-1"></i>Add Mechanism
+            </button>
+          {% endif %}
+        </div>
+        
+        {% if compound.mechanisms.all %}
+          {% for mechanism in compound.mechanisms.all %}
+            <div class="mechanism-item border-bottom border-secondary pb-3 mb-3">
+              <div class="d-flex justify-content-between align-items-start">
+                <div>
+                  <h5 class="text-light">{{ mechanism.target_name }}</h5>
+                  <p class="text-muted mb-1">
+                    {% if mechanism.target_type %}{{ mechanism.get_target_type_display }}{% endif %}
+                    {% if mechanism.target_interaction %} • {{ mechanism.get_target_interaction_display }}{% endif %}
+                  </p>
+                  {% if mechanism.description %}
+                    <p class="text-light-secondary">{{ mechanism.description }}</p>
+                  {% endif %}
+                </div>
+                {% if user.is_staff %}
+                  <button class="btn btn-sm btn-outline-danger" onclick="deleteMechanism(this)" data-mechanism-id="{{ mechanism.id }}">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <p class="text-muted"><em>No mechanisms of action recorded yet.</em></p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Effect Windows -->
+    <div class="card bg-neurobin-card text-light mb-4 shadow">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h3 class="card-title mb-0">
+            <i class="fas fa-chart-line me-2"></i>Effect Windows
+          </h3>
+          {% if user.is_staff %}
+            <button class="btn btn-sm btn-outline-secondary" id="addEffectWindowBtn">
+              <i class="fas fa-plus me-1"></i>Add Effect Window
+            </button>
+          {% endif %}
+        </div>
+        
+        {% if compound.effect_windows.all %}
+          <div class="effect-windows-container">
+            <!-- Effect windows will be displayed here -->
+            {% for window in compound.effect_windows.all %}
+              <div class="effect-window-item border border-secondary rounded p-3 mb-3">
+                <h6>{{ window.effect_shape|title }} Curve</h6>
+                <div class="row">
+                  <div class="col-md-3">
+                    <small class="text-muted">Onset:</small><br>
+                    <span class="text-light">{{ window.onset_minutes }} min</span>
+                  </div>
+                  <div class="col-md-3">
+                    <small class="text-muted">Duration:</small><br>
+                    <span class="text-light">{{ window.duration_minutes }} min</span>
+                  </div>
+                  <div class="col-md-3">
+                    <small class="text-muted">Peak:</small><br>
+                    <span class="text-light">{{ window.peak_min_minutes }}-{{ window.peak_max_minutes }} min</span>
+                  </div>
+                  {% if window.half_life_minutes %}
+                  <div class="col-md-3">
+                    <small class="text-muted">Half-life:</small><br>
+                    <span class="text-light">{{ window.half_life_minutes }} min</span>
+                  </div>
+                  {% endif %}
+                </div>
+                {% if window.notes %}
+                  <div class="mt-2">
+                    <small class="text-muted">Notes:</small><br>
+                    <span class="text-light-secondary">{{ window.notes }}</span>
+                  </div>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+          {% if user.is_staff %}
+            <button class="btn btn-outline-secondary mt-2" id="addEffectWindowBtn2">
+              <i class="fas fa-plus me-1"></i>Add Another Effect Window
+            </button>
+          {% endif %}
+        {% else %}
+          <p class="text-muted"><em>No effect windows recorded yet.</em></p>
+          {% if user.is_staff %}
+            <button class="btn btn-outline-secondary" id="addEffectWindowBtn2">
+              <i class="fas fa-plus me-1"></i>Add Effect Window
+            </button>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Column - Additional Info -->
+  <div class="col-lg-4">
+    <!-- Quick Stats -->
+    <div class="card bg-neurobin-card text-light mb-4 shadow">
+      <div class="card-body">
+        <h4 class="card-title mb-3">
+          <i class="fas fa-chart-bar me-2"></i>Quick Stats
+        </h4>
+        <div class="stat-item d-flex justify-content-between mb-2">
+          <span>Average Rating:</span>
+          <span class="fw-bold">{{ compound.average_rating|floatformat:1|default:"N/A" }}</span>
+        </div>
+        <div class="stat-item d-flex justify-content-between mb-2">
+          <span>Total Reviews:</span>
+          <span class="fw-bold">{{ compound.total_reviews|default:"0" }}</span>
+        </div>
+        <div class="stat-item d-flex justify-content-between mb-2">
+          <span>Mechanisms:</span>
+          <span class="fw-bold">{{ compound.mechanisms.count }}</span>
+        </div>
+        <div class="stat-item d-flex justify-content-between">
+          <span>Effect Windows:</span>
+          <span class="fw-bold">{{ compound.effect_windows.count }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Safety Information -->
+    {% if compound.safety_screening %}
+    <div class="card bg-neurobin-card text-light mb-4 shadow">
+      <div class="card-body">
+        <h4 class="card-title mb-3">
+          <i class="fas fa-shield-alt me-2"></i>Safety Information
+        </h4>
+        {% if compound.safety_screening.neurotoxicity %}
+          <div class="alert alert-warning" role="alert">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            Potential neurotoxicity concerns
+          </div>
+        {% endif %}
+        {% if compound.safety_screening.cardiotoxicity %}
+          <div class="alert alert-danger" role="alert">
+            <i class="fas fa-heart me-2"></i>
+            Potential cardiotoxicity concerns
+          </div>
+        {% endif %}
+        {% if compound.safety_screening.hepatotoxicity %}
+          <div class="alert alert-warning" role="alert">
+            <i class="fas fa-liver me-2"></i>
+            Potential hepatotoxicity concerns
+          </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Reviews Section -->
+<div class="card bg-neurobin-card text-light mb-4 shadow">
+  <div class="card-body">
+    <h3 class="card-title mb-4">
+      <i class="fas fa-comments me-2"></i>User Reviews
+    </h3>
+    
+    {% if user.is_authenticated %}
+      <!-- Review Form -->
+      <form id="reviewForm" class="mb-4">
+        <div class="mb-3">
+          <label for="reviewText" class="form-label">Write a review:</label>
+          <textarea class="form-control bg-dark text-light border-secondary" 
+                    id="reviewText" name="review_text" rows="4" 
+                    placeholder="Share your experience with this compound..."></textarea>
+        </div>
+        <button type="submit" class="btn btn-outline-secondary">
+          <i class="fas fa-paper-plane me-1"></i>Submit Review
+        </button>
+      </form>
+    {% endif %}
+
+    <!-- Existing Reviews -->
+    <div id="reviewsList">
+      {% for review in compound.reviews.all %}
+        <div class="review-item border-bottom border-secondary pb-3 mb-3">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+              <strong class="text-light">{{ review.user.username }}</strong>
+              <div class="rating-display">
+                {% for i in "12345" %}
+                  <span class="star {% if review.rating >= forloop.counter %}filled{% endif %}">★</span>
+                {% endfor %}
+                <span class="ms-2 text-muted">({{ review.rating }}/5)</span>
+              </div>
+            </div>
+            <small class="text-muted">{{ review.created_at|date:"M d, Y" }}</small>
+          </div>
+          <p class="text-light-secondary mb-0">{{ review.review_text }}</p>
+        </div>
+      {% empty %}
+        <p class="text-muted"><em>No reviews yet. Be the first to review this compound!</em></p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- JavaScript for interactivity -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Rating system
+  const stars = document.querySelectorAll('.rating-display .star');
+  const compoundId = {{ compound.id }};
+
+  stars.forEach(star => {
+    star.addEventListener('click', function() {
+      const rating = parseInt(this.getAttribute('data-rating'));
+      submitRating(rating);
+    });
+  });
+
+  async function submitRating(rating) {
+    try {
+      const response = await fetch('/api/compounds/compound/' + compoundId + '/rate/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCsrfToken()
+        },
+        body: JSON.stringify({ rating: rating })
+      });
+
+      if (response.ok) {
+        updateStars(rating);
+        alert('Rating submitted successfully!');
+      } else {
+        alert('Failed to submit rating');
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      alert('Failed to submit rating');
+    }
+  }
+
+  function updateStars(rating) {
+    stars.forEach((star, index) => {
+      if (index < rating) {
+        star.classList.add('filled');
+      } else {
+        star.classList.remove('filled');
+      }
+    });
+  }
+
+  // Review form submission
+  const reviewForm = document.getElementById('reviewForm');
+  if (reviewForm) {
+    reviewForm.addEventListener('submit', async function(e) {
+      e.preventDefault();
+      
+      const reviewText = document.getElementById('reviewText').value.trim();
+      if (!reviewText) {
+        alert('Please write a review');
+        return;
+      }
+
+      const submitBtn = this.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      
+      try {
+        const response = await fetch('/api/compounds/compound/' + compoundId + '/review/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken()
+          },
+          body: JSON.stringify({ review_text: reviewText })
+        });
+
+        if (response.ok) {
+          document.getElementById('reviewText').value = '';
+          alert('Review submitted successfully!');
+          location.reload(); // Reload to show new review
+        } else {
+          alert('Failed to submit review');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        alert('An error occurred while submitting your review');
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  }
+
+  function getCsrfToken() {
+    return document.querySelector('[name=csrfmiddlewaretoken]')?.value || 
+           document.querySelector('meta[name=csrf-token]')?.getAttribute('content') || '';
+  }
+});
+</script>
+
+{% if user.is_staff %}
+<script>
+// Clean admin editing functionality
+document.addEventListener('DOMContentLoaded', function() {
+    const compoundId = {{ compound.id }};
+    
+    // Event listeners for admin buttons
+    document.getElementById('editNameBtn')?.addEventListener('click', showEditNameModal);
+    document.getElementById('editDescBtn')?.addEventListener('click', showEditDescriptionModal);
+    document.getElementById('addMechanismBtn')?.addEventListener('click', showMechanismModal);
+    document.getElementById('editCategoriesBtn')?.addEventListener('click', showEditCategoriesModal);
+    document.getElementById('addEffectWindowBtn')?.addEventListener('click', showEffectWindowModal);
+    document.getElementById('addEffectWindowBtn2')?.addEventListener('click', showEffectWindowModal);
+    
+    // Modal creation functions
+    function showEditNameModal() {
+        const modal = createEditNameModal();
+        document.body.appendChild(modal);
+        modal.style.display = 'block';
+    }
+    
+    function createEditNameModal() {
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.style.backgroundColor = 'rgba(0,0,0,0.8)';
+        modal.innerHTML = `
+            <div class="modal-dialog">
+                <div class="modal-content bg-dark text-light">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Edit Compound Name</h5>
+                        <button type="button" class="btn-close btn-close-white" onclick="this.closest('.modal').remove()"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="editNameForm">
+                            <div class="mb-3">
+                                <label class="form-label">Compound Name</label>
+                                <input type="text" class="form-control edit-field" name="name" value="${document.getElementById('compoundName').textContent.trim()}" required>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="saveCompoundName(this)">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        return modal;
+    }
+    
+    function showEditDescriptionModal() {
+        const modal = createEditDescriptionModal();
+        document.body.appendChild(modal);
+        modal.style.display = 'block';
+    }
+    
+    function createEditDescriptionModal() {
+        const currentDesc = document.getElementById('compoundDescription').textContent.trim();
+        const descToEdit = currentDesc === 'No description available.' ? '' : currentDesc;
+        
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.style.backgroundColor = 'rgba(0,0,0,0.8)';
+        modal.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content bg-dark text-light">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Edit Compound Description</h5>
+                        <button type="button" class="btn-close btn-close-white" onclick="this.closest('.modal').remove()"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="editDescForm">
+                            <div class="mb-3">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control edit-field" name="description" rows="6" placeholder="Enter compound description...">${descToEdit}</textarea>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="saveCompoundDescription(this)">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        return modal;
+    }
+    
+    function showEditCategoriesModal() {
+        const modal = createEditCategoriesModal();
+        document.body.appendChild(modal);
+        modal.style.display = 'block';
+        loadCategoriesForModal();
+    }
+    
+    function createEditCategoriesModal() {
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.style.backgroundColor = 'rgba(0,0,0,0.8)';
+        modal.innerHTML = `
+            <div class="modal-dialog">
+                <div class="modal-content bg-dark text-light">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Edit Categories</h5>
+                        <button type="button" class="btn-close btn-close-white" onclick="this.closest('.modal').remove()"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="editCategoriesForm">
+                            <div class="mb-3">
+                                <label class="form-label">Categories</label>
+                                <select class="form-control edit-field" id="modalCategorySelect" name="categories" multiple size="8">
+                                    <option disabled>Loading categories...</option>
+                                </select>
+                                <small class="form-text text-muted">Hold Ctrl (Cmd on Mac) to select multiple categories</small>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="saveCompoundCategories(this)">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        return modal;
+    }
+    
+    function showMechanismModal() {
+        const modal = createMechanismModal();
+        document.body.appendChild(modal);
+        modal.style.display = 'block';
+    }
+    
+    function createMechanismModal() {
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.style.backgroundColor = 'rgba(0,0,0,0.8)';
+        modal.innerHTML = `
+            <div class="modal-dialog">
+                <div class="modal-content bg-dark text-light">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Add Mechanism of Action</h5>
+                        <button type="button" class="btn-close btn-close-white" onclick="this.closest('.modal').remove()"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="mechanismForm">
+                            <div class="mb-3">
+                                <label class="form-label">Target Name</label>
+                                <input type="text" class="form-control edit-field" name="target_name" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Target Type</label>
+                                <select class="form-control edit-field" name="target_type">
+                                    <option value="">Select type...</option>
+                                    <option value="receptor">Receptor</option>
+                                    <option value="enzyme">Enzyme</option>
+                                    <option value="transporter">Transporter</option>
+                                    <option value="ion_channel">Ion Channel</option>
+                                    <option value="protein">Protein</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Interaction</label>
+                                <select class="form-control edit-field" name="target_interaction">
+                                    <option value="">Select interaction...</option>
+                                    <option value="agonist">Agonist</option>
+                                    <option value="antagonist">Antagonist</option>
+                                    <option value="partial_agonist">Partial Agonist</option>
+                                    <option value="inverse_agonist">Inverse Agonist</option>
+                                    <option value="pam">Positive Allosteric Modulator</option>
+                                    <option value="nam">Negative Allosteric Modulator</option>
+                                    <option value="binder">Binder</option>
+                                    <option value="inhibitor">Inhibitor</option>
+                                    <option value="activator">Activator</option>
+                                    <option value="upregulator">Upregulator</option>
+                                    <option value="downregulator">Downregulator</option>
+                                    <option value="unknown">Unknown</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Description (optional)</label>
+                                <textarea class="form-control edit-field" name="description" rows="3"></textarea>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="saveMechanism(this)">Save Mechanism</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        return modal;
+    }
+    
+    function showEffectWindowModal() {
+        const modal = createEffectWindowModal();
+        document.body.appendChild(modal);
+        modal.style.display = 'block';
+    }
+    
+    function createEffectWindowModal() {
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.style.backgroundColor = 'rgba(0,0,0,0.8)';
+        modal.innerHTML = `
+            <div class="modal-dialog">
+                <div class="modal-content bg-dark text-light">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Add Effect Window</h5>
+                        <button type="button" class="btn-close btn-close-white" onclick="this.closest('.modal').remove()"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="effectWindowForm">
+                            <div class="mb-3">
+                                <label class="form-label">Effect Shape</label>
+                                <select class="form-control edit-field" name="effect_shape" required>
+                                    <option value="bell">Bell Curve</option>
+                                    <option value="ramp">Ramp</option>
+                                    <option value="flat-top">Flat Top</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Onset (minutes)</label>
+                                        <input type="number" class="form-control edit-field" name="onset_minutes" min="0" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Duration (minutes)</label>
+                                        <input type="number" class="form-control edit-field" name="duration_minutes" min="1" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Peak Start (minutes)</label>
+                                        <input type="number" class="form-control edit-field" name="peak_min_minutes" min="0" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Peak End (minutes)</label>
+                                        <input type="number" class="form-control edit-field" name="peak_max_minutes" min="0" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Half-life (minutes, optional)</label>
+                                <input type="number" class="form-control edit-field" name="half_life_minutes" min="1">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Notes (optional)</label>
+                                <textarea class="form-control edit-field" name="notes" rows="3"></textarea>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="saveEffectWindow(this)">Save Effect Window</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        return modal;
+    }
+    
+    // Helper functions
+    async function loadCategoriesForModal() {
+        try {
+            const [categoriesResponse, compoundResponse] = await Promise.all([
+                fetch('/api/compounds/compoundcategories/'),
+                fetch('/api/compounds/compound/' + compoundId + '/')
+            ]);
+            
+            const categories = await categoriesResponse.json();
+            const compoundData = await compoundResponse.json();
+            const select = document.getElementById('modalCategorySelect');
+            
+            select.innerHTML = '';
+            categories.results?.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat.id;
+                option.textContent = cat.name;
+                
+                if (compoundData.categories && compoundData.categories.includes(cat.id)) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading categories:', error);
+            const select = document.getElementById('modalCategorySelect');
+            select.innerHTML = '<option disabled>Error loading categories</option>';
+        }
+    }
+    
+    function getCsrfToken() {
+        return document.querySelector('[name=csrfmiddlewaretoken]')?.value || 
+               document.querySelector('meta[name=csrf-token]')?.getAttribute('content') || '';
+    }
+});
+
+// Global functions (outside DOMContentLoaded so they can be called from onclick)
+async function saveCompoundName(button) {
+    const form = document.getElementById('editNameForm');
+    const formData = new FormData(form);
+    const newName = formData.get('name').trim();
+    
+    if (!newName) {
+        alert('Name is required');
+        return;
+    }
+    
+    try {
+        const compoundId = {{ compound.id }};
+        const response = await fetch('/api/compounds/compound/' + compoundId + '/', {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify({ name: newName })
+        });
+        
+        if (response.ok) {
+            document.getElementById('compoundName').textContent = newName;
+            button.closest('.modal').remove();
+            alert('Name updated successfully!');
+        } else {
+            alert('Failed to update name');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to update name');
+    }
+}
+
+async function saveCompoundDescription(button) {
+    const form = document.getElementById('editDescForm');
+    const formData = new FormData(form);
+    const newDesc = formData.get('description').trim();
+    
+    try {
+        const compoundId = {{ compound.id }};
+        const response = await fetch('/api/compounds/compound/' + compoundId + '/', {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify({ description: newDesc })
+        });
+        
+        if (response.ok) {
+            const descElement = document.getElementById('compoundDescription');
+            descElement.textContent = newDesc || 'No description available.';
+            button.closest('.modal').remove();
+            alert('Description updated successfully!');
+        } else {
+            alert('Failed to update description');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to update description');
+    }
+}
+
+async function saveCompoundCategories(button) {
+    const select = document.getElementById('modalCategorySelect');
+    const selectedOptions = Array.from(select.selectedOptions);
+    const categoryIds = selectedOptions.map(option => parseInt(option.value));
+    
+    try {
+        const compoundId = {{ compound.id }};
+        const response = await fetch('/api/compounds/compound/' + compoundId + '/', {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify({ categories: categoryIds })
+        });
+        
+        if (response.ok) {
+            const categoryDisplay = document.getElementById('categoryDisplay');
+            if (selectedOptions.length > 0) {
+                categoryDisplay.innerHTML = selectedOptions.map(option => 
+                    '<span class="badge rounded-pill bg-secondary text-light me-2 mb-2">' + option.textContent + '</span>'
+                ).join('');
+            } else {
+                categoryDisplay.innerHTML = '<p class="text-muted"><em>No categories assigned yet.</em></p>';
+            }
+            
+            button.closest('.modal').remove();
+            alert('Categories updated successfully!');
+        } else {
+            alert('Failed to update categories');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to update categories');
+    }
+}
+
+async function saveMechanism(button) {
+    const form = document.getElementById('mechanismForm');
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData.entries());
+    
+    try {
+        const response = await fetch('/api/compounds/mechanismofaction/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            button.closest('.modal').remove();
+            location.reload();
+        } else {
+            const error = await response.json();
+            alert('Error: ' + (error.detail || 'Failed to save mechanism'));
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to save mechanism');
+    }
+}
+
+async function saveEffectWindow(button) {
+    const form = document.getElementById('effectWindowForm');
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData.entries());
+    data.compound = {{ compound.id }};
+    
+    try {
+        const response = await fetch('/api/compounds/effectwindow/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            button.closest('.modal').remove();
+            document.getElementById('refreshCurves')?.click();
+            alert('Effect window added successfully!');
+        } else {
+            const error = await response.json();
+            alert('Error: ' + (error.detail || 'Failed to save effect window'));
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to save effect window');
+    }
+}
+
+async function deleteMechanism(button) {
+    const mechanismId = button.getAttribute('data-mechanism-id');
+    
+    if (confirm('Are you sure you want to delete this mechanism?')) {
+        try {
+            const response = await fetch('/api/compounds/mechanismofaction/' + mechanismId + '/', {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRFToken': getCsrfToken()
+                }
+            });
+            
+            if (response.ok) {
+                button.closest('.mechanism-item').remove();
+            } else {
+                alert('Failed to delete mechanism');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Failed to delete mechanism');
+        }
+    }
+}
+
+function getCsrfToken() {
+    return document.querySelector('[name=csrfmiddlewaretoken]')?.value || 
+           document.querySelector('meta[name=csrf-token]')?.getAttribute('content') || '';
+}
+</script>
+{% endif %}
+
+<style>
+.star {
+  color: #6c757d;
+  transition: color 0.2s;
+}
+
+.star.filled {
+  color: #ffc107;
+}
+
+.star:hover {
+  color: #ffc107;
+}
+
+.edit-field {
+  background-color: #2d3748 !important;
+  border-color: #4a5568 !important;
+  color: #fff !important;
+}
+
+.edit-field:focus {
+  background-color: #2d3748 !important;
+  border-color: #63b3ed !important;
+  color: #fff !important;
+  box-shadow: 0 0 0 0.2rem rgba(99, 179, 237, 0.25) !important;
+}
+
+.mechanism-item:last-child {
+  border-bottom: none !important;
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.effect-window-item {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.text-light-secondary {
+  color: #cbd5e0 !important;
+}
+</style>
+{% endblock %}

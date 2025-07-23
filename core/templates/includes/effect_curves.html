@@ -18,6 +18,7 @@
                     <button type="button" class="btn btn-outline-primary" data-timeframe="week">This Week</button>
                 </div>
             {% endif %}
+            
             <button class="btn btn-sm btn-outline-secondary ms-2" id="refreshCurves">
                 <i class="fas fa-sync-alt"></i>
             </button>
@@ -80,6 +81,7 @@
 
 <!-- Include Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 <script src="{% static 'js/effect-curves.js' %}"></script>
 
 <script>
@@ -299,7 +301,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <span class="legend-item me-3">
                 <span class="legend-color" style="background-color: ${effectChart.generateColor(index)}"></span>
                 ${intake.compound.name} (${intake.amount}${intake.unit})
-                <small class="text-muted">- ${new Date(intake.taken_at).toLocaleTimeString()}</small>
+                <small class="text-muted">- ${new Date(intake.taken_at).toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit', hour12: false})}</small>
             </span>
         `).join('');
         

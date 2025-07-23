@@ -296,11 +296,29 @@ class EffectWindow(models.Model):
         Returns list of (time_minutes, intensity_percentage) tuples.
         """
         data_points = []
-        time_range = range(0, self.duration_minutes + 1, resolution_minutes)
         
-        for t in time_range:
+        # Generate points up to peak_max_minutes with regular resolution
+        for t in range(0, self.peak_max_minutes + 1, resolution_minutes):
             intensity = self._calculate_intensity_at_time(t)
             data_points.append((t, intensity))
+        
+        # Ensure we have the exact peak_max_minutes point
+        if data_points and data_points[-1][0] != self.peak_max_minutes:
+            intensity = self._calculate_intensity_at_time(self.peak_max_minutes)
+            data_points.append((self.peak_max_minutes, intensity))
+        
+        # Generate more points for the falling phase to show gradual decline
+        falling_duration = self.duration_minutes - self.peak_max_minutes
+        if falling_duration > 0:
+            # Use a smaller resolution for falling phase to ensure smooth curve
+            # Generate at least 15 points in the falling phase
+            num_falling_points = max(15, falling_duration // 2)
+            
+            for i in range(1, num_falling_points + 1):
+                time_point = self.peak_max_minutes + (i * falling_duration / num_falling_points)
+                if time_point <= self.duration_minutes:  # Include the final point
+                    intensity = self._calculate_intensity_at_time(time_point)
+                    data_points.append((time_point, intensity))
         
         return data_points
     
@@ -333,18 +351,19 @@ class EffectWindow(models.Model):
             # Peak phase
             return 100
         else:
-            # Falling phase
-            if self.half_life_minutes:
-                # Exponential decay
-                time_since_peak = time_minutes - self.peak_max_minutes
-                decay_factor = 0.5 ** (time_since_peak / self.half_life_minutes)
-                return max(0, 100 * decay_factor)
-            else:
-                # Linear decay
-                falling_duration = self.duration_minutes - self.peak_max_minutes
-                time_since_peak = time_minutes - self.peak_max_minutes
-                progress = time_since_peak / falling_duration
-                return max(0, 100 * (1 - progress))
+            # Falling phase with linear decay
+            falling_duration = self.duration_minutes - self.peak_max_minutes
+            if falling_duration <= 0:
+                return 0
+            
+            time_since_peak = time_minutes - self.peak_max_minutes
+            progress = time_since_peak / falling_duration
+            
+            # Linear decay: progress ranges from 0 to 1
+            # At peak_max_minutes: progress = 0, intensity = 100%
+            # At duration_minutes: progress = 1, intensity = 0%
+            intensity = 100 * (1 - progress)
+            return max(0, intensity)
     
     def _ramp_intensity(self, time_minutes):
         """Ramp up intensity calculation"""
@@ -355,11 +374,19 @@ class EffectWindow(models.Model):
             progress = (time_minutes - self.onset_minutes) / (self.peak_max_minutes - self.onset_minutes)
             return min(100, progress * 100)
         else:
-            # Immediate fall
+            # Falling phase with linear decay
             falling_duration = self.duration_minutes - self.peak_max_minutes
+            if falling_duration <= 0:
+                return 0
+                
             time_since_peak = time_minutes - self.peak_max_minutes
             progress = time_since_peak / falling_duration
-            return max(0, 100 * (1 - progress))
+            
+            # Linear decay: progress ranges from 0 to 1
+            # At peak_max_minutes: progress = 0, intensity = 100%
+            # At duration_minutes: progress = 1, intensity = 0%
+            intensity = 100 * (1 - progress)
+            return max(0, intensity)
     
     def _flat_top_intensity(self, time_minutes):
         """Flat top intensity calculation"""
@@ -373,11 +400,19 @@ class EffectWindow(models.Model):
             # Flat peak phase
             return 100
         else:
-            # Falling phase
+            # Falling phase with linear decay
             falling_duration = self.duration_minutes - self.peak_max_minutes
+            if falling_duration <= 0:
+                return 0
+                
             time_since_peak = time_minutes - self.peak_max_minutes
             progress = time_since_peak / falling_duration
-            return max(0, 100 * (1 - progress))
+            
+            # Linear decay: progress ranges from 0 to 1
+            # At peak_max_minutes: progress = 0, intensity = 100%
+            # At duration_minutes: progress = 1, intensity = 0%
+            intensity = 100 * (1 - progress)
+            return max(0, intensity)
 
 
 

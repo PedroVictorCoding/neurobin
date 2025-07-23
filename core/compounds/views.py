@@ -73,6 +73,7 @@ def compound_detail(request, slug):
         'user_rating': user_rating,
         'research_snippets': snippets,
         'user_reviews': user_reviews,
+        'all_categories': CompoundCategories.objects.all(),
     }
 
     return render(request, 'compounds/compound_detail.html', context)

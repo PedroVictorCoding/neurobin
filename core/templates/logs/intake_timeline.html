@@ -3,6 +3,7 @@
 {% block content %}
 <div class="container" style="max-width: 700px;">
   <h2 class="mb-4">Your Intake Timeline</h2>
+  <a href="{% url 'log_intake' %}" style="width:100%" class="btn btn-outline-light mb-3">Log New Intake</a>
   <ul class="list-group">
     {% for log in logs %}
       <li class="list-group-item bg-dark text-light">

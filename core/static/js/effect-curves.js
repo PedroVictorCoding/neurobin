@@ -39,7 +39,7 @@ class EffectCurveChart {
                         display: true,
                         title: {
                             display: true,
-                            text: this.options.showRelativeTime ? 'Time (T+00:00)' : 'Time (minutes)'
+                            text: this.options.showRelativeTime ? 'Time (T+00:00)' : 'Time of Day'
                         },
                         ticks: {
                             callback: (value) => {
@@ -47,8 +47,12 @@ class EffectCurveChart {
                                     const hours = Math.floor(value / 60);
                                     const minutes = value % 60;
                                     return `T+${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                                } else {
+                                    // Convert hours from midnight to HH:mm format
+                                    const hours = Math.floor(value);
+                                    const minutes = Math.floor((value - hours) * 60);
+                                    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
                                 }
-                                return `${value}m`;
                             }
                         }
                     },
@@ -84,8 +88,12 @@ class EffectCurveChart {
                                     const hours = Math.floor(value / 60);
                                     const minutes = value % 60;
                                     return `T+${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                                } else {
+                                    // Convert hours from midnight to HH:mm format
+                                    const hours = Math.floor(value);
+                                    const minutes = Math.floor((value - hours) * 60);
+                                    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
                                 }
-                                return `${value} minutes`;
                             },
                             label: (context) => {
                                 const datasetLabel = context.dataset.label || '';
@@ -122,9 +130,20 @@ class EffectCurveChart {
             ]);
         }
         
+        // Ensure the curve has a data point at duration_minutes with 0% intensity
+        const durationValue = effectData.duration_minutes;
+        const lastDataPoint = scaledCurveData[scaledCurveData.length - 1];
+        
+        if (!lastDataPoint || lastDataPoint[0] < durationValue) {
+            scaledCurveData.push([durationValue, 0]);
+        } else if (lastDataPoint[0] === durationValue && lastDataPoint[1] !== 0) {
+            // Ensure the last point is at 0% intensity
+            scaledCurveData[scaledCurveData.length - 1][1] = 0;
+        }
+        
         // Convert to Chart.js format
         const chartData = scaledCurveData.map(([time, intensity]) => ({
-            x: time,
+            x: time, // This will be either minutes (for relative) or timestamp (for actual time)
             y: intensity
         }));
         
@@ -146,6 +165,10 @@ class EffectCurveChart {
         };
         
         this.chart.data.datasets.push(dataset);
+        
+        // Update x-axis to show full duration
+        this.updateXAxisRange();
+        
         this.chart.update();
     }
     
@@ -164,26 +187,44 @@ class EffectCurveChart {
             // Use the first effect window (could be enhanced to select best match)
             const effectWindow = intake.compound.effect_windows[0];
             
-            // Calculate time offset if reference date provided
-            let timeOffset = 0;
-            if (referenceDate && intake.taken_at) {
+            // Calculate time offset based on intake time
+            let adjustedCurveData;
+            if (this.options.showRelativeTime) {
+                // For relative time (compound detail), use minutes offset
+                let timeOffset = 0;
+                if (referenceDate && intake.taken_at) {
+                    const intakeTime = new Date(intake.taken_at);
+                    timeOffset = Math.floor((intakeTime - referenceDate) / (1000 * 60)); // Minutes difference
+                }
+                
+                adjustedCurveData = effectWindow.effect_curve_data.map(([time, intensity]) => [
+                    time + timeOffset,
+                    intensity
+                ]);
+            } else {
+                // For dashboard (actual time), convert to hours from midnight
                 const intakeTime = new Date(intake.taken_at);
-                timeOffset = Math.floor((intakeTime - referenceDate) / (1000 * 60)); // Minutes difference
+                const intakeHoursFromMidnight = intakeTime.getHours() + intakeTime.getMinutes() / 60;
+                
+                adjustedCurveData = effectWindow.effect_curve_data.map(([time, intensity]) => {
+                    const hoursFromMidnight = intakeHoursFromMidnight + (time / 60); // Convert minutes to hours
+                    return [hoursFromMidnight, intensity];
+                });
             }
-            
-            // Adjust curve data for time offset
-            const adjustedCurveData = effectWindow.effect_curve_data.map(([time, intensity]) => [
-                time + timeOffset,
-                intensity
-            ]);
             
             const adjustedEffectWindow = {
                 ...effectWindow,
-                effect_curve_data: adjustedCurveData
+                effect_curve_data: adjustedCurveData,
+                duration_minutes: this.options.showRelativeTime ? 
+                    effectWindow.duration_minutes + (referenceDate ? Math.floor((new Date(intake.taken_at) - referenceDate) / (1000 * 60)) : 0) :
+                    (new Date(intake.taken_at).getHours() + new Date(intake.taken_at).getMinutes() / 60) + (effectWindow.duration_minutes / 60)
             };
             
             this.addEffectCurve(adjustedEffectWindow, intake);
         });
+        
+        // Update x-axis range after adding all curves
+        this.updateXAxisRange();
     }
     
     /**
@@ -200,6 +241,40 @@ class EffectCurveChart {
     setTitle(title) {
         this.chart.options.plugins.title.text = title;
         this.chart.update();
+    }
+    
+    /**
+     * Update x-axis range to show full duration of all curves
+     */
+    updateXAxisRange() {
+        if (!this.chart.data.datasets.length) return;
+        
+        if (this.options.showRelativeTime) {
+            // For relative time, find the maximum duration in minutes
+            let maxDuration = 0;
+            
+            this.chart.data.datasets.forEach(dataset => {
+                const effectWindow = dataset.metadata?.effectWindow;
+                if (effectWindow && effectWindow.duration_minutes) {
+                    maxDuration = Math.max(maxDuration, effectWindow.duration_minutes);
+                }
+                
+                // Also check the actual data points
+                dataset.data.forEach(point => {
+                    maxDuration = Math.max(maxDuration, point.x);
+                });
+            });
+            
+            // Set x-axis max to the maximum duration with some padding
+            if (maxDuration > 0) {
+                this.chart.options.scales.x.max = maxDuration;
+                this.chart.options.scales.x.min = 0;
+            }
+        } else {
+            // For time of day, set bounds to 00:00 - 24:00
+            this.chart.options.scales.x.min = 0;
+            this.chart.options.scales.x.max = 24;
+        }
     }
     
     /**
