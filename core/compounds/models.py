@@ -38,6 +38,8 @@ class CompoundMechanismOfAction(models.Model):
         ('binder', 'Binder'),
         ('inhibitor', 'Inhibitor'),
         ('activator', 'Activator'),
+        ('upregulator', 'Upregulator'),
+        ('downregulator', 'Downregulator'),
         ('unknown', 'Unknown'),
     ]
     
@@ -46,6 +48,7 @@ class CompoundMechanismOfAction(models.Model):
         ('enzyme', 'Enzyme'),
         ('ion_channel', 'Ion Channel'),
         ('transporter', 'Transporter'),
+        ('protein', 'Protein'),
         ('other', 'Other'),
     ]
     

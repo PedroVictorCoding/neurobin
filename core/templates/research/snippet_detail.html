@@ -203,15 +203,15 @@
           </div>
           <div class="card-body">
             {% if user_review %}
-              <div class="alert alert-light text-dark border-0 mb-3">
+              <div class="alert bg-dark border-0 mb-3 text-white">
                 <div class="d-flex align-items-center">
                   <i class="fas fa-info-circle me-2"></i>
                   <div>
                     <strong>Your Current Review:</strong> 
                     {% if user_review.vote_type == 'validate' %}
-                      <span class="badge bg-success ms-1">Approved</span>
+                      <span class="badge bg-success ms-1"><b>Approved</b></span>
                     {% else %}
-                      <span class="badge bg-danger ms-1">Rejected</span>
+                      <span class="badge bg-danger ms-1"><b></b>Rejected</b></span>
                     {% endif %}
                   </div>
                 </div>

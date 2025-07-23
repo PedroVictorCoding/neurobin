@@ -17,6 +17,20 @@
       word-break: break-all;
     }
   }
+  
+  /* Star rating styles */
+  .star {
+    color: #919191;
+    transition: color 0.2s ease;
+  }
+  
+  .star.filled {
+    color: #fff7ae !important;
+  }
+  
+  .star:hover {
+    color: #fff562 !important;
+  }
 </style>
 
 <div class="card bg-neurobin-card text-light mb-3 shadow p-3"
@@ -30,10 +44,9 @@
         <p class="mb-3 mt-3" style="margin-left:20px;" name="compound-description">
           {{ compound.description|default:"No description available." }}
         </p>
-        <hr style="margin: left 20px; border-color: #444; max-width: 50%">
         <div class="d-flex align-items-center mb-3 stars" data-compound-slug="{{ compound.slug }}">
           {% for i in "12345" %}
-            <span class="star {% if user_rating >= forloop.counter %}filled text-info{% else %}text-secondary{% endif %} fs-4 me-1"
+            <span class="star {% if user_rating >= forloop.counter %}filled{% endif %} fs-4 me-1"
                   data-value="{{ forloop.counter }}" style="cursor:pointer;">
               &#9733;
             </span>
@@ -250,11 +263,9 @@
             stars.forEach(s => {
               const v = parseInt(s.dataset.value);
               if (v <= value) {
-                s.classList.add('filled', 'text-info');
-                s.classList.remove('text-secondary');
+                s.classList.add('filled');
               } else {
-                s.classList.remove('filled', 'text-info');
-                s.classList.add('text-secondary');
+                s.classList.remove('filled');
               }
             });
 

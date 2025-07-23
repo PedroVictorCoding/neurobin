@@ -719,7 +719,8 @@
     }
   </style>
 </head>
-<body class="text-light" style="background-color: var(--bg-primary);"">
+
+<body id="body" class="text-light" style="background-color: var(--bg-primary);"">
 
   <nav class="navbar navbar-expand-lg bg-neurobin-dark px-3 py-2">
     <div class="container-fluid">
@@ -771,9 +772,16 @@
                 <li><hr class="dropdown-divider"></li>
                 <li><h6 class="dropdown-header text-white fw-bold">Profile</h6></li>
                 {% if user.is_authenticated %}
-                  <li><a class="dropdown-item ps-4" href="{% url 'logout' %}">Logout</a></li>
+                  <li><a class="dropdown-item ps-4" href="{% url 'profile_dashboard' %}">
+                    <i class="fas fa-user me-2"></i>Profile Dashboard
+                  </a></li>
+                  <li><a class="dropdown-item ps-4" href="{% url 'logout' %}">
+                    <i class="fas fa-sign-out-alt me-2"></i>Logout
+                  </a></li>
                 {% else %}
-                  <li><a class="dropdown-item ps-4" href="{% url 'login' %}">Login</a></li>
+                  <li><a class="dropdown-item ps-4" href="{% url 'login' %}">
+                    <i class="fas fa-sign-in-alt me-2"></i>Login
+                  </a></li>
                 {% endif %}
               </ul>
             </div>
@@ -830,7 +838,13 @@
               <!-- Profile Section -->
               <li><hr class="dropdown-divider"></li>
               <li><h6 class="dropdown-header text-white fw-bold">Profile</h6></li>
+
               {% if user.is_authenticated %}
+                <li>
+                  <a class="dropdown-item ps-4" href="{% url 'profile_dashboard' %}">
+                    <i class="fas fa-user me-2"></i>Profile Dashboard
+                  </a>
+                </li>
                 <li><a class="dropdown-item ps-4" href="{% url 'logout' %}">
                   <i class="fas fa-sign-out-alt me-2"></i>Logout
                 </a></li>
@@ -854,4 +868,6 @@
     © {{ now|date:"Y" }} Neurobin
   </footer>-->
 </body>
+
+
 </html>

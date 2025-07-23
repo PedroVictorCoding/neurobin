@@ -1,0 +1,206 @@
+{% extends 'base.html' %}
+
+{% block title %}Edit Profile - Neurobin{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="row justify-content-center">
+    <div class="col-12" style="max-width: 600px;">
+      <!-- Header -->
+      <div class="bg-neurobin-card p-4 mb-4">
+        <div class="d-flex justify-content-between align-items-center">
+          <h2 class="text-light mb-0">
+            <i class="fas fa-user-edit me-2"></i>Edit Profile
+          </h2>
+          <a href="{% url 'profile_dashboard' %}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1"></i>Back to Profile
+          </a>
+        </div>
+      </div>
+
+      <!-- Profile Form -->
+      <div class="bg-neurobin-card p-4">
+        <form method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+          
+          <!-- Current Profile Image Preview -->
+          <div class="text-center mb-4">
+            <div class="profile-image-preview">
+              {% if user_profile.profile_image %}
+                <img id="currentImage" src="{{ user_profile.profile_image.url }}" 
+                     alt="Current profile image" 
+                     class="rounded-circle mb-2"
+                     style="width: 120px; height: 120px; object-fit: cover; border: 3px solid var(--accent-primary);">
+              {% else %}
+                <div id="defaultAvatar" class="bg-neurobin-dark rounded-circle d-flex align-items-center justify-content-center mx-auto mb-2" 
+                     style="width: 120px; height: 120px; border: 3px solid var(--accent-primary);">
+                  <i class="fas fa-user text-neurobin-accent" style="font-size: 3rem;"></i>
+                </div>
+              {% endif %}
+            </div>
+            <p class="text-secondary small">Upload a new profile picture</p>
+          </div>
+
+          <!-- Basic Information -->
+          <div class="row mb-4">
+            <div class="col-12">
+              <h5 class="text-light mb-3">
+                <i class="fas fa-user me-2"></i>Basic Information
+              </h5>
+            </div>
+            
+            <!-- Profile Image -->
+            <div class="col-12 mb-3">
+              <label for="{{ form.profile_image.id_for_label }}" class="form-label text-light">
+                <i class="fas fa-camera me-1"></i>Profile Picture
+              </label>
+              {{ form.profile_image }}
+              {% if form.profile_image.help_text %}
+                <div class="form-text text-muted">{{ form.profile_image.help_text }}</div>
+              {% endif %}
+              {% if form.profile_image.errors %}
+                <div class="text-danger small mt-1">
+                  {{ form.profile_image.errors.0 }}
+                </div>
+              {% endif %}
+            </div>
+
+            <!-- First Name -->
+            <div class="col-md-6 mb-3">
+              <label for="{{ form.first_name.id_for_label }}" class="form-label text-light">
+                First Name
+              </label>
+              {{ form.first_name }}
+              {% if form.first_name.errors %}
+                <div class="text-danger small mt-1">
+                  {{ form.first_name.errors.0 }}
+                </div>
+              {% endif %}
+            </div>
+
+            <!-- Last Name -->
+            <div class="col-md-6 mb-3">
+              <label for="{{ form.last_name.id_for_label }}" class="form-label text-light">
+                Last Name
+              </label>
+              {{ form.last_name }}
+              {% if form.last_name.errors %}
+                <div class="text-danger small mt-1">
+                  {{ form.last_name.errors.0 }}
+                </div>
+              {% endif %}
+            </div>
+
+            <!-- Email -->
+            <div class="col-12 mb-3">
+              <label for="{{ form.email.id_for_label }}" class="form-label text-light">
+                <i class="fas fa-envelope me-1"></i>Email Address
+              </label>
+              {{ form.email }}
+              {% if form.email.errors %}
+                <div class="text-danger small mt-1">
+                  {{ form.email.errors.0 }}
+                </div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Additional Information -->
+          <div class="row mb-4">
+            <div class="col-12">
+              <h5 class="text-light mb-3">
+                <i class="fas fa-info-circle me-2"></i>Additional Information
+              </h5>
+            </div>
+
+            <!-- Bio -->
+            <div class="col-12 mb-3">
+              <label for="{{ form.bio.id_for_label }}" class="form-label text-light">
+                <i class="fas fa-quote-left me-1"></i>Bio
+              </label>
+              {{ form.bio }}
+              {% if form.bio.help_text %}
+                <div class="form-text text-muted">{{ form.bio.help_text }}</div>
+              {% endif %}
+              {% if form.bio.errors %}
+                <div class="text-danger small mt-1">
+                  {{ form.bio.errors.0 }}
+                </div>
+              {% endif %}
+            </div>
+
+            <!-- Location -->
+            <div class="col-md-6 mb-3">
+              <label for="{{ form.location.id_for_label }}" class="form-label text-light">
+                <i class="fas fa-map-marker-alt me-1"></i>Location
+              </label>
+              {{ form.location }}
+              {% if form.location.help_text %}
+                <div class="form-text text-muted">{{ form.location.help_text }}</div>
+              {% endif %}
+              {% if form.location.errors %}
+                <div class="text-danger small mt-1">
+                  {{ form.location.errors.0 }}
+                </div>
+              {% endif %}
+            </div>
+
+            <!-- Website -->
+            <div class="col-md-6 mb-3">
+              <label for="{{ form.website.id_for_label }}" class="form-label text-light">
+                <i class="fas fa-globe me-1"></i>Website
+              </label>
+              {{ form.website }}
+              {% if form.website.help_text %}
+                <div class="form-text text-muted">{{ form.website.help_text }}</div>
+              {% endif %}
+              {% if form.website.errors %}
+                <div class="text-danger small mt-1">
+                  {{ form.website.errors.0 }}
+                </div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Submit Buttons -->
+          <div class="d-flex justify-content-between">
+            <a href="{% url 'profile_dashboard' %}" class="btn btn-outline-secondary">
+              <i class="fas fa-times me-1"></i>Cancel
+            </a>
+            <button type="submit" class="btn btn-info">
+              <i class="fas fa-save me-1"></i>Save Changes
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Preview profile image before upload
+document.addEventListener('DOMContentLoaded', function() {
+    const imageInput = document.getElementById('{{ form.profile_image.id_for_label }}');
+    const currentImage = document.getElementById('currentImage');
+    const defaultAvatar = document.getElementById('defaultAvatar');
+    
+    if (imageInput) {
+        imageInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    if (currentImage) {
+                        currentImage.src = e.target.result;
+                    } else if (defaultAvatar) {
+                        // Replace default avatar with image
+                        defaultAvatar.innerHTML = '<img src="' + e.target.result + '" class="rounded-circle" style="width: 120px; height: 120px; object-fit: cover;">';
+                    }
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

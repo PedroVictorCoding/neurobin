@@ -13,6 +13,8 @@ from .views import (
     ajax_add_category,
     ajax_add_target,
     api_targets,
+    api_mechanisms,
+    api_categories,
     review_snippet,
 )
 
@@ -28,6 +30,8 @@ urlpatterns = [
     path('ajax/add-category/', ajax_add_category, name='ajax_add_category'),
     path('ajax/add-target/', ajax_add_target, name='ajax_add_target'),
     path('api/targets/', api_targets, name='api_targets'),
+    path('api/mechanisms/', api_mechanisms, name='api_mechanisms'),
+    path('api/categories/', api_categories, name='api_categories'),
 
     path('<slug:slug>/', compound_detail, name='compound_detail'),
     path('<slug:slug>/rate/', submit_rating, name='submit_rating'),

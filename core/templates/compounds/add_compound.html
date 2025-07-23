@@ -1,6 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Add New Compound — Neurobin{% endblock %}
 {% block content %}
+<style>
+/* Modal stacking for nested modals */
+.modal.stacked {
+    z-index: 1060;
+}
+.modal-backdrop.stacked {
+    z-index: 1059;
+}
+.modal.top-modal {
+    z-index: 1070;
+}
+.modal-backdrop.top-modal {
+    z-index: 1069;
+}
+</style>
+
 <div class="container" style="max-width: 600px;">
   <h2 class="mb-4">Add a New Compound</h2>
 
@@ -10,7 +26,7 @@
       <div class="mb-3">
         <label for="{{ field.id_for_label }}" class="form-label text-light mb-0">
           {{ field.label }}{% if field.field.required %}*{% endif %}
-          {% if field.name == 'mechanism_of_action' %}
+                    {% if field.name == 'mechanism_of_action' %}
             <button type="button" class="btn btn-sm btn-outline-info ms-2" data-bs-toggle="modal" data-bs-target="#addMechanismModal">
               <i class="fas fa-plus"></i> Add New
             </button>
@@ -75,6 +91,7 @@
               <option value="enzyme">Enzyme</option>
               <option value="ion_channel">Ion Channel</option>
               <option value="transporter">Transporter</option>
+              <option value="protein">Protein</option>
               <option value="other">Other</option>
             </select>
             <div class="form-text text-secondary">Type of target (e.g., receptor, enzyme, ion channel, transporter)</div>
@@ -91,6 +108,8 @@
               <option value="nam">Negative Allosteric Modulator</option>
               <option value="binder">Binder</option>
               <option value="inhibitor">Inhibitor</option>
+              <option value="upregulator">Upregulator</option>
+              <option value="downregulator">Downregulator</option>
               <option value="activator">Activator</option>
               <option value="unknown">Unknown</option>
             </select>
@@ -136,7 +155,7 @@
 </div>
 
 <!-- Add Target Modal -->
-<div class="modal fade" id="addTargetModal" tabindex="-1" aria-labelledby="addTargetModalLabel" aria-hidden="true">
+<div class="modal fade" id="addTargetModal" tabindex="-1" aria-labelledby="addTargetModalLabel" aria-hidden="true" data-bs-backdrop="static">
   <div class="modal-dialog modal-lg">
     <div class="modal-content bg-dark text-light">
       <div class="modal-header">
@@ -344,19 +363,20 @@ function saveTarget() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Add the new target to the select dropdown
-            const targetSelect = document.getElementById('mechanism_target_name');
-            const option = document.createElement('option');
-            option.value = data.id;
-            option.textContent = data.name;
-            option.selected = true;
-            targetSelect.appendChild(option);
+            // Reload all targets and select the new one
+            loadTargets().then(() => {
+                const targetSelect = document.getElementById('mechanism_target_name');
+                targetSelect.value = data.id;
+            });
             
             // Reset form
             form.reset();
             
+            // Close the target modal and return to mechanism modal
+            bootstrap.Modal.getInstance(document.getElementById('addTargetModal')).hide();
+            
             // Show success message
-            showAlert('Target "' + data.name + '" added successfully!', 'success');
+            showAlert('Target "' + data.name + '" added successfully and selected!', 'success');
         } else {
             showAlert('Error: ' + JSON.stringify(data.errors), 'danger');
         }
@@ -382,40 +402,29 @@ function quickAddTarget(targetName) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Add the new target to the select dropdown
-            const targetSelect = document.getElementById('mechanism_target_name');
-            const option = document.createElement('option');
-            option.value = data.id;
-            option.textContent = data.name;
-            option.selected = true;
-            targetSelect.appendChild(option);
+            // Reload all targets and select the new one
+            loadTargets().then(() => {
+                const targetSelect = document.getElementById('mechanism_target_name');
+                targetSelect.value = data.id;
+            });
             
             // Show success message
-            showAlert('Target "' + data.name + '" added successfully!', 'success');
+            showAlert('Target "' + data.name + '" added successfully and selected!', 'success');
             
-            // Close modal after successful quick add
+            // Close target modal and return to mechanism modal
             bootstrap.Modal.getInstance(document.getElementById('addTargetModal')).hide();
         } else {
             if (data.errors && data.errors.name && data.errors.name.includes('already exists')) {
-                // If target already exists, just select it
-                const targetSelect = document.getElementById('mechanism_target_name');
-                const existingOption = Array.from(targetSelect.options).find(option => option.textContent === targetName);
-                if (existingOption) {
-                    existingOption.selected = true;
-                    showAlert('Target "' + targetName + '" already exists and has been selected.', 'info');
-                    bootstrap.Modal.getInstance(document.getElementById('addTargetModal')).hide();
-                } else {
-                    // Reload targets to get the existing one
-                    loadTargets().then(() => {
-                        const targetSelect = document.getElementById('mechanism_target_name');
-                        const option = Array.from(targetSelect.options).find(opt => opt.textContent === targetName);
-                        if (option) {
-                            option.selected = true;
-                            showAlert('Target "' + targetName + '" already exists and has been selected.', 'info');
-                        }
+                // If target already exists, reload targets and select it
+                loadTargets().then(() => {
+                    const targetSelect = document.getElementById('mechanism_target_name');
+                    const option = Array.from(targetSelect.options).find(opt => opt.textContent === targetName);
+                    if (option) {
+                        option.selected = true;
+                        showAlert('Target "' + targetName + '" already exists and has been selected.', 'info');
                         bootstrap.Modal.getInstance(document.getElementById('addTargetModal')).hide();
-                    });
-                }
+                    }
+                });
             } else {
                 showAlert('Error adding target: ' + JSON.stringify(data.errors), 'danger');
             }
@@ -446,7 +455,7 @@ function bulkAddTargets() {
     // Function to process targets sequentially
     function addTargetSequentially(index) {
         if (index >= targetNames.length) {
-            // All targets processed, show summary
+            // All targets processed, reload dropdown and show summary
             bulkTextarea.value = '';
             loadTargets(); // Refresh the dropdown
             
@@ -509,23 +518,8 @@ function saveMechanism() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Find the mechanism checkbox container
-            const mechanismField = document.querySelector('input[name="mechanism_of_action"]');
-            if (mechanismField) {
-                const container = mechanismField.closest('div').parentElement;
-                
-                // Create new checkbox element
-                const newCheckboxDiv = document.createElement('div');
-                newCheckboxDiv.innerHTML = `
-                    <label for="id_mechanism_of_action_${data.id}">
-                        <input type="checkbox" name="mechanism_of_action" value="${data.id}" id="id_mechanism_of_action_${data.id}" class="form-check-input" checked>
-                        ${data.display_name}
-                    </label>
-                `;
-                
-                // Append to the container
-                container.appendChild(newCheckboxDiv);
-            }
+            // Find the mechanism checkbox container and refresh it
+            refreshMechanismsList(data.id);
             
             // Close modal and reset form
             bootstrap.Modal.getInstance(document.getElementById('addMechanismModal')).hide();
@@ -539,6 +533,9 @@ function saveMechanism() {
             
             // Show success message
             showAlert('Mechanism added successfully!', 'success');
+            
+            // Save the new mechanism to form data for auto-selection
+            addNewItemToSavedData('mechanism_of_action', data.id);
         } else {
             showAlert('Error: ' + JSON.stringify(data.errors), 'danger');
         }
@@ -563,23 +560,8 @@ function saveCategory() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Find the categories checkbox container
-            const categoryField = document.querySelector('input[name="categories"]');
-            if (categoryField) {
-                const container = categoryField.closest('div').parentElement;
-                
-                // Create new checkbox element
-                const newCheckboxDiv = document.createElement('div');
-                newCheckboxDiv.innerHTML = `
-                    <label for="id_categories_${data.id}">
-                        <input type="checkbox" name="categories" value="${data.id}" id="id_categories_${data.id}" class="form-check-input" checked>
-                        ${data.name}
-                    </label>
-                `;
-                
-                // Append to the container
-                container.appendChild(newCheckboxDiv);
-            }
+            // Refresh the categories list
+            refreshCategoriesList(data.id);
             
             // Close modal and reset form
             bootstrap.Modal.getInstance(document.getElementById('addCategoryModal')).hide();
@@ -587,6 +569,9 @@ function saveCategory() {
             
             // Show success message
             showAlert('Category added successfully!', 'success');
+            
+            // Save the new category to form data for auto-selection
+            addNewItemToSavedData('categories', data.id);
         } else {
             showAlert('Error: ' + JSON.stringify(data.errors), 'danger');
         }
@@ -597,10 +582,118 @@ function saveCategory() {
     });
 }
 
+// Function to refresh mechanisms list
+function refreshMechanismsList(newMechanismId) {
+    fetch('/compounds/api/mechanisms/')
+    .then(response => response.json())
+    .then(data => {
+        // Find the mechanism checkbox container (it's the div with bg-dark class containing the checkboxes)
+        const mechanismField = document.querySelector('input[name="mechanism_of_action"]');
+        if (!mechanismField) {
+            console.error('Mechanism field not found');
+            return;
+        }
+        
+        const mechanismContainer = mechanismField.closest('div.bg-dark');
+        if (!mechanismContainer) {
+            console.error('Mechanism container not found');
+            return;
+        }
+        
+        mechanismContainer.innerHTML = '';
+        
+        data.forEach(mechanism => {
+            const isSelected = mechanism.id == newMechanismId;
+            const checkboxDiv = document.createElement('div');
+            checkboxDiv.innerHTML = `
+                <label for="id_mechanism_of_action_${mechanism.id}">
+                    <input type="checkbox" name="mechanism_of_action" value="${mechanism.id}" 
+                           id="id_mechanism_of_action_${mechanism.id}" class="form-check-input" 
+                           ${isSelected ? 'checked' : ''}>
+                    ${mechanism.display_name}
+                </label>
+            `;
+            mechanismContainer.appendChild(checkboxDiv);
+        });
+    })
+    .catch(error => {
+        console.error('Error refreshing mechanisms:', error);
+    });
+}
+
+// Function to refresh categories list
+function refreshCategoriesList(newCategoryId) {
+    fetch('/compounds/api/categories/')
+    .then(response => response.json())
+    .then(data => {
+        // Find the categories checkbox container (it's the div with bg-dark class containing the checkboxes)
+        const categoryField = document.querySelector('input[name="categories"]');
+        if (!categoryField) {
+            console.error('Categories field not found');
+            return;
+        }
+        
+        const categoryContainer = categoryField.closest('div.bg-dark');
+        if (!categoryContainer) {
+            console.error('Categories container not found');
+            return;
+        }
+        
+        categoryContainer.innerHTML = '';
+        
+        data.forEach(category => {
+            const isSelected = category.id == newCategoryId;
+            const checkboxDiv = document.createElement('div');
+            checkboxDiv.innerHTML = `
+                <label for="id_categories_${category.id}">
+                    <input type="checkbox" name="categories" value="${category.id}" 
+                           id="id_categories_${category.id}" class="form-check-input" 
+                           ${isSelected ? 'checked' : ''}>
+                    ${category.name}
+                </label>
+            `;
+            categoryContainer.appendChild(checkboxDiv);
+        });
+    })
+    .catch(error => {
+        console.error('Error refreshing categories:', error);
+    });
+}
+
 // Restore form data on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadTargets();
     restoreFormData();
+    
+    // Handle modal stacking
+    document.getElementById('addTargetModal').addEventListener('show.bs.modal', function () {
+        // Increase z-index for stacked modal
+        this.classList.add('top-modal');
+        this.style.zIndex = 1070;
+        
+        // Find and update backdrop z-index
+        setTimeout(() => {
+            const backdrops = document.querySelectorAll('.modal-backdrop');
+            if (backdrops.length > 1) {
+                backdrops[backdrops.length - 1].style.zIndex = 1069;
+                backdrops[backdrops.length - 1].classList.add('top-modal');
+            }
+        }, 100);
+    });
+    
+    document.getElementById('addTargetModal').addEventListener('hidden.bs.modal', function () {
+        // Reset z-index when modal is closed
+        this.classList.remove('top-modal');
+        this.style.zIndex = '';
+    });
+    
+    // Ensure mechanism modal stays open when target modal is opened
+    document.getElementById('addMechanismModal').addEventListener('hide.bs.modal', function (e) {
+        // Don't close mechanism modal if target modal is being opened
+        if (document.getElementById('addTargetModal').classList.contains('show')) {
+            e.preventDefault();
+        }
+    });
 });
 
 // Clear saved data when form is successfully submitted

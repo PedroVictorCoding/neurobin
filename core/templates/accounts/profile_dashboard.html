@@ -1,0 +1,419 @@
+{% extends 'base.html' %}
+
+{% block title %}
+  {% if is_own_profile %}
+    My Profile Dashboard - Neurobin
+  {% else %}
+    {{ profile_user.username }}'s Profile - Neurobin
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <!-- Profile Header -->
+  <div class="row mb-3 justify-content-center">
+    <div class="col-12" style="max-width: 700px;">
+      <div class="bg-neurobin-card p-4">
+        <div class="d-flex align-items-center">
+          <div class="me-4">
+            {% if user_profile.profile_image %}
+              <img src="{{ user_profile.profile_image.url }}" 
+                   alt="{{ profile_user.username }}'s profile" 
+                   class="rounded-circle"
+                   style="width: 80px; height: 80px; object-fit: cover; border: 2px solid var(--accent-primary);">
+            {% else %}
+              <div class="bg-neurobin-dark rounded-circle d-flex align-items-center justify-content-center" 
+                   style="width: 80px; height: 80px; border: 2px solid var(--accent-primary);">
+                <i class="fas fa-user text-neurobin-accent" style="font-size: 2rem;"></i>
+              </div>
+            {% endif %}
+          </div>
+          <div class="flex-grow-1">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <h2 class="text-light mb-1">
+                  {% if is_own_profile %}
+                    My Profile Dashboard
+                  {% else %}
+                    {{ profile_user.username }}'s Profile
+                  {% endif %}
+                </h2>
+                <p class="text-secondary mb-2">
+                  {% if profile_user.first_name or profile_user.last_name %}
+                    {{ profile_user.first_name }} {{ profile_user.last_name }}
+                  {% else %}
+                    @{{ profile_user.username }}
+                  {% endif %}
+                </p>
+                {% if user_profile.bio %}
+                  <p class="text-muted small mb-2">{{ user_profile.bio|truncatechars:150 }}</p>
+                {% endif %}
+                <div class="d-flex flex-wrap gap-2">
+                  <span class="badge bg-info">
+                    <i class="fas fa-calendar-alt me-1"></i>
+                    Joined {{ profile_user.date_joined|date:"M Y" }}
+                  </span>
+                  {% if user_profile.location %}
+                    <span class="badge bg-secondary">
+                      <i class="fas fa-map-marker-alt me-1"></i>
+                      {{ user_profile.location }}
+                    </span>
+                  {% endif %}
+                  {% if activity_summary.verified_snippets > 0 %}
+                    <span class="badge bg-success">
+                      <i class="fas fa-check-circle me-1"></i>
+                      {{ activity_summary.verified_snippets }} Verified Post{{ activity_summary.verified_snippets|pluralize }}
+                    </span>
+                  {% endif %}
+                </div>
+              </div>
+              {% if is_own_profile %}
+                <div class="ms-3">
+                  <a href="{% url 'edit_profile' %}" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-edit me-1"></i>Edit Profile
+                  </a>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Statistics Cards -->
+  <div class="row mb-1 justify-content-center">
+    <div class="col-12" style="max-width: 700px;">
+      <div class="row">
+        <div class="col-6 mb-3">
+          <div class="bg-neurobin-card p-3 h-100">
+            <div class="d-flex align-items-center">
+              <div class="me-3">
+                <i class="fas fa-file-alt text-neurobin-accent" style="font-size: 1.5rem;"></i>
+              </div>
+              <div>
+                <h5 class="text-light mb-0">{{ activity_summary.snippets_posted }}</h5>
+                <small class="text-secondary">Research Posted</small>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="col-6 mb-3">
+          <div class="bg-neurobin-card p-3 h-100">
+            <div class="d-flex align-items-center">
+              <div class="me-3">
+                <i class="fas fa-thumbs-up text-success" style="font-size: 1.5rem;"></i>
+              </div>
+              <div>
+                <h5 class="text-light mb-0">{{ activity_summary.approval_rating|floatformat:1 }}%</h5>
+                <small class="text-secondary">Approval Rating</small>
+                {% if activity_summary.total_reviews_received > 0 %}
+                  <div class="text-muted" style="font-size: 0.7rem;">
+                    {{ approval_stats.approvals }}/{{ activity_summary.total_reviews_received }} reviews
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="col-6 mb-3">
+          <div class="bg-neurobin-card p-3 h-100">
+            <div class="d-flex align-items-center">
+              <div class="me-3">
+                <i class="fas fa-comments text-warning" style="font-size: 1.5rem;"></i>
+              </div>
+              <div>
+                <h5 class="text-light mb-0">{{ activity_summary.comments_made }}</h5>
+                <small class="text-secondary">Comments</small>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="col-6 mb-3">
+          <div class="bg-neurobin-card p-3 h-100">
+            <div class="d-flex align-items-center">
+              <div class="me-3">
+                <i class="fas fa-star text-neurobin-accent" style="font-size: 1.5rem;"></i>
+              </div>
+              <div>
+                <h5 class="text-light mb-0">{{ activity_summary.reviews_given }}</h5>
+                <small class="text-secondary">Reviews Given</small>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content Tabs -->
+  <div class="row justify-content-center">
+    <div class="col-12" style="max-width: 700px;">
+      <div class="bg-neurobin-card">
+        <!-- Tab Navigation -->
+        <div class="border-bottom border-secondary">
+          <nav class="nav nav-tabs border-0" id="profileTabs" role="tablist">
+            <button class="nav-link active bg-transparent text-neurobin-accent border-0 border-bottom border-3" 
+                    id="research-tab" data-bs-toggle="tab" data-bs-target="#research" 
+                    type="button" role="tab" aria-controls="research" aria-selected="true">
+              <i class="fas fa-flask me-2"></i>
+              {% if is_own_profile %}My{% else %}Their{% endif %} Research
+            </button>
+            <button class="nav-link bg-transparent text-secondary border-0" 
+                    id="comments-tab" data-bs-toggle="tab" data-bs-target="#comments" 
+                    type="button" role="tab" aria-controls="comments" aria-selected="false">
+              <i class="fas fa-comment-dots me-2"></i>Comments
+            </button>
+            <button class="nav-link bg-transparent text-secondary border-0" 
+                    id="reviews-tab" data-bs-toggle="tab" data-bs-target="#reviews" 
+                    type="button" role="tab" aria-controls="reviews" aria-selected="false">
+              <i class="fas fa-star me-2"></i>Reviews Given
+            </button>
+          </nav>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="tab-content p-4" id="profileTabsContent">
+          <!-- Research Tab -->
+          <div class="tab-pane fade show active" id="research" role="tabpanel" aria-labelledby="research-tab">
+            {% if user_snippets %}
+              <div class="row">
+                {% for snippet in user_snippets %}
+                  <div class="col-lg-6 mb-2">
+                    <div class="bg-neurobin-dark p-3 rounded border border-secondary h-100">
+                      <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h6 class="text-light mb-0">
+                          <a href="{% url 'research:snippet_detail' snippet.id %}" class="text-neurobin-accent text-decoration-none">
+                            {{ snippet.title|truncatechars:60 }}
+                          </a>
+                        </h6>
+                        <span class="badge bg-{{ snippet.confidence_color }} ms-2">
+                          {{ snippet.confidence_level }}
+                        </span>
+                      </div>
+                      
+                      <div class="mb-2">
+                        <span class="text-secondary small">
+                          <i class="fas fa-pills me-1"></i>
+                          <a href="{% url 'compound_detail' snippet.compound.slug %}" class="text-info text-decoration-none">
+                            {{ snippet.compound.name }}
+                          </a>
+                        </span>
+                      </div>
+                      
+                      <p class="text-secondary small mb-2">
+                        {{ snippet.content|truncatechars:120 }}
+                      </p>
+                      
+                      <div class="d-flex justify-content-between align-items-center">
+                        <small class="text-muted">
+                          <i class="fas fa-clock me-1"></i>
+                          {{ snippet.created_at|timesince }} ago
+                        </small>
+                        <div class="d-flex gap-2">
+                          <small class="text-success">
+                            <i class="fas fa-thumbs-up me-1"></i>
+                            {{ snippet.reviews.all|length }}
+                          </small>
+                          <small class="text-warning">
+                            <i class="fas fa-comments me-1"></i>
+                            {{ snippet.comments.all|length }}
+                          </small>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+              
+              {% if user_snippets|length == 10 %}
+                <div class="text-center">
+                  <a href="{% url 'research:snippet_list' %}?author={{ profile_user.username }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-list me-2"></i>View All Research
+                  </a>
+                </div>
+              {% endif %}
+            {% else %}
+              <div class="text-center py-5">
+                <i class="fas fa-flask text-muted" style="font-size: 3rem;"></i>
+                <h5 class="text-secondary">
+                  {% if is_own_profile %}
+                    You haven't posted any research yet
+                  {% else %}
+                    No research posts yet
+                  {% endif %}
+                </h5>
+                {% if is_own_profile %}
+                  <a href="{% url 'research:snippet_list' %}" class="btn btn-info ">
+                    <i class="fas fa-plus me-2"></i>Start Contributing
+                  </a>
+                {% endif %}
+              </div>
+            {% endif %}
+          </div>
+
+          <!-- Comments Tab -->
+          <div class="tab-pane fade" id="comments" role="tabpanel" aria-labelledby="comments-tab">
+            {% if all_comments %}
+              <div class="row">
+                {% for comment in all_comments %}
+                  <div class="col-12 mb-3">
+                    <div class="bg-neurobin-dark p-3 rounded border border-secondary">
+                      <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h6 class="text-light mb-0">
+                          <a href="{% url 'research:snippet_detail' comment.snippet.id %}" class="text-neurobin-accent text-decoration-none">
+                            {{ comment.snippet.title|truncatechars:80 }}
+                          </a>
+                        </h6>
+                        <small class="text-muted">
+                          {{ comment.created_at|timesince }} ago
+                        </small>
+                      </div>
+                      
+                      <div class="mb-2">
+                        <span class="text-secondary small">
+                          <i class="fas fa-pills me-1"></i>
+                          <a href="{% url 'compound_detail' comment.snippet.compound.slug %}" class="text-info text-decoration-none">
+                            {{ comment.snippet.compound.name }}
+                          </a>
+                          <span class="mx-2">•</span>
+                          <i class="fas fa-user me-1"></i>
+                          <a href="{% url 'user_profile' comment.snippet.created_by.username %}" class="text-info text-decoration-none">
+                            {{ comment.snippet.created_by.username }}
+                          </a>
+                          {% if comment.snippet.created_by == profile_user %}
+                            <span class="badge bg-info ms-2">Your Post</span>
+                          {% endif %}
+                        </span>
+                      </div>
+                      
+                      <div class="bg-secondary bg-opacity-10 p-2 rounded">
+                        <p class="text-light mb-0 small">{{ comment.content|truncatechars:200 }}</p>
+                      </div>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="text-center py-5">
+                <i class="fas fa-comment-dots text-muted" style="font-size: 3rem;"></i>
+                <h5 class="text-secondary">
+                  {% if is_own_profile %}
+                    You haven't made any comments yet
+                  {% else %}
+                    No comments yet
+                  {% endif %}
+                </h5>
+                {% if is_own_profile %}
+                  <p class="text-muted">Engage with the community by commenting on research posts</p>
+                {% endif %}
+              </div>
+            {% endif %}
+          </div>
+
+          <!-- Reviews Given Tab -->
+          <div class="tab-pane fade" id="reviews" role="tabpanel" aria-labelledby="reviews-tab">
+            {% if reviews_given %}
+              <div class="row">
+                {% for review in reviews_given %}
+                  <div class="col-12 mb-3">
+                    <div class="bg-neurobin-dark p-3 rounded border border-secondary">
+                      <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h6 class="text-light mb-0">
+                          <a href="{% url 'research:snippet_detail' review.snippet.id %}" class="text-neurobin-accent text-decoration-none">
+                            {{ review.snippet.title|truncatechars:80 }}
+                          </a>
+                        </h6>
+                        <div class="d-flex align-items-center gap-2">
+                          {% if review.vote_type == 'validate' %}
+                            <span class="badge bg-success">
+                              <i class="fas fa-check me-1"></i>Approved
+                            </span>
+                          {% else %}
+                            <span class="badge bg-danger">
+                              <i class="fas fa-times me-1"></i>Rejected
+                            </span>
+                          {% endif %}
+                          <small class="text-muted">
+                            {{ review.created_at|timesince }} ago
+                          </small>
+                        </div>
+                      </div>
+                      
+                      <div class="mb-2">
+                        <span class="text-secondary small">
+                          <i class="fas fa-pills me-1"></i>
+                          <a href="{% url 'compound_detail' review.snippet.compound.slug %}" class="text-info text-decoration-none">
+                            {{ review.snippet.compound.name }}
+                          </a>
+                          <span class="mx-2">•</span>
+                          <i class="fas fa-user me-1"></i>
+                          <a href="{% url 'user_profile' review.snippet.created_by.username %}" class="text-info text-decoration-none">
+                            {{ review.snippet.created_by.username }}
+                          </a>
+                        </span>
+                      </div>
+                      
+                      {% if review.comment %}
+                        <div class="bg-secondary bg-opacity-10 p-2 rounded">
+                          <p class="text-light mb-0 small">{{ review.comment|truncatechars:200 }}</p>
+                        </div>
+                      {% endif %}
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="text-center py-5">
+                <i class="fas fa-star text-muted" style="font-size: 3rem;"></i>
+                <h5 class="text-secondary">
+                  {% if is_own_profile %}
+                    You haven't reviewed any research yet
+                  {% else %}
+                    No reviews given yet
+                  {% endif %}
+                </h5>
+                {% if is_own_profile %}
+                  <p class="text-muted">Help validate the quality of research by reviewing submissions</p>
+                {% endif %}
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+/* Custom tab styling for dark theme */
+.nav-tabs .nav-link {
+  border-color: transparent !important;
+  color: var(--text-secondary) !important;
+  transition: all 0.3s ease;
+}
+
+.nav-tabs .nav-link:hover {
+  color: var(--accent-primary) !important;
+  border-bottom-color: var(--accent-primary) !important;
+}
+
+.nav-tabs .nav-link.active {
+  color: var(--accent-primary) !important;
+  border-bottom-color: var(--accent-primary) !important;
+  background-color: transparent !important;
+}
+
+/* Ensure proper z-index for dropdown elements on profile page */
+.profile-dropdown {
+  z-index: 9999 !important;
+}
+
+.profile-dropdown .dropdown-menu {
+  z-index: 10000 !important;
+}
+</style>
+{% endblock %}

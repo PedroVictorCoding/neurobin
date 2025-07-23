@@ -214,6 +214,22 @@ def api_targets(request):
     targets = Target.objects.all().values('id', 'name')
     return JsonResponse(list(targets), safe=False)
 
+def api_mechanisms(request):
+    """API endpoint to get all mechanisms as JSON"""
+    mechanisms = CompoundMechanismOfAction.objects.all()
+    mechanism_list = []
+    for mechanism in mechanisms:
+        mechanism_list.append({
+            'id': mechanism.id,
+            'display_name': str(mechanism)
+        })
+    return JsonResponse(mechanism_list, safe=False)
+
+def api_categories(request):
+    """API endpoint to get all categories as JSON"""
+    categories = CompoundCategories.objects.all().values('id', 'name')
+    return JsonResponse(list(categories), safe=False)
+
 
 @require_POST
 @login_required
