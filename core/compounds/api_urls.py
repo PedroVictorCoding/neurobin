@@ -6,7 +6,8 @@ from .views import (
     CompoundMechanismOfActionViewSet,
     CompoundViewSet,
     CompoundRatingViewSet,
-    CompoundSafetyScreeningViewSet
+    CompoundSafetyScreeningViewSet,
+    EffectWindowViewSet
 )
 
 router = DefaultRouter()
@@ -16,6 +17,7 @@ router.register(r'compoundmechanismofaction', CompoundMechanismOfActionViewSet)
 router.register(r'compound', CompoundViewSet)
 router.register(r'compoundrating', CompoundRatingViewSet)
 router.register(r'compoundsafetyscreening', CompoundSafetyScreeningViewSet)
+router.register(r'effectwindow', EffectWindowViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

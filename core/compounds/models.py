@@ -194,7 +194,190 @@ class CompoundSafetyScreening(models.Model):
         verbose_name = "Compound Safety Screening"
 
     def __str__(self):
-        f"{self.compound.name} Safety Report by {self.created_by or 'Anonymous'}"
+        return f"{self.compound.name} Safety Report by {self.created_by or 'Anonymous'}"
+
+
+class EffectWindow(models.Model):
+    """
+    Model to define effect curves for compounds showing intensity over time.
+    Used for visualizing pharmacokinetic profiles.
+    """
+    
+    EFFECT_SHAPE_CHOICES = [
+        ('bell', 'Bell Curve'),
+        ('ramp', 'Ramp Up'),
+        ('flat-top', 'Flat Top'),
+        ('custom', 'Custom'),
+    ]
+    
+    compound = models.ForeignKey(
+        'Compound', 
+        on_delete=models.CASCADE, 
+        related_name='effect_windows',
+        help_text="Compound this effect profile belongs to"
+    )
+    
+    # Timing parameters (in minutes)
+    onset_minutes = models.PositiveIntegerField(
+        help_text="Smallest time after intake before effects begin (minutes)"
+    )
+    peak_min_minutes = models.PositiveIntegerField(
+        help_text="Smallest time to peak effects (minutes)"
+    )
+    peak_max_minutes = models.PositiveIntegerField(
+        help_text="Largest time to peak effects (minutes)"
+    )
+    duration_minutes = models.PositiveIntegerField(
+        help_text="Total time of effects (minutes)"
+    )
+    half_life_minutes = models.PositiveIntegerField(
+        blank=True, null=True,
+        help_text="Optional half-life for decay visualization (minutes)"
+    )
+    
+    # Effect profile
+    effect_shape = models.CharField(
+        max_length=20,
+        choices=EFFECT_SHAPE_CHOICES,
+        default='bell',
+        help_text="Preset curve profile shape"
+    )
+    
+    # Additional info
+    notes = models.CharField(
+        max_length=500,
+        blank=True,
+        help_text="Additional notes about this effect profile"
+    )
+    
+    # Tracking
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True
+    )
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Effect Window"
+        verbose_name_plural = "Effect Windows"
+    
+    def __str__(self):
+        return f"{self.compound.name} - {self.get_effect_shape_display()}"
+    
+    def clean(self):
+        """Validate timing constraints"""
+        from django.core.exceptions import ValidationError
+        
+        if self.peak_min_minutes < self.onset_minutes:
+            raise ValidationError("Peak minimum cannot be before onset")
+        
+        if self.peak_max_minutes < self.peak_min_minutes:
+            raise ValidationError("Peak maximum cannot be before peak minimum")
+        
+        if self.duration_minutes < self.peak_max_minutes:
+            raise ValidationError("Duration cannot be shorter than peak maximum")
+    
+    @property
+    def peak_duration_minutes(self):
+        """Calculate the duration of peak effects"""
+        return self.peak_max_minutes - self.peak_min_minutes
+    
+    @property
+    def comedown_minutes(self):
+        """Calculate comedown duration"""
+        return self.duration_minutes - self.peak_max_minutes
+    
+    def get_effect_curve_data(self, resolution_minutes=5):
+        """
+        Generate effect curve data points for visualization.
+        Returns list of (time_minutes, intensity_percentage) tuples.
+        """
+        data_points = []
+        time_range = range(0, self.duration_minutes + 1, resolution_minutes)
+        
+        for t in time_range:
+            intensity = self._calculate_intensity_at_time(t)
+            data_points.append((t, intensity))
+        
+        return data_points
+    
+    def _calculate_intensity_at_time(self, time_minutes):
+        """Calculate effect intensity (0-100%) at given time"""
+        if time_minutes < self.onset_minutes:
+            return 0
+        
+        if time_minutes > self.duration_minutes:
+            return 0
+        
+        if self.effect_shape == 'bell':
+            return self._bell_curve_intensity(time_minutes)
+        elif self.effect_shape == 'ramp':
+            return self._ramp_intensity(time_minutes)
+        elif self.effect_shape == 'flat-top':
+            return self._flat_top_intensity(time_minutes)
+        else:  # custom or fallback
+            return self._bell_curve_intensity(time_minutes)
+    
+    def _bell_curve_intensity(self, time_minutes):
+        """Bell curve intensity calculation"""
+        if time_minutes <= self.onset_minutes:
+            return 0
+        elif time_minutes <= self.peak_min_minutes:
+            # Rising phase
+            progress = (time_minutes - self.onset_minutes) / (self.peak_min_minutes - self.onset_minutes)
+            return min(100, progress * 100)
+        elif time_minutes <= self.peak_max_minutes:
+            # Peak phase
+            return 100
+        else:
+            # Falling phase
+            if self.half_life_minutes:
+                # Exponential decay
+                time_since_peak = time_minutes - self.peak_max_minutes
+                decay_factor = 0.5 ** (time_since_peak / self.half_life_minutes)
+                return max(0, 100 * decay_factor)
+            else:
+                # Linear decay
+                falling_duration = self.duration_minutes - self.peak_max_minutes
+                time_since_peak = time_minutes - self.peak_max_minutes
+                progress = time_since_peak / falling_duration
+                return max(0, 100 * (1 - progress))
+    
+    def _ramp_intensity(self, time_minutes):
+        """Ramp up intensity calculation"""
+        if time_minutes <= self.onset_minutes:
+            return 0
+        elif time_minutes <= self.peak_max_minutes:
+            # Rising phase
+            progress = (time_minutes - self.onset_minutes) / (self.peak_max_minutes - self.onset_minutes)
+            return min(100, progress * 100)
+        else:
+            # Immediate fall
+            falling_duration = self.duration_minutes - self.peak_max_minutes
+            time_since_peak = time_minutes - self.peak_max_minutes
+            progress = time_since_peak / falling_duration
+            return max(0, 100 * (1 - progress))
+    
+    def _flat_top_intensity(self, time_minutes):
+        """Flat top intensity calculation"""
+        if time_minutes <= self.onset_minutes:
+            return 0
+        elif time_minutes <= self.peak_min_minutes:
+            # Rising phase
+            progress = (time_minutes - self.onset_minutes) / (self.peak_min_minutes - self.onset_minutes)
+            return min(100, progress * 100)
+        elif time_minutes <= self.peak_max_minutes:
+            # Flat peak phase
+            return 100
+        else:
+            # Falling phase
+            falling_duration = self.duration_minutes - self.peak_max_minutes
+            time_since_peak = time_minutes - self.peak_max_minutes
+            progress = time_since_peak / falling_duration
+            return max(0, 100 * (1 - progress))
 
 
 

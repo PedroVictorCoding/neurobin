@@ -7,7 +7,7 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
 
-from .models import Compound, CompoundSafetyScreening, CompoundRating, CompoundCategories, CompoundMechanismOfAction, Target
+from .models import Compound, CompoundSafetyScreening, CompoundRating, CompoundCategories, CompoundMechanismOfAction, Target, EffectWindow
 from .forms import CompoundForm, MechanismOfActionForm, CategoryForm, TargetForm
 
 
@@ -308,7 +308,8 @@ from .serializers import (
     CompoundMechanismOfActionSerializer,
     CompoundSerializer,
     CompoundRatingSerializer,
-    CompoundSafetyScreeningSerializer
+    CompoundSafetyScreeningSerializer,
+    EffectWindowSerializer
 )
 
 
@@ -378,4 +379,37 @@ class CompoundSafetyScreeningViewSet(viewsets.ModelViewSet):
         if compound_id is not None:
             queryset = queryset.filter(compound_id=compound_id)
         return queryset
+
+
+class EffectWindowViewSet(viewsets.ModelViewSet):
+    queryset = EffectWindow.objects.all()
+    serializer_class = EffectWindowSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        queryset = EffectWindow.objects.select_related('compound', 'created_by')
+        compound_id = self.request.query_params.get('compound', None)
+        if compound_id is not None:
+            queryset = queryset.filter(compound_id=compound_id)
+        return queryset.order_by('-created_at')
+
+    @action(detail=True, methods=['get'])
+    def curve_data(self, request, pk=None):
+        """Get detailed curve data with custom resolution"""
+        effect_window = self.get_object()
+        resolution = int(request.query_params.get('resolution', 5))  # Default 5 minutes
+        curve_data = effect_window.get_effect_curve_data(resolution_minutes=resolution)
+        
+        return Response({
+            'compound': effect_window.compound.name,
+            'effect_shape': effect_window.effect_shape,
+            'curve_data': curve_data,
+            'metadata': {
+                'onset_minutes': effect_window.onset_minutes,
+                'peak_min_minutes': effect_window.peak_min_minutes,
+                'peak_max_minutes': effect_window.peak_max_minutes,
+                'duration_minutes': effect_window.duration_minutes,
+                'half_life_minutes': effect_window.half_life_minutes,
+            }
+        })
 

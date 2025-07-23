@@ -1,0 +1,396 @@
+{% load static %}
+
+<!-- Effect Curves Visualization -->
+<div class="effect-curves-container bg-dark">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">
+            {% if page_type == 'compound_detail' %}
+                Effect Profile
+            {% else %}
+                Effect Timeline
+            {% endif %}
+        </h5>
+        <div class="effect-controls">
+            {% if page_type == 'dashboard' %}
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn btn-outline-primary active" data-timeframe="today">Today</button>
+                    <button type="button" class="btn btn-outline-primary" data-timeframe="yesterday">Yesterday</button>
+                    <button type="button" class="btn btn-outline-primary" data-timeframe="week">This Week</button>
+                </div>
+            {% endif %}
+            <button class="btn btn-sm btn-outline-secondary ms-2" id="refreshCurves">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+    </div>
+    
+    <div class="chart-container" style="position: relative; height: 400px;">
+        <canvas id="effectCurveChart"></canvas>
+    </div>
+    
+    <!-- Chart Legend/Info -->
+    <div class="chart-info mt-3">
+        <div class="row">
+            <div class="col-md-8">
+                <div id="chartLegend" class="chart-legend">
+                    <!-- Dynamic legend will be populated here -->
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="chart-stats">
+                    <small class="text-muted">
+                        <div><strong>Resolution:</strong> 5 minutes</div>
+                        {% if page_type == 'compound_detail' %}
+                            <div><strong>Time Format:</strong> T+00:00 (relative to intake)</div>
+                        {% else %}
+                            <div><strong>Time Format:</strong> Actual time</div>
+                        {% endif %}
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Loading state -->
+    <div id="chartLoading" class="text-center p-4" style="display: none;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2 text-muted">Loading effect curves...</p>
+    </div>
+    
+    <!-- No data state -->
+    <div id="chartNoData" class="text-center p-4" style="display: none;">
+        <i class="fas fa-chart-line fa-3x text-muted mb-3"></i>
+        <h6 class="text-muted">No Effect Data Available</h6>
+        <p class="text-muted">
+            {% if page_type == 'compound_detail' %}
+                No effect windows have been defined for this compound yet.
+            {% else %}
+                No intake logs found for the selected timeframe.
+            {% endif %}
+        </p>
+        {% if user.is_authenticated and page_type == 'compound_detail' %}
+            <a href="{% url 'admin:compounds_effectwindow_add' %}" class="btn btn-sm btn-primary">
+                Add Effect Window
+            </a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Include Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="{% static 'js/effect-curves.js' %}"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize the effect curve chart
+    const chartContainer = document.querySelector('.effect-curves-container');
+    const pageType = '{{ page_type }}';
+    const compoundId = {{ compound.id|default:'null' }};
+    const userId = {{ user.id|default:'null' }};
+    
+    // Chart configuration based on page type
+    const chartOptions = {
+        height: 400,
+        showRelativeTime: pageType === 'compound_detail',
+        maxDoseReference: {} // Will be populated with max doses per compound
+    };
+    
+    // Initialize chart and API
+    const effectChart = new EffectCurveChart('effectCurveChart', chartOptions);
+    const api = new EffectDataAPI();
+    
+    // Current timeframe for dashboard
+    let currentTimeframe = 'today';
+    
+    /**
+     * Load effect curves based on page type
+     */
+    async function loadEffectCurves() {
+        showLoading(true);
+        
+        try {
+            if (pageType === 'compound_detail') {
+                await loadCompoundEffectCurves();
+            } else {
+                await loadIntakeEffectCurves();
+            }
+        } catch (error) {
+            console.error('Error loading effect curves:', error);
+            showNoData(true);
+        } finally {
+            showLoading(false);
+        }
+    }
+    
+    /**
+     * Load effect curves for compound detail page
+     */
+    async function loadCompoundEffectCurves() {
+        if (!compoundId) {
+            showNoData(true);
+            return;
+        }
+        
+        const effectWindows = await api.getCompoundEffectWindows(compoundId);
+        
+        if (!effectWindows.results || effectWindows.results.length === 0) {
+            showNoData(true);
+            return;
+        }
+        
+        effectChart.clearCurves();
+        effectChart.setTitle(`Effect Profile - {{ compound.name|default:"Compound" }}`);
+        
+        // Add each effect window as a separate curve
+        effectWindows.results.forEach((effectWindow, index) => {
+            effectChart.addEffectCurve(effectWindow);
+        });
+        
+        showChart(true);
+        updateLegend(effectWindows.results);
+    }
+    
+    /**
+     * Load effect curves for intake dashboard
+     */
+    async function loadIntakeEffectCurves() {
+        if (!userId) {
+            showNoData(true);
+            return;
+        }
+        
+        const params = {
+            user: userId,
+            ...getDateRangeParams(currentTimeframe)
+        };
+        
+        const intakeLogs = await api.getIntakeLogs(params);
+        
+        if (!intakeLogs.results || intakeLogs.results.length === 0) {
+            showNoData(true);
+            return;
+        }
+        
+        // Get effect windows for compounds in intake logs
+        const compoundIds = [...new Set(intakeLogs.results.map(log => log.compound.id))];
+        const effectWindowPromises = compoundIds.map(id => api.getCompoundEffectWindows(id));
+        const effectWindowsResults = await Promise.all(effectWindowPromises);
+        
+        // Combine intake logs with effect windows
+        const enrichedIntakes = intakeLogs.results.map(intake => {
+            const effectWindows = effectWindowsResults.find(result => 
+                result.results && result.results.some(ew => ew.compound.id === intake.compound.id)
+            );
+            
+            return {
+                ...intake,
+                compound: {
+                    ...intake.compound,
+                    effect_windows: effectWindows ? effectWindows.results.filter(ew => ew.compound.id === intake.compound.id) : []
+                }
+            };
+        });
+        
+        effectChart.clearCurves();
+        effectChart.setTitle(`Effect Timeline - ${currentTimeframe.charAt(0).toUpperCase() + currentTimeframe.slice(1)}`);
+        
+        // Calculate reference date for timeline
+        const referenceDate = getReferenceDate(currentTimeframe);
+        
+        // Calculate max doses for scaling
+        calculateMaxDoses(enrichedIntakes);
+        
+        // Add curves
+        effectChart.addIntakeCurves(enrichedIntakes, referenceDate);
+        
+        showChart(true);
+        updateIntakeLegend(enrichedIntakes);
+    }
+    
+    /**
+     * Get date range parameters for API calls
+     */
+    function getDateRangeParams(timeframe) {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        
+        switch (timeframe) {
+            case 'today':
+                return {
+                    taken_at__gte: today.toISOString(),
+                    taken_at__lt: new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString()
+                };
+            case 'yesterday':
+                const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+                return {
+                    taken_at__gte: yesterday.toISOString(),
+                    taken_at__lt: today.toISOString()
+                };
+            case 'week':
+                const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+                return {
+                    taken_at__gte: weekAgo.toISOString(),
+                    taken_at__lt: new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString()
+                };
+            default:
+                return {};
+        }
+    }
+    
+    /**
+     * Get reference date for timeline calculations
+     */
+    function getReferenceDate(timeframe) {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        
+        switch (timeframe) {
+            case 'yesterday':
+                return new Date(today.getTime() - 24 * 60 * 60 * 1000);
+            case 'week':
+                return new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+            default:
+                return today;
+        }
+    }
+    
+    /**
+     * Calculate max doses per compound for scaling
+     */
+    function calculateMaxDoses(intakeLogs) {
+        const dosesByCompound = {};
+        
+        intakeLogs.forEach(intake => {
+            const compoundId = intake.compound.id;
+            const dose = parseFloat(intake.amount) || 0;
+            
+            if (!dosesByCompound[compoundId] || dose > dosesByCompound[compoundId]) {
+                dosesByCompound[compoundId] = dose;
+            }
+        });
+        
+        effectChart.options.maxDoseReference = dosesByCompound;
+    }
+    
+    /**
+     * Update legend for compound detail page
+     */
+    function updateLegend(effectWindows) {
+        const legend = document.getElementById('chartLegend');
+        const legendItems = effectWindows.map((ew, index) => `
+            <span class="legend-item me-3">
+                <span class="legend-color" style="background-color: ${effectChart.generateColor(index)}"></span>
+                ${ew.get_effect_shape_display || ew.effect_shape} 
+                (${ew.onset_minutes}m → ${ew.duration_minutes}m)
+            </span>
+        `).join('');
+        
+        legend.innerHTML = legendItems;
+    }
+    
+    /**
+     * Update legend for intake dashboard
+     */
+    function updateIntakeLegend(intakeLogs) {
+        const legend = document.getElementById('chartLegend');
+        const legendItems = intakeLogs.map((intake, index) => `
+            <span class="legend-item me-3">
+                <span class="legend-color" style="background-color: ${effectChart.generateColor(index)}"></span>
+                ${intake.compound.name} (${intake.amount}${intake.unit})
+                <small class="text-muted">- ${new Date(intake.taken_at).toLocaleTimeString()}</small>
+            </span>
+        `).join('');
+        
+        legend.innerHTML = legendItems;
+    }
+    
+    /**
+     * Show/hide loading state
+     */
+    function showLoading(show) {
+        document.getElementById('chartLoading').style.display = show ? 'block' : 'none';
+        document.querySelector('.chart-container').style.display = show ? 'none' : 'block';
+        document.getElementById('chartNoData').style.display = 'none';
+    }
+    
+    /**
+     * Show/hide no data state
+     */
+    function showNoData(show) {
+        document.getElementById('chartNoData').style.display = show ? 'block' : 'none';
+        document.querySelector('.chart-container').style.display = show ? 'none' : 'block';
+        document.getElementById('chartLoading').style.display = 'none';
+    }
+    
+    /**
+     * Show chart
+     */
+    function showChart(show) {
+        document.querySelector('.chart-container').style.display = show ? 'block' : 'none';
+        document.getElementById('chartNoData').style.display = 'none';
+        document.getElementById('chartLoading').style.display = 'none';
+    }
+    
+    // Event listeners
+    document.getElementById('refreshCurves').addEventListener('click', loadEffectCurves);
+    
+    // Timeframe buttons for dashboard
+    if (pageType === 'dashboard') {
+        document.querySelectorAll('[data-timeframe]').forEach(button => {
+            button.addEventListener('click', function() {
+                // Update active button
+                document.querySelectorAll('[data-timeframe]').forEach(btn => btn.classList.remove('active'));
+                this.classList.add('active');
+                
+                // Update timeframe and reload
+                currentTimeframe = this.dataset.timeframe;
+                loadEffectCurves();
+            });
+        });
+    }
+    
+    // Initial load
+    loadEffectCurves();
+});
+</script>
+
+<style>
+.effect-curves-container {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.legend-item {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.875rem;
+}
+
+.legend-color {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    margin-right: 6px;
+}
+
+.chart-container canvas {
+    max-height: 400px;
+}
+
+.effect-controls {
+    display: flex;
+    align-items: center;
+}
+</style>

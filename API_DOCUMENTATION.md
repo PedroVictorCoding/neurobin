@@ -4,7 +4,7 @@ This document provides a comprehensive overview of the RESTful API created for t
 
 ## Base URL
 ```
-http://localhost:9000/api/
+http://0.0.0.0:9000/api/
 ```
 
 ## Authentication
@@ -145,6 +145,67 @@ Example:
     "reference_link": "https://pubmed.ncbi.nlm.nih.gov/example",
     "created_by": "researcher_username",
     "created_at": "2025-01-01T12:00:00Z"
+}
+```
+
+#### EffectWindow
+- **List/Create**: `GET/POST /api/compounds/effectwindow/`
+- **Retrieve/Update/Delete**: `GET/PUT/PATCH/DELETE /api/compounds/effectwindow/{id}/`
+- **Filter by compound**: `GET /api/compounds/effectwindow/?compound={compound_id}`
+- **Get Curve Data**: `GET /api/compounds/effectwindow/{id}/curve_data/?resolution={minutes}`
+
+Example:
+```json
+{
+    "id": 1,
+    "compound": {"id": 1, "name": "Phenibut"},
+    "compound_id": 1,
+    "onset_minutes": 30,
+    "peak_min_minutes": 120,
+    "peak_max_minutes": 180,
+    "duration_minutes": 480,
+    "half_life_minutes": 240,
+    "effect_shape": "bell",
+    "notes": "Typical dosage effect profile",
+    "created_by": "researcher_username",
+    "created_at": "2025-01-01T12:00:00Z",
+    "peak_duration_minutes": 60,
+    "comedown_minutes": 300,
+    "effect_curve_data": [
+        [0, 0],
+        [30, 0],
+        [60, 25],
+        [120, 100],
+        [180, 100],
+        [240, 50],
+        [360, 25],
+        [480, 0]
+    ]
+}
+```
+
+Curve Data Response (with custom resolution):
+```json
+{
+    "compound": "Phenibut",
+    "effect_shape": "bell",
+    "curve_data": [
+        [0, 0],
+        [30, 0],
+        [60, 25],
+        [120, 100],
+        [180, 100],
+        [240, 50],
+        [360, 25],
+        [480, 0]
+    ],
+    "metadata": {
+        "onset_minutes": 30,
+        "peak_min_minutes": 120,
+        "peak_max_minutes": 180,
+        "duration_minutes": 480,
+        "half_life_minutes": 240
+    }
 }
 ```
 

@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import *
+from .models import (
+    Compound, 
+    CompoundCategories, 
+    Target, 
+    CompoundMechanismOfAction, 
+    CompoundRating, 
+    CompoundSafetyScreening,
+    EffectWindow
+)
 
 
 @admin.register(Compound)
@@ -37,3 +45,28 @@ class CompoundSafetyScreeningAdmin(admin.ModelAdmin):
     list_display = ('compound', 'created_by', 'confidence_score', 'created_at')
     list_filter = ('confidence_score',)
     search_fields = ('compound__name', 'user__username')
+
+
+@admin.register(EffectWindow)
+class EffectWindowAdmin(admin.ModelAdmin):
+    list_display = ('compound', 'effect_shape', 'onset_minutes', 'peak_min_minutes', 'peak_max_minutes', 'duration_minutes', 'created_by')
+    list_filter = ('effect_shape', 'created_by')
+    search_fields = ('compound__name', 'notes')
+    readonly_fields = ('created_at',)
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('compound', 'effect_shape', 'notes')
+        }),
+        ('Timing Parameters (minutes)', {
+            'fields': ('onset_minutes', 'peak_min_minutes', 'peak_max_minutes', 'duration_minutes', 'half_life_minutes')
+        }),
+        ('Metadata', {
+            'fields': ('created_by', 'created_at')
+        })
+    )
+    
+    def save_model(self, request, obj, form, change):
+        if not change:  # Only set created_by on creation
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)

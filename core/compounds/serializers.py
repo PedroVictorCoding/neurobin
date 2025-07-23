@@ -5,7 +5,8 @@ from .models import (
     CompoundMechanismOfAction,
     Compound,
     CompoundRating,
-    CompoundSafetyScreening
+    CompoundSafetyScreening,
+    EffectWindow
 )
 
 
@@ -124,3 +125,44 @@ class CompoundSafetyScreeningSerializer(serializers.ModelSerializer):
         if self.context['request'].user.is_authenticated:
             validated_data['created_by'] = self.context['request'].user
         return super().create(validated_data)
+
+
+class EffectWindowSerializer(serializers.ModelSerializer):
+    compound = CompoundSerializer(read_only=True)
+    compound_id = serializers.IntegerField(write_only=True)
+    created_by = serializers.StringRelatedField(read_only=True)
+    peak_duration_minutes = serializers.ReadOnlyField()
+    comedown_minutes = serializers.ReadOnlyField()
+    effect_curve_data = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = EffectWindow
+        fields = '__all__'
+        read_only_fields = ('created_at', 'created_by')
+
+    def get_effect_curve_data(self, obj):
+        """Get curve data points for visualization"""
+        return obj.get_effect_curve_data()
+
+    def create(self, validated_data):
+        if self.context['request'].user.is_authenticated:
+            validated_data['created_by'] = self.context['request'].user
+        return super().create(validated_data)
+
+    def validate(self, data):
+        """Validate timing constraints"""
+        onset = data.get('onset_minutes', 0)
+        peak_min = data.get('peak_min_minutes', 0)
+        peak_max = data.get('peak_max_minutes', 0)
+        duration = data.get('duration_minutes', 0)
+        
+        if peak_min < onset:
+            raise serializers.ValidationError("Peak minimum cannot be before onset")
+        
+        if peak_max < peak_min:
+            raise serializers.ValidationError("Peak maximum cannot be before peak minimum")
+        
+        if duration < peak_max:
+            raise serializers.ValidationError("Duration cannot be shorter than peak maximum")
+        
+        return data

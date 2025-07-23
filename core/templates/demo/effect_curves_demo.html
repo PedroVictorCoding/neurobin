@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Effect Curves Demo - Neurobin</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: #fff;
+        }
+        .demo-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .chart-container {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .control-panel {
+            background: #333;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .legend-item {
+            display: inline-flex;
+            align-items: center;
+            margin-right: 20px;
+            margin-bottom: 10px;
+        }
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-container">
+        <h1 class="text-center mb-4">Effect Curves Visualization Demo</h1>
+        
+        <!-- Control Panel -->
+        <div class="control-panel">
+            <div class="row">
+                <div class="col-md-6">
+                    <h5>Demo Controls</h5>
+                    <button class="btn btn-primary btn-sm me-2" onclick="loadSampleCompoundData()">
+                        Load Sample Compound
+                    </button>
+                    <button class="btn btn-success btn-sm me-2" onclick="loadSampleIntakeData()">
+                        Load Sample Intakes
+                    </button>
+                    <button class="btn btn-warning btn-sm me-2" onclick="clearAllCurves()">
+                        Clear All
+                    </button>
+                </div>
+                <div class="col-md-6">
+                    <h5>API Status</h5>
+                    <div id="apiStatus" class="badge bg-secondary">Not tested</div>
+                    <button class="btn btn-info btn-sm ms-2" onclick="testAPIConnection()">
+                        Test API
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Chart Containers -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h4>Compound Effect Profile (T+00:00 format)</h4>
+                    <div style="position: relative; height: 400px;">
+                        <canvas id="compoundChart"></canvas>
+                    </div>
+                    <div id="compoundLegend" class="mt-3"></div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h4>Intake Timeline (Actual time)</h4>
+                    <div style="position: relative; height: 400px;">
+                        <canvas id="intakeChart"></canvas>
+                    </div>
+                    <div id="intakeLegend" class="mt-3"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Information Panel -->
+        <div class="control-panel">
+            <h5>About Effect Curves</h5>
+            <div class="row">
+                <div class="col-md-4">
+                    <h6>Effect Shapes</h6>
+                    <ul>
+                        <li><strong>Bell:</strong> Classic onset → peak → decline</li>
+                        <li><strong>Ramp:</strong> Gradual rise then sharp decline</li>
+                        <li><strong>Flat-top:</strong> Rise → plateau → decline</li>
+                        <li><strong>Custom:</strong> User-defined profile</li>
+                    </ul>
+                </div>
+                <div class="col-md-4">
+                    <h6>Key Parameters</h6>
+                    <ul>
+                        <li><strong>Onset:</strong> Time before effects begin</li>
+                        <li><strong>Peak Min/Max:</strong> Duration of peak effects</li>
+                        <li><strong>Duration:</strong> Total effect time</li>
+                        <li><strong>Half-life:</strong> For exponential decay</li>
+                    </ul>
+                </div>
+                <div class="col-md-4">
+                    <h6>Visualization Features</h6>
+                    <ul>
+                        <li><strong>Dose Scaling:</strong> Height based on dose amount</li>
+                        <li><strong>Time Overlay:</strong> Multiple compounds on timeline</li>
+                        <li><strong>Interactive:</strong> Hover for details</li>
+                        <li><strong>Responsive:</strong> Works on all devices</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize charts
+        let compoundChart = null;
+        let intakeChart = null;
+        
+        // Chart colors
+        const colors = [
+            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+            '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'
+        ];
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeCharts();
+        });
+        
+        function initializeCharts() {
+            // Compound chart (T+00:00 format)
+            const compoundCtx = document.getElementById('compoundChart').getContext('2d');
+            compoundChart = new Chart(compoundCtx, {
+                type: 'line',
+                data: { datasets: [] },
+                options: getChartOptions(true)
+            });
+            
+            // Intake chart (actual time)
+            const intakeCtx = document.getElementById('intakeChart').getContext('2d');
+            intakeChart = new Chart(intakeCtx, {
+                type: 'line',
+                data: { datasets: [] },
+                options: getChartOptions(false)
+            });
+        }
+        
+        function getChartOptions(useRelativeTime) {
+            return {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        type: 'linear',
+                        display: true,
+                        title: {
+                            display: true,
+                            text: useRelativeTime ? 'Time (T+00:00)' : 'Time (minutes)',
+                            color: '#fff'
+                        },
+                        ticks: {
+                            color: '#fff',
+                            callback: function(value) {
+                                if (useRelativeTime) {
+                                    const hours = Math.floor(value / 60);
+                                    const minutes = value % 60;
+                                    return `T+${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                                }
+                                return `${value}m`;
+                            }
+                        },
+                        grid: { color: '#444' }
+                    },
+                    y: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Effect Intensity (%)',
+                            color: '#fff'
+                        },
+                        min: 0,
+                        max: 100,
+                        ticks: {
+                            color: '#fff',
+                            callback: function(value) {
+                                return `${value}%`;
+                            }
+                        },
+                        grid: { color: '#444' }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: useRelativeTime ? 'Effect Profile' : 'Intake Timeline',
+                        color: '#fff'
+                    },
+                    legend: {
+                        display: false // We'll use custom legend
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            title: function(context) {
+                                const value = context[0].parsed.x;
+                                if (useRelativeTime) {
+                                    const hours = Math.floor(value / 60);
+                                    const minutes = value % 60;
+                                    return `T+${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                                }
+                                return `${value} minutes`;
+                            },
+                            label: function(context) {
+                                const datasetLabel = context.dataset.label || '';
+                                const value = Math.round(context.parsed.y * 10) / 10;
+                                return `${datasetLabel}: ${value}%`;
+                            }
+                        }
+                    }
+                }
+            };
+        }
+        
+        function loadSampleCompoundData() {
+            // Sample effect window data
+            const sampleEffects = [
+                {
+                    compound: { name: 'Phenibut' },
+                    effect_shape: 'bell',
+                    effect_curve_data: generateBellCurve(30, 120, 180, 480, 240)
+                },
+                {
+                    compound: { name: 'L-Theanine' },
+                    effect_shape: 'flat-top',
+                    effect_curve_data: generateFlatTopCurve(15, 45, 90, 240)
+                }
+            ];
+            
+            compoundChart.data.datasets = [];
+            
+            sampleEffects.forEach((effect, index) => {
+                const dataset = {
+                    label: `${effect.compound.name} (${effect.effect_shape})`,
+                    data: effect.effect_curve_data.map(([time, intensity]) => ({x: time, y: intensity})),
+                    borderColor: colors[index],
+                    backgroundColor: colors[index] + '20',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.1,
+                    pointRadius: 1,
+                    pointHoverRadius: 5
+                };
+                compoundChart.data.datasets.push(dataset);
+            });
+            
+            compoundChart.update();
+            updateLegend('compoundLegend', sampleEffects);
+        }
+        
+        function loadSampleIntakeData() {
+            // Sample intake data with time offsets
+            const sampleIntakes = [
+                {
+                    compound: { name: 'Caffeine' },
+                    amount: '200',
+                    unit: 'mg',
+                    timeOffset: 0,
+                    effect_curve_data: generateBellCurve(15, 45, 60, 300, 120)
+                },
+                {
+                    compound: { name: 'L-Theanine' },
+                    amount: '100',
+                    unit: 'mg',
+                    timeOffset: 30,
+                    effect_curve_data: generateFlatTopCurve(15, 45, 90, 240)
+                }
+            ];
+            
+            intakeChart.data.datasets = [];
+            
+            sampleIntakes.forEach((intake, index) => {
+                // Adjust curve data for time offset
+                const adjustedData = intake.effect_curve_data.map(([time, intensity]) => ({
+                    x: time + intake.timeOffset,
+                    y: intensity
+                }));
+                
+                const dataset = {
+                    label: `${intake.compound.name} (${intake.amount}${intake.unit})`,
+                    data: adjustedData,
+                    borderColor: colors[index],
+                    backgroundColor: colors[index] + '20',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.1,
+                    pointRadius: 1,
+                    pointHoverRadius: 5
+                };
+                intakeChart.data.datasets.push(dataset);
+            });
+            
+            intakeChart.update();
+            updateIntakeLegend('intakeLegend', sampleIntakes);
+        }
+        
+        function clearAllCurves() {
+            compoundChart.data.datasets = [];
+            intakeChart.data.datasets = [];
+            compoundChart.update();
+            intakeChart.update();
+            document.getElementById('compoundLegend').innerHTML = '';
+            document.getElementById('intakeLegend').innerHTML = '';
+        }
+        
+        function updateLegend(containerId, effects) {
+            const container = document.getElementById(containerId);
+            const legendItems = effects.map((effect, index) => `
+                <span class="legend-item">
+                    <span class="legend-color" style="background-color: ${colors[index]}"></span>
+                    ${effect.compound.name} (${effect.effect_shape || 'unknown'})
+                </span>
+            `).join('');
+            container.innerHTML = legendItems;
+        }
+        
+        function updateIntakeLegend(containerId, intakes) {
+            const container = document.getElementById(containerId);
+            const legendItems = intakes.map((intake, index) => `
+                <span class="legend-item">
+                    <span class="legend-color" style="background-color: ${colors[index]}"></span>
+                    ${intake.compound.name} (${intake.amount}${intake.unit})
+                    <small class="text-muted ms-1">- T+${Math.floor(intake.timeOffset / 60).toString().padStart(2, '0')}:${(intake.timeOffset % 60).toString().padStart(2, '0')}</small>
+                </span>
+            `).join('');
+            container.innerHTML = legendItems;
+        }
+        
+        async function testAPIConnection() {
+            const statusEl = document.getElementById('apiStatus');
+            statusEl.className = 'badge bg-warning';
+            statusEl.textContent = 'Testing...';
+            
+            try {
+                const response = await fetch('/api/compounds/effectwindow/');
+                if (response.ok) {
+                    const data = await response.json();
+                    statusEl.className = 'badge bg-success';
+                    statusEl.textContent = `Connected (${data.results?.length || 0} effect windows)`;
+                } else {
+                    statusEl.className = 'badge bg-danger';
+                    statusEl.textContent = `Error ${response.status}`;
+                }
+            } catch (error) {
+                statusEl.className = 'badge bg-danger';
+                statusEl.textContent = 'Connection failed';
+            }
+        }
+        
+        // Curve generation functions
+        function generateBellCurve(onset, peakMin, peakMax, duration, halfLife) {
+            const points = [];
+            for (let t = 0; t <= duration; t += 5) {
+                let intensity = 0;
+                
+                if (t < onset) {
+                    intensity = 0;
+                } else if (t <= peakMin) {
+                    intensity = ((t - onset) / (peakMin - onset)) * 100;
+                } else if (t <= peakMax) {
+                    intensity = 100;
+                } else {
+                    const timeSincePeak = t - peakMax;
+                    intensity = 100 * Math.pow(0.5, timeSincePeak / halfLife);
+                }
+                
+                points.push([t, Math.max(0, intensity)]);
+            }
+            return points;
+        }
+        
+        function generateFlatTopCurve(onset, peakMin, peakMax, duration) {
+            const points = [];
+            for (let t = 0; t <= duration; t += 5) {
+                let intensity = 0;
+                
+                if (t < onset) {
+                    intensity = 0;
+                } else if (t <= peakMin) {
+                    intensity = ((t - onset) / (peakMin - onset)) * 100;
+                } else if (t <= peakMax) {
+                    intensity = 100;
+                } else {
+                    const fallingDuration = duration - peakMax;
+                    const timeSincePeak = t - peakMax;
+                    intensity = 100 * (1 - (timeSincePeak / fallingDuration));
+                }
+                
+                points.push([t, Math.max(0, intensity)]);
+            }
+            return points;
+        }
+    </script>
+</body>
+</html>

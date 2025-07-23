@@ -1,12 +1,27 @@
 {% extends "base.html" %}
 {% block title %}Analytics Dashboard{% endblock %}
 {% block content %}
-<div class="container" style="max-width: 900px;">
+<div class="container" style="max-width: 1200px;">
   <h2 class="mb-4">Analytics Dashboard</h2>
-  <div class="card bg-neurobin-card p-4 shadow mb-4">
-    <canvas id="intakeChart" style="width:100%;max-width:100%;"></canvas>
+  
+  <!-- Effect Curves Timeline -->
+  <div class="row">
+    <div class="col-12">
+      {% include 'includes/effect_curves.html' with page_type='dashboard' %}
+    </div>
+  </div>
+  
+  <!-- Original Analytics (can be enhanced later) -->
+  <div class="row mt-4">
+    <div class="col-12">
+      <div class="card bg-neurobin-card p-4 shadow mb-4">
+        <h4 class="text-white mb-3">Intake Statistics</h4>
+        <canvas id="intakeChart" style="width:100%;max-width:100%;"></canvas>
+      </div>
+    </div>
   </div>
 </div>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
   // Example: You can pass data from Django context and render a responsive chart

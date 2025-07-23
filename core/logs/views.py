@@ -42,7 +42,7 @@ class IntakeLogViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         # Users can only access their own logs
-        return IntakeLog.objects.filter(user=self.request.user).order_by('-taken_at')
+        return IntakeLog.objects.filter(user=self.request.user).select_related('compound').prefetch_related('compound__effect_windows').order_by('-taken_at')
 
     @action(detail=False, methods=['get'])
     def analytics(self, request):

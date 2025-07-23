@@ -83,7 +83,7 @@
         <div class="bg-dark rounded molecule-container"
              style="width: 200px; height: 200px; border: 2px solid #7c7c7c; display: flex; align-items: center; justify-content: center;">
           {% if compound.smiles %}
-            <div id="moleculeContainer" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
+            <div id="moleculeContainer" class="bg-dark" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
               <svg id="moleculeViewer" data-smiles="{{ compound.smiles }}" width="196" height="196" style="border-radius: 8px;"></svg>
             </div>
           {% else %}
@@ -99,7 +99,7 @@
 <div class="card bg-neurobin-card text-light mb-3 shadow p-3"
      style="max-width: 700px; width: 100%; border-radius: 10px;">
   <div class="card-body">
-    <h2 class="card-title">Effect Window</h2>
+    {% include 'includes/effect_curves.html' with page_type='compound_detail' %}
   </div>
 </div>
 
@@ -116,7 +116,7 @@
       </div>
       {% for snippet in research_snippets %}
         <div class="card border-secondary mb-3" style="background-color: #1a1a1a;" data-snippet-id="{{ snippet.id }}">
-          <div class="card-body">
+          <div class="card-body bg-dark">
             <div class="d-flex justify-content-between align-items-start mb-3">
               <div class="flex-grow-1">
                 <h5 class="card-title text-white">

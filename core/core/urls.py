@@ -28,6 +28,7 @@ from .api_views import api_root
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', views.home, name='home'),
+    path('demo/effect-curves/', views.effect_curves_demo, name='effect_curves_demo'),
     path('compounds/', include('compounds.urls')),
     path('accounts/', include('accounts.urls')),
     path('logs/', include('logs.urls')),
