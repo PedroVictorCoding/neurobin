@@ -750,12 +750,22 @@ class Command(BaseCommand):
             action='store_true',
             help='Normalize existing compound names to proper capitalization (e.g., DIAZEPAM → Diazepam)'
         )
+        parser.add_argument(
+            '--keep-search-names',
+            action='store_true',
+            help='Keep the original search names and append them to compound aliases'
+        )
+        parser.add_argument(
+            '--phase-filter',
+            type=str,
+            help='Filter compounds by clinical trial phase (e.g., "4", "3,4", "2-4"). Supports single phase, comma-separated list, or ranges'
+        )
     
     def handle(self, *args, **options):
         importer = ChEMBLImporter(slow_mode=options['slow_mode'])
         
-        # Get list of ChEMBL IDs to process
-        chembl_ids = self.get_chembl_ids(options)
+        # Get list of ChEMBL IDs to process and search name mapping
+        chembl_ids, search_name_mapping = self.get_chembl_ids(options)
         
         if not chembl_ids:
             raise CommandError("No ChEMBL IDs specified. Use --compounds, --file, or --all-compounds")
@@ -768,6 +778,18 @@ class Command(BaseCommand):
         
         if options['match_by_name']:
             self.stdout.write(self.style.WARNING('[i] Name matching enabled - will try to match existing compounds by name'))
+        
+        if options['keep_search_names'] and search_name_mapping:
+            self.stdout.write(self.style.WARNING('[i] Keep search names enabled - will append original search names to aliases'))
+        
+        # Parse phase filter if provided
+        allowed_phases = []
+        if options.get('phase_filter'):
+            allowed_phases = self._parse_phase_filter(options['phase_filter'])
+            if allowed_phases:
+                self.stdout.write(self.style.WARNING(f'[i] Phase filter enabled - only importing compounds with phases: {allowed_phases}'))
+            else:
+                self.stdout.write(self.style.ERROR('[!] Invalid phase filter format - proceeding without filter'))
         
         # Handle normalize-names option
         if options['normalize_names']:
@@ -784,7 +806,7 @@ class Command(BaseCommand):
         
         for i in range(0, len(chembl_ids), batch_size):
             batch = chembl_ids[i:i + batch_size]
-            self.process_batch(importer, batch, slow_mode, update_existing, match_by_name)
+            self.process_batch(importer, batch, slow_mode, update_existing, match_by_name, options['keep_search_names'], search_name_mapping, allowed_phases)
             
             if i + batch_size < len(chembl_ids):
                 # Determine delay based on mode
@@ -798,9 +820,15 @@ class Command(BaseCommand):
         
         self.stdout.write(self.style.SUCCESS('[✓] Import completed successfully!'))
     
-    def get_chembl_ids(self, options) -> List[str]:
-        """Get list of ChEMBL IDs based on command options."""
+    def get_chembl_ids(self, options) -> Tuple[List[str], Dict[str, str]]:
+        """Get list of ChEMBL IDs based on command options.
+        
+        Returns:
+            Tuple of (chembl_ids, search_name_mapping) where search_name_mapping
+            maps ChEMBL ID to original search name if --search-names was used.
+        """
         chembl_ids = []
+        search_name_mapping = {}  # Maps ChEMBL ID -> original search name
         
         # Handle search by compound names
         if options.get('search_names'):
@@ -817,6 +845,7 @@ class Command(BaseCommand):
             self.stdout.write("\n📋 Name → ChEMBL ID Mapping:")
             for name, chembl_id in name_to_id_mapping.items():
                 self.stdout.write(f"   • {name} → {chembl_id}")
+                search_name_mapping[chembl_id] = name  # Store reverse mapping
             
             chembl_ids.extend(name_to_id_mapping.values())
         
@@ -873,22 +902,52 @@ class Command(BaseCommand):
                 "CHEMBL2153138" # Psilocybin
             ]
         
-        return chembl_ids
+        return chembl_ids, search_name_mapping
     
-    def process_batch(self, importer: ChEMBLImporter, chembl_ids: List[str], slow_mode: bool = False, update_existing: bool = False, match_by_name: bool = False):
+    def process_batch(self, importer: ChEMBLImporter, chembl_ids: List[str], slow_mode: bool = False, update_existing: bool = False, match_by_name: bool = False, keep_search_names: bool = False, search_name_mapping: Dict[str, str] = None, allowed_phases: List[float] = None):
         """Process a batch of compounds."""
+        if search_name_mapping is None:
+            search_name_mapping = {}
+        if allowed_phases is None:
+            allowed_phases = []
+            
         for chembl_id in chembl_ids:
             try:
-                self.process_compound(importer, chembl_id, slow_mode, update_existing, match_by_name)
+                search_name = search_name_mapping.get(chembl_id, None)
+                self.process_compound(importer, chembl_id, slow_mode, update_existing, match_by_name, keep_search_names, search_name, allowed_phases)
             except Exception as e:
                 self.stdout.write(f"[✗] Error processing {chembl_id}: {e}")
     
-    def process_compound(self, importer: ChEMBLImporter, chembl_id: str, slow_mode: bool = False, update_existing: bool = False, match_by_name: bool = False):
+    def process_compound(self, importer: ChEMBLImporter, chembl_id: str, slow_mode: bool = False, update_existing: bool = False, match_by_name: bool = False, keep_search_names: bool = False, search_name: str = None, allowed_phases: List[float] = None):
         """Process a single compound."""
         self.stdout.write(f"[→] Processing {chembl_id}...")
         
+        # Check phase filter if specified
+        if allowed_phases:
+            indications = importer.get_drug_indications(chembl_id)
+            if not self._matches_phase_filter(indications, allowed_phases):
+                # Get the compound name for better logging
+                molecule = importer.get_compound_data(chembl_id)
+                compound_name = molecule.get('pref_name', chembl_id) if molecule else chembl_id
+                
+                # Show phases found for this compound
+                found_phases = []
+                for indication in indications:
+                    phase = indication.get('max_phase_for_ind')
+                    if phase is not None:
+                        try:
+                            found_phases.append(float(phase))
+                        except (ValueError, TypeError):
+                            pass
+                
+                if found_phases:
+                    self.stdout.write(f"  [!] Skipping {compound_name}: phases {set(found_phases)} don't match filter {allowed_phases}")
+                else:
+                    self.stdout.write(f"  [!] Skipping {compound_name}: no phase data available")
+                return
+        
         # Get or create compound from ChEMBL data
-        compound = self.get_or_create_compound(importer, chembl_id, slow_mode, update_existing, match_by_name)
+        compound = self.get_or_create_compound(importer, chembl_id, slow_mode, update_existing, match_by_name, keep_search_names, search_name)
         if not compound:
             self.stdout.write(f"[!] Could not fetch/create compound {chembl_id} from ChEMBL")
             return
@@ -985,7 +1044,70 @@ class Command(BaseCommand):
         
         return normalized
 
-    def get_or_create_compound(self, importer: ChEMBLImporter, chembl_id: str, slow_mode: bool = False, update_existing: bool = False, match_by_name: bool = False) -> Optional[Compound]:
+    def _parse_phase_filter(self, phase_filter: str) -> List[float]:
+        """Parse phase filter string into list of allowed phases.
+        
+        Supports:
+        - Single phase: "4" -> [4.0]
+        - Comma-separated: "3,4" -> [3.0, 4.0]
+        - Ranges: "2-4" -> [2.0, 3.0, 4.0]
+        - Decimal phases: "2.5,3" -> [2.5, 3.0]
+        """
+        if not phase_filter:
+            return []
+        
+        allowed_phases = []
+        
+        # Split by commas first
+        parts = [part.strip() for part in phase_filter.split(',')]
+        
+        for part in parts:
+            if '-' in part and not part.startswith('-'):
+                # Handle range (e.g., "2-4")
+                try:
+                    start, end = part.split('-', 1)
+                    start_phase = float(start.strip())
+                    end_phase = float(end.strip())
+                    
+                    # Add all integer phases in range
+                    current = start_phase
+                    while current <= end_phase:
+                        allowed_phases.append(current)
+                        if current == int(current):
+                            current += 1.0
+                        else:
+                            current = int(current) + 1.0
+                            
+                except ValueError:
+                    self.stdout.write(f"[!] Invalid phase range: {part}")
+            else:
+                # Handle single phase
+                try:
+                    phase = float(part)
+                    allowed_phases.append(phase)
+                except ValueError:
+                    self.stdout.write(f"[!] Invalid phase: {part}")
+        
+        return list(set(allowed_phases))  # Remove duplicates
+
+    def _matches_phase_filter(self, indications: List[Dict], allowed_phases: List[float]) -> bool:
+        """Check if any indication matches the phase filter."""
+        if not allowed_phases:
+            return True  # No filter means all phases allowed
+            
+        for indication in indications:
+            phase = indication.get('max_phase_for_ind')
+            if phase is not None:
+                try:
+                    phase_value = float(phase)
+                    if phase_value in allowed_phases:
+                        return True
+                except (ValueError, TypeError):
+                    continue
+        
+        return False
+
+    def get_or_create_compound(self, importer: ChEMBLImporter, chembl_id: str, slow_mode: bool = False, update_existing: bool = False, match_by_name: bool = False, keep_search_names: bool = False, search_name: str = None) -> Optional[Compound]:
         """Get existing compound or create new one from ChEMBL data."""
         # Try to find existing compound by ChEMBL ID first
         compound = Compound.objects.filter(chembl_id=chembl_id).first()
@@ -1069,6 +1191,18 @@ class Command(BaseCommand):
                     compound.aliases = aliases_str
                     updated_fields.append('aliases')
                 
+                # Handle search name appending to aliases if flag is enabled
+                if keep_search_names and search_name and search_name != compound.name:
+                    current_aliases = compound.aliases or ""
+                    aliases_list = [alias.strip() for alias in current_aliases.split(',') if alias.strip()]
+                    
+                    # Add search name if it's not already in aliases
+                    if search_name not in aliases_list:
+                        aliases_list.append(search_name)
+                        compound.aliases = ', '.join(aliases_list)
+                        updated_fields.append('search name alias')
+                        self.stdout.write(f"    [+] Added search name '{search_name}' to aliases")
+                
                 compound.save()
                 
                 # Update categories and mechanisms
@@ -1083,6 +1217,19 @@ class Command(BaseCommand):
                 self.stdout.write(f"  [✓] Updated compound: {compound.name} ({', '.join(updated_fields)})")
                 
             else:
+                # Prepare aliases string for new compound
+                final_aliases_str = aliases_str
+                
+                # Handle search name appending to aliases for new compounds
+                if keep_search_names and search_name and search_name != name:
+                    aliases_list = [alias.strip() for alias in (aliases_str or "").split(',') if alias.strip()]
+                    
+                    # Add search name if it's not already in aliases
+                    if search_name not in aliases_list:
+                        aliases_list.append(search_name)
+                        final_aliases_str = ', '.join(aliases_list)
+                        self.stdout.write(f"    [+] Added search name '{search_name}' to new compound aliases")
+                
                 # Create new compound
                 compound, created = Compound.objects.get_or_create(
                     chembl_id=chembl_id,
@@ -1090,7 +1237,7 @@ class Command(BaseCommand):
                         'name': name,
                         'description': description,
                         'smiles': smiles,
-                        'aliases': aliases_str
+                        'aliases': final_aliases_str
                     }
                 )
                 
