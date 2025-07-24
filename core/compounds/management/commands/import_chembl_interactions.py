@@ -760,6 +760,21 @@ class Command(BaseCommand):
             type=str,
             help='Filter compounds by clinical trial phase (e.g., "4", "3,4", "2-4"). Supports single phase, comma-separated list, or ranges'
         )
+        parser.add_argument(
+            '--blacklist-targets',
+            type=str,
+            help='Comma-separated list of target names/organisms to blacklist (e.g., "Homo sapiens,Rattus norvegicus,Mus musculus"). Case-insensitive partial matching.'
+        )
+        parser.add_argument(
+            '--no-limit',
+            action='store_true',
+            help='Skip compound limit and import as many compounds as possible'
+        )
+        parser.add_argument(
+            '--skip-existing',
+            action='store_true',
+            help='Skip compounds that already exist in the database'
+        )
     
     def handle(self, *args, **options):
         importer = ChEMBLImporter(slow_mode=options['slow_mode'])
@@ -782,6 +797,12 @@ class Command(BaseCommand):
         if options['keep_search_names'] and search_name_mapping:
             self.stdout.write(self.style.WARNING('[i] Keep search names enabled - will append original search names to aliases'))
         
+        if options.get('skip_existing'):
+            self.stdout.write(self.style.WARNING('[i] Skip existing enabled - will skip compounds that already exist in database'))
+        
+        if options.get('no_limit'):
+            self.stdout.write(self.style.WARNING('[i] No-limit mode enabled - importing expanded compound set'))
+        
         # Parse phase filter if provided
         allowed_phases = []
         if options.get('phase_filter'):
@@ -790,6 +811,13 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f'[i] Phase filter enabled - only importing compounds with phases: {allowed_phases}'))
             else:
                 self.stdout.write(self.style.ERROR('[!] Invalid phase filter format - proceeding without filter'))
+        
+        # Parse blacklist targets if provided
+        blacklisted_targets = []
+        if options.get('blacklist_targets'):
+            blacklisted_targets = self._parse_blacklist_targets(options['blacklist_targets'])
+            if blacklisted_targets:
+                self.stdout.write(self.style.WARNING(f'[i] Target blacklist enabled - excluding targets containing: {", ".join(blacklisted_targets)}'))
         
         # Handle normalize-names option
         if options['normalize_names']:
@@ -806,7 +834,7 @@ class Command(BaseCommand):
         
         for i in range(0, len(chembl_ids), batch_size):
             batch = chembl_ids[i:i + batch_size]
-            self.process_batch(importer, batch, slow_mode, update_existing, match_by_name, options['keep_search_names'], search_name_mapping, allowed_phases)
+            self.process_batch(importer, batch, slow_mode, update_existing, match_by_name, options['keep_search_names'], search_name_mapping, allowed_phases, blacklisted_targets, options.get('skip_existing', False))
             
             if i + batch_size < len(chembl_ids):
                 # Determine delay based on mode
@@ -891,36 +919,119 @@ class Command(BaseCommand):
                 chembl_ids.extend([c.chembl_id for c in compounds])
         
         elif not chembl_ids:  # No search names and no other options
-            # Default test compounds
-            chembl_ids = [
-                "CHEMBL25",     # Caffeine
-                "CHEMBL154",    # Fluoxetine
-                "CHEMBL1487",   # Modafinil
-                "CHEMBL2103745", # TAK-653
-                "CHEMBL112",    # LSD
-                "CHEMBL122",    # Ketamine
-                "CHEMBL2153138" # Psilocybin
-            ]
+            if options.get('no_limit'):
+                # Import from a comprehensive list of important pharmaceutical compounds
+                # This expands the default test set significantly
+                chembl_ids = [
+                    # Original test compounds
+                    "CHEMBL25",     # Caffeine
+                    "CHEMBL154",    # Fluoxetine
+                    "CHEMBL1487",   # Modafinil (Atorvastatin)
+                    "CHEMBL2103745", # TAK-653
+                    "CHEMBL112",    # Acetaminophen
+                    "CHEMBL122",    # Ketamine
+                    "CHEMBL2153138", # Psilocybin
+                    
+                    # Common cardiovascular drugs
+                    "CHEMBL1431",   # Metformin
+                    "CHEMBL419213", # Lisinopril
+                    "CHEMBL1503",   # Omeprazole
+                    "CHEMBL1464",   # Warfarin
+                    "CHEMBL1771",   # Clopidogrel
+                    "CHEMBL714",    # Albuterol
+                    "CHEMBL635",    # Prednisone
+                    "CHEMBL1624",   # Levothyroxine
+                    
+                    # Additional important drugs across therapeutic areas
+                    "CHEMBL12",     # Diazepam
+                    "CHEMBL580",    # Lorazepam
+                    "CHEMBL521",    # Ibuprofen
+                    "CHEMBL27",     # Propranolol
+                    "CHEMBL59",     # Dopamine
+                    "CHEMBL17",     # Acetazolamide
+                    "CHEMBL796",    # Methylphenidate
+                    "CHEMBL405",    # Amphetamine
+                    "CHEMBL809",    # Sertraline
+                    "CHEMBL637",    # Venlafaxine
+                    
+                    # Antibiotics and anti-infectives
+                    "CHEMBL1082",   # Penicillin
+                    "CHEMBL1200371", # Amoxicillin
+                    "CHEMBL137",    # Ciprofloxacin
+                    "CHEMBL529",    # Azithromycin
+                    "CHEMBL1043",   # Doxycycline
+                    
+                    # Neurological and psychiatric medications
+                    "CHEMBL603",    # Gabapentin
+                    "CHEMBL1381",   # Tramadol
+                    "CHEMBL1201585", # Morphine
+                    "CHEMBL278020", # Olanzapine
+                    "CHEMBL1201340", # Risperidone
+                    "CHEMBL1750",   # Lithium
+                    
+                    # Cancer therapeutics
+                    "CHEMBL88",     # Paclitaxel
+                    "CHEMBL1201862", # Cisplatin
+                    "CHEMBL1201304", # Tamoxifen
+                    "CHEMBL1743",   # Imatinib
+                    
+                    # Hormones and endocrine
+                    "CHEMBL1201631", # Insulin
+                    "CHEMBL1200766", # Testosterone
+                    "CHEMBL1200685", # Estradiol
+                    "CHEMBL1200692", # Cortisol
+                    
+                    # Additional common medications
+                    "CHEMBL142",    # Simvastatin
+                    "CHEMBL1071",   # Hydrochlorothiazide
+                    "CHEMBL1491",   # Amlodipine
+                    "CHEMBL35",     # Furosemide
+                    "CHEMBL120",    # Digoxin
+                ]
+                self.stdout.write(f"[i] No-limit mode enabled - importing {len(chembl_ids)} pharmaceutical compounds")
+            else:
+                # Default test compounds (limited set)
+                chembl_ids = [
+                    "CHEMBL25",     # Caffeine
+                    "CHEMBL154",    # Fluoxetine
+                    "CHEMBL1487",   # Modafinil
+                    "CHEMBL2103745", # TAK-653
+                    "CHEMBL112",    # LSD
+                    "CHEMBL122",    # Ketamine
+                    "CHEMBL2153138" # Psilocybin
+                ]
         
         return chembl_ids, search_name_mapping
     
-    def process_batch(self, importer: ChEMBLImporter, chembl_ids: List[str], slow_mode: bool = False, update_existing: bool = False, match_by_name: bool = False, keep_search_names: bool = False, search_name_mapping: Dict[str, str] = None, allowed_phases: List[float] = None):
+    def process_batch(self, importer: ChEMBLImporter, chembl_ids: List[str], slow_mode: bool = False, update_existing: bool = False, match_by_name: bool = False, keep_search_names: bool = False, search_name_mapping: Dict[str, str] = None, allowed_phases: List[float] = None, blacklisted_targets: List[str] = None, skip_existing: bool = False):
         """Process a batch of compounds."""
         if search_name_mapping is None:
             search_name_mapping = {}
         if allowed_phases is None:
             allowed_phases = []
+        if blacklisted_targets is None:
+            blacklisted_targets = []
             
         for chembl_id in chembl_ids:
             try:
                 search_name = search_name_mapping.get(chembl_id, None)
-                self.process_compound(importer, chembl_id, slow_mode, update_existing, match_by_name, keep_search_names, search_name, allowed_phases)
+                self.process_compound(importer, chembl_id, slow_mode, update_existing, match_by_name, keep_search_names, search_name, allowed_phases, blacklisted_targets, skip_existing)
             except Exception as e:
                 self.stdout.write(f"[✗] Error processing {chembl_id}: {e}")
     
-    def process_compound(self, importer: ChEMBLImporter, chembl_id: str, slow_mode: bool = False, update_existing: bool = False, match_by_name: bool = False, keep_search_names: bool = False, search_name: str = None, allowed_phases: List[float] = None):
+    def process_compound(self, importer: ChEMBLImporter, chembl_id: str, slow_mode: bool = False, update_existing: bool = False, match_by_name: bool = False, keep_search_names: bool = False, search_name: str = None, allowed_phases: List[float] = None, blacklisted_targets: List[str] = None, skip_existing: bool = False):
         """Process a single compound."""
+        if blacklisted_targets is None:
+            blacklisted_targets = []
+            
         self.stdout.write(f"[→] Processing {chembl_id}...")
+        
+        # Check if we should skip existing compounds
+        if skip_existing:
+            existing_compound = Compound.objects.filter(chembl_id=chembl_id).first()
+            if existing_compound:
+                self.stdout.write(f"  [!] Skipping {chembl_id}: already exists as '{existing_compound.name}'")
+                return
         
         # Check phase filter if specified
         if allowed_phases:
@@ -972,7 +1083,7 @@ class Command(BaseCommand):
         # Process each mechanism
         interactions_created = 0
         for mechanism_data in mechanisms:
-            if self.process_mechanism(importer, compound, mechanism_data, activities, slow_mode):
+            if self.process_mechanism(importer, compound, mechanism_data, activities, slow_mode, blacklisted_targets):
                 interactions_created += 1
                 # Small delay between mechanism processing in slow mode
                 if slow_mode and interactions_created > 0:
@@ -1089,6 +1200,47 @@ class Command(BaseCommand):
                     self.stdout.write(f"[!] Invalid phase: {part}")
         
         return list(set(allowed_phases))  # Remove duplicates
+
+    def _parse_blacklist_targets(self, blacklist_str: str) -> List[str]:
+        """Parse blacklist targets string into list of target names/organisms to exclude.
+        
+        Args:
+            blacklist_str: Comma-separated list of target names/organisms (case-insensitive)
+        
+        Returns:
+            List of lowercase target names/organisms to blacklist
+        """
+        if not blacklist_str:
+            return []
+        
+        # Split by commas and clean up
+        targets = [target.strip().lower() for target in blacklist_str.split(',') if target.strip()]
+        return targets
+
+    def _is_target_blacklisted(self, target_name: str, organism: str, blacklist: List[str]) -> bool:
+        """Check if a target should be blacklisted.
+        
+        Args:
+            target_name: The target name
+            organism: The organism name
+            blacklist: List of blacklisted terms (lowercase)
+        
+        Returns:
+            True if target should be blacklisted, False otherwise
+        """
+        if not blacklist:
+            return False
+        
+        # Check target name and organism (case-insensitive partial matching)
+        target_lower = target_name.lower() if target_name else ""
+        organism_lower = organism.lower() if organism else ""
+        
+        for blacklisted_term in blacklist:
+            if (blacklisted_term in target_lower or 
+                blacklisted_term in organism_lower):
+                return True
+        
+        return False
 
     def _matches_phase_filter(self, indications: List[Dict], allowed_phases: List[float]) -> bool:
         """Check if any indication matches the phase filter."""
@@ -1653,8 +1805,11 @@ class Command(BaseCommand):
         return None
     
     def process_mechanism(self, importer: ChEMBLImporter, compound: Compound, 
-                         mechanism_data: Dict, activities: List[Dict], slow_mode: bool = False) -> bool:
+                         mechanism_data: Dict, activities: List[Dict], slow_mode: bool = False, blacklisted_targets: List[str] = None) -> bool:
         """Process a single mechanism and create interaction."""
+        if blacklisted_targets is None:
+            blacklisted_targets = []
+            
         target_chembl_id = mechanism_data.get('target_chembl_id')
         if not target_chembl_id:
             return False
@@ -1662,6 +1817,11 @@ class Command(BaseCommand):
         # Get or create target (with potential API call)
         target = self.get_or_create_target(importer, target_chembl_id, slow_mode)
         if not target:
+            return False
+        
+        # Check if target is blacklisted
+        if self._is_target_blacklisted(target.name, target.organism, blacklisted_targets):
+            self.stdout.write(f"    [!] Skipping blacklisted target: {target.name} ({target.organism})")
             return False
         
         # Normalize mechanism
