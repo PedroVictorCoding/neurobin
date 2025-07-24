@@ -1,93 +1,4 @@
 /**
- * Global compound color manager for consistent colors across all charts
- */
-window.CompoundColorManager = {
-    compoundColors: new Map(),
-    
-    /**
-     * Get or assign a color for a compound name
-     */
-    getColorForCompound(compoundName) {
-        // Normalize compound name for consistency
-        const normalizedName = compoundName.trim().toLowerCase();
-        
-        if (!this.compoundColors.has(normalizedName)) {
-            // Instead of using hash, assign colors sequentially to ensure uniqueness
-            const assignedColors = Array.from(this.compoundColors.values());
-            const color = this.getNextAvailableColor(assignedColors);
-            this.compoundColors.set(normalizedName, color);
-            console.log(`Global color manager assigned color ${color} to compound ${compoundName}`); // Debug log
-        }
-        return this.compoundColors.get(normalizedName);
-    },
-
-    /**
-     * Get the next available color that hasn't been assigned yet
-     */
-    getNextAvailableColor(assignedColors) {
-        const colors = [
-            '#FF6384', // Red/Pink
-            '#36A2EB', // Blue  
-            '#FFCE56', // Yellow
-            '#4BC0C0', // Teal
-            '#9966FF', // Purple
-            '#FF9F40', // Orange
-            '#FF6B9D', // Pink
-            '#2ECC71', // Green
-            '#E74C3C', // Red
-            '#3498DB', // Light Blue
-            '#F39C12', // Orange
-            '#9B59B6', // Purple
-            '#1ABC9C', // Turquoise
-            '#E67E22', // Dark Orange
-            '#34495E', // Dark Gray
-            '#16A085', // Dark Teal
-            '#27AE60', // Dark Green
-            '#8E44AD', // Dark Purple
-            '#2980B9', // Dark Blue
-            '#D35400', // Burnt Orange
-            '#C0392B', // Dark Red
-            '#8B4513', // Saddle Brown
-            '#556B2F', // Dark Olive Green
-            '#4B0082', // Indigo
-            '#DC143C', // Crimson
-            '#FF1493', // Deep Pink
-            '#00CED1', // Dark Turquoise
-            '#FF4500', // Red Orange
-            '#32CD32', // Lime Green
-            '#BA55D3'  // Medium Orchid
-        ];
-        
-        // Find the first color that hasn't been assigned
-        for (const color of colors) {
-            if (!assignedColors.includes(color)) {
-                return color;
-            }
-        }
-        
-        // If all predefined colors are used, generate a random color
-        return this.generateRandomColor();
-    },
-
-    /**
-     * Generate a random color when all predefined colors are exhausted
-     */
-    generateRandomColor() {
-        const hue = Math.floor(Math.random() * 360);
-        const saturation = 70 + Math.floor(Math.random() * 30); // 70-100%
-        const lightness = 45 + Math.floor(Math.random() * 20);  // 45-65%
-        return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-    },
-
-    /**
-     * Get all assigned compound colors (for debugging)
-     */
-    getAllCompoundColors() {
-        return Object.fromEntries(this.compoundColors);
-    }
-};
-
-/**
  * Effect Curve Visualization
  * Uses Chart.js to render compound effect curves over time
  */
@@ -301,15 +212,10 @@ class EffectCurveChart {
                         timeOffset = Math.floor((intakeTime - referenceDate) / (1000 * 60));
                     }
                 } else {
-                    // For timeline, use UTC time to match Django's storage format
-                    // This ensures consistent display regardless of browser timezone
-                    // TODO: Consider adding user timezone preference in the future
-                    timeOffset = intakeTime.getUTCHours() * 60 + intakeTime.getUTCMinutes();
-                    console.log(`Original intake time string: ${intake.taken_at}`); // Debug log
-                    console.log(`Parsed as Date: ${intakeTime.toString()}`); // Debug log
-                    console.log(`UTC hours: ${intakeTime.getUTCHours()}, minutes: ${intakeTime.getUTCMinutes()}`); // Debug log
-                    console.log(`Local hours: ${intakeTime.getHours()}, minutes: ${intakeTime.getMinutes()}`); // Debug log
-                    console.log(`Using UTC time - Calculated timeOffset: ${timeOffset} minutes = ${Math.floor(timeOffset/60)}:${String(timeOffset%60).padStart(2, '0')}`); // Debug log
+                    // For timeline, we want to show the time in the user's local timezone
+                    // JavaScript automatically converts UTC to local timezone when parsing
+                    timeOffset = intakeTime.getHours() * 60 + intakeTime.getMinutes();
+                    console.log(`Using local time: ${Math.floor(timeOffset/60)}:${String(timeOffset%60).padStart(2, '0')}`); // Debug log
                 }
                 console.log(`Calculated timeOffset: ${timeOffset} minutes from midnight`); // Debug log
             }
@@ -401,19 +307,41 @@ class EffectCurveChart {
         const normalizedName = compoundName.trim().toLowerCase();
         
         if (!this.compoundColors.has(normalizedName)) {
-            // Instead of using hash, assign colors sequentially to ensure uniqueness
-            const assignedColors = Array.from(this.compoundColors.values());
-            const color = this.getNextAvailableColor(assignedColors);
+            // Generate a deterministic color based on compound name
+            const color = this.generateColorFromName(compoundName);
             this.compoundColors.set(normalizedName, color);
-            console.log(`Assigned color ${color} to compound ${compoundName}`); // Debug log
         }
         return this.compoundColors.get(normalizedName);
     }
     
     /**
-     * Get the next available color that hasn't been assigned yet
+     * Get all assigned compound colors (for debugging)
      */
-    getNextAvailableColor(assignedColors) {
+    getAllCompoundColors() {
+        return Object.fromEntries(this.compoundColors);
+    }
+    
+    /**
+     * Generate a deterministic color based on compound name
+     */
+    generateColorFromName(compoundName) {
+        // Normalize compound name (trim, lowercase) for consistency
+        const normalizedName = compoundName.trim().toLowerCase();
+        
+        // Improved hash function with better distribution
+        let hash = 0;
+        if (normalizedName.length === 0) return '#FF6384'; // Default color
+        
+        for (let i = 0; i < normalizedName.length; i++) {
+            const char = normalizedName.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32-bit integer
+        }
+        
+        // Add the string length to the hash for better distribution
+        hash = hash + normalizedName.length * 31;
+        
+        // Use a larger set of distinct colors
         const colors = [
             '#FF6384', // Red/Pink
             '#36A2EB', // Blue  
@@ -422,57 +350,23 @@ class EffectCurveChart {
             '#9966FF', // Purple
             '#FF9F40', // Orange
             '#FF6B9D', // Pink
+            '#C9CBCF', // Gray
             '#2ECC71', // Green
             '#E74C3C', // Red
-            '#3498DB', // Light Blue
+            '#3498DB', // Blue
             '#F39C12', // Orange
             '#9B59B6', // Purple
             '#1ABC9C', // Turquoise
-            '#E67E22', // Dark Orange
+            '#E67E22', // Orange
             '#34495E', // Dark Gray
-            '#16A085', // Dark Teal
-            '#27AE60', // Dark Green
-            '#8E44AD', // Dark Purple
-            '#2980B9', // Dark Blue
-            '#D35400', // Burnt Orange
-            '#C0392B', // Dark Red
-            '#8B4513', // Saddle Brown
-            '#556B2F', // Dark Olive Green
-            '#4B0082', // Indigo
-            '#DC143C', // Crimson
-            '#FF1493', // Deep Pink
-            '#00CED1', // Dark Turquoise
-            '#FF4500', // Red Orange
-            '#32CD32', // Lime Green
-            '#BA55D3'  // Medium Orchid
+            '#16A085', // Teal
+            '#27AE60', // Green
+            '#8E44AD', // Purple
+            '#2980B9'  // Blue
         ];
         
-        // Find the first color that hasn't been assigned
-        for (const color of colors) {
-            if (!assignedColors.includes(color)) {
-                return color;
-            }
-        }
-        
-        // If all predefined colors are used, generate a random color
-        return this.generateRandomColor();
-    }
-    
-    /**
-     * Generate a random color when all predefined colors are exhausted
-     */
-    generateRandomColor() {
-        const hue = Math.floor(Math.random() * 360);
-        const saturation = 70 + Math.floor(Math.random() * 30); // 70-100%
-        const lightness = 45 + Math.floor(Math.random() * 20);  // 45-65%
-        return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-    }
-    
-    /**
-     * Get all assigned compound colors (for debugging)
-     */
-    getAllCompoundColors() {
-        return Object.fromEntries(this.compoundColors);
+        const index = Math.abs(hash) % colors.length;
+        return colors[index];
     }
     
     /**

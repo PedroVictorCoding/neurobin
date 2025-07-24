@@ -11,19 +11,14 @@ def log_intake(request):
             intake = form.save(commit=False)
             intake.user = request.user
             intake.save()
-            return redirect('intake_timeline')
+            return redirect('analytics_dashboard')
     else:
         form = IntakeLogForm()
     return render(request, "logs/log_intake.html", {"form": form})
 
 @login_required
-def intake_timeline(request):
-    logs = IntakeLog.objects.filter(user=request.user).order_by('-taken_at')
-    return render(request, "logs/intake_timeline.html", {"logs": logs})
-
-@login_required
 def analytics_dashboard(request):
-    logs = IntakeLog.objects.filter(user=request.user)
+    logs = IntakeLog.objects.filter(user=request.user).order_by('-taken_at')
     # You can aggregate data here for the dashboard
     return render(request, "logs/analytics_dashboard.html", {"logs": logs})
 
@@ -42,7 +37,18 @@ class IntakeLogViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         # Users can only access their own logs
-        return IntakeLog.objects.filter(user=self.request.user).select_related('compound').prefetch_related('compound__effect_windows').order_by('-taken_at')
+        queryset = IntakeLog.objects.filter(user=self.request.user).select_related('compound').prefetch_related('compound__effect_windows').order_by('-taken_at')
+        
+        # Apply date filtering if provided
+        taken_at_gte = self.request.query_params.get('taken_at__gte')
+        taken_at_lt = self.request.query_params.get('taken_at__lt')
+        
+        if taken_at_gte:
+            queryset = queryset.filter(taken_at__gte=taken_at_gte)
+        if taken_at_lt:
+            queryset = queryset.filter(taken_at__lt=taken_at_lt)
+            
+        return queryset
 
     @action(detail=False, methods=['get'])
     def analytics(self, request):

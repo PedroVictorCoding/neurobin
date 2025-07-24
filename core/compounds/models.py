@@ -297,28 +297,52 @@ class EffectWindow(models.Model):
         """
         data_points = []
         
-        # Generate points up to peak_max_minutes with regular resolution
-        for t in range(0, self.peak_max_minutes + 1, resolution_minutes):
-            intensity = self._calculate_intensity_at_time(t)
-            data_points.append((t, intensity))
+        # Generate points from 0 to onset with 0% intensity
+        for t in range(0, self.onset_minutes + 1, resolution_minutes):
+            data_points.append((t, 0))
         
-        # Ensure we have the exact peak_max_minutes point
-        if data_points and data_points[-1][0] != self.peak_max_minutes:
-            intensity = self._calculate_intensity_at_time(self.peak_max_minutes)
-            data_points.append((self.peak_max_minutes, intensity))
+        # Ensure we have the exact onset point
+        if data_points and data_points[-1][0] != self.onset_minutes:
+            data_points.append((self.onset_minutes, 0))
         
-        # Generate more points for the falling phase to show gradual decline
+        # Generate rising phase points (onset to peak_min)
+        rising_duration = self.peak_min_minutes - self.onset_minutes
+        if rising_duration > 0:
+            num_rising_points = max(10, rising_duration // resolution_minutes)
+            for i in range(1, num_rising_points + 1):
+                time_point = self.onset_minutes + (i * rising_duration / num_rising_points)
+                if time_point <= self.peak_min_minutes:
+                    intensity = self._calculate_intensity_at_time(time_point)
+                    data_points.append((time_point, intensity))
+        
+        # Add peak_min point (start of plateau)
+        data_points.append((self.peak_min_minutes, 100))
+        
+        # Generate plateau phase points if there's a difference between peak_min and peak_max
+        plateau_duration = self.peak_max_minutes - self.peak_min_minutes
+        if plateau_duration > 0:
+            num_plateau_points = max(5, plateau_duration // resolution_minutes)
+            for i in range(1, num_plateau_points):
+                time_point = self.peak_min_minutes + (i * plateau_duration / num_plateau_points)
+                data_points.append((time_point, 100))
+        
+        # Add peak_max point (end of plateau, start of decline)
+        data_points.append((self.peak_max_minutes, 100))
+        
+        # Generate falling phase points with linear decline
         falling_duration = self.duration_minutes - self.peak_max_minutes
         if falling_duration > 0:
-            # Use a smaller resolution for falling phase to ensure smooth curve
-            # Generate at least 15 points in the falling phase
-            num_falling_points = max(15, falling_duration // 2)
+            # Generate sufficient points for smooth linear decline
+            num_falling_points = max(20, falling_duration // 2)
             
             for i in range(1, num_falling_points + 1):
                 time_point = self.peak_max_minutes + (i * falling_duration / num_falling_points)
-                if time_point <= self.duration_minutes:  # Include the final point
+                if time_point < self.duration_minutes:
                     intensity = self._calculate_intensity_at_time(time_point)
                     data_points.append((time_point, intensity))
+        
+        # Always add the final point at duration_minutes with 0% intensity
+        data_points.append((self.duration_minutes, 0))
         
         return data_points
     
@@ -328,6 +352,10 @@ class EffectWindow(models.Model):
             return 0
         
         if time_minutes > self.duration_minutes:
+            return 0
+        
+        # At exactly duration_minutes, intensity should be 0
+        if time_minutes == self.duration_minutes:
             return 0
         
         if self.effect_shape == 'bell':
@@ -340,77 +368,77 @@ class EffectWindow(models.Model):
             return self._bell_curve_intensity(time_minutes)
     
     def _bell_curve_intensity(self, time_minutes):
-        """Bell curve intensity calculation"""
+        """Bell curve intensity calculation with linear decline"""
         if time_minutes <= self.onset_minutes:
             return 0
         elif time_minutes <= self.peak_min_minutes:
-            # Rising phase
+            # Rising phase - linear from 0% to 100%
             progress = (time_minutes - self.onset_minutes) / (self.peak_min_minutes - self.onset_minutes)
             return min(100, progress * 100)
         elif time_minutes <= self.peak_max_minutes:
-            # Peak phase
+            # Peak phase - constant 100%
             return 100
         else:
-            # Falling phase with linear decay
+            # Falling phase - linear decline from 100% to 0%
             falling_duration = self.duration_minutes - self.peak_max_minutes
             if falling_duration <= 0:
                 return 0
             
+            if time_minutes >= self.duration_minutes:
+                return 0
+                
             time_since_peak = time_minutes - self.peak_max_minutes
+            # Linear decline: starts at 100% and decreases linearly to 0%
             progress = time_since_peak / falling_duration
-            
-            # Linear decay: progress ranges from 0 to 1
-            # At peak_max_minutes: progress = 0, intensity = 100%
-            # At duration_minutes: progress = 1, intensity = 0%
             intensity = 100 * (1 - progress)
             return max(0, intensity)
     
     def _ramp_intensity(self, time_minutes):
-        """Ramp up intensity calculation"""
+        """Ramp up intensity calculation with linear decline"""
         if time_minutes <= self.onset_minutes:
             return 0
         elif time_minutes <= self.peak_max_minutes:
-            # Rising phase
+            # Rising phase - linear from 0% to 100%
             progress = (time_minutes - self.onset_minutes) / (self.peak_max_minutes - self.onset_minutes)
             return min(100, progress * 100)
         else:
-            # Falling phase with linear decay
+            # Falling phase - linear decline from 100% to 0%
             falling_duration = self.duration_minutes - self.peak_max_minutes
             if falling_duration <= 0:
                 return 0
+            
+            if time_minutes >= self.duration_minutes:
+                return 0
                 
             time_since_peak = time_minutes - self.peak_max_minutes
+            # Linear decline: starts at 100% and decreases linearly to 0%
             progress = time_since_peak / falling_duration
-            
-            # Linear decay: progress ranges from 0 to 1
-            # At peak_max_minutes: progress = 0, intensity = 100%
-            # At duration_minutes: progress = 1, intensity = 0%
             intensity = 100 * (1 - progress)
             return max(0, intensity)
     
     def _flat_top_intensity(self, time_minutes):
-        """Flat top intensity calculation"""
+        """Flat top intensity calculation with linear decline"""
         if time_minutes <= self.onset_minutes:
             return 0
         elif time_minutes <= self.peak_min_minutes:
-            # Rising phase
+            # Rising phase - linear from 0% to 100%
             progress = (time_minutes - self.onset_minutes) / (self.peak_min_minutes - self.onset_minutes)
             return min(100, progress * 100)
         elif time_minutes <= self.peak_max_minutes:
-            # Flat peak phase
+            # Flat peak phase - constant 100%
             return 100
         else:
-            # Falling phase with linear decay
+            # Falling phase - linear decline from 100% to 0%
             falling_duration = self.duration_minutes - self.peak_max_minutes
             if falling_duration <= 0:
                 return 0
                 
+            if time_minutes >= self.duration_minutes:
+                return 0
+                
             time_since_peak = time_minutes - self.peak_max_minutes
+            # Linear decline: starts at 100% and decreases linearly to 0%
             progress = time_since_peak / falling_duration
-            
-            # Linear decay: progress ranges from 0 to 1
-            # At peak_max_minutes: progress = 0, intensity = 100%
-            # At duration_minutes: progress = 1, intensity = 0%
             intensity = 100 * (1 - progress)
             return max(0, intensity)
 

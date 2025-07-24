@@ -16,31 +16,516 @@
     <div class="col-12">
       <div class="card bg-neurobin-card p-4 shadow mb-4">
         <h4 class="text-white mb-3">Intake Statistics</h4>
-        <canvas id="intakeChart" style="width:100%;max-width:100%;"></canvas>
+        <div id="intakeStatsLoading" class="text-center p-4" style="display: none;">
+          <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <p class="mt-2 text-muted">Loading intake statistics...</p>
+        </div>
+        <div id="intakeStatsNoData" class="text-center p-4" style="display: none;">
+          <i class="fas fa-chart-bar fa-3x text-muted mb-3"></i>
+          <h6 class="text-muted">No Intake Data Available</h6>
+          <p class="text-muted">No intake logs found for analysis.</p>
+        </div>
+        <canvas id="intakeChart" style="width:100%;max-width:100%;max-height:400px;"></canvas>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Intake Timeline Dropdown -->
+  <div class="row mt-4">
+    <div class="col-12">
+      <div class="card bg-neurobin-card p-4 shadow mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h4 class="text-white mb-0">Intake Timeline</h4>
+          <a href="{% url 'log_intake' %}" class="btn btn-outline-light btn-sm">
+            <i class="fas fa-plus me-1"></i>Log New Intake
+          </a>
+        </div>
+        
+        <!-- Dropdown Toggle Button -->
+        <button class="btn btn-outline-light w-100 text-start d-flex justify-content-between align-items-center" 
+                type="button" 
+                data-bs-toggle="collapse" 
+                data-bs-target="#intakeTimelineCollapse" 
+                aria-expanded="false" 
+                aria-controls="intakeTimelineCollapse">
+          <span>
+            <i class="fas fa-clock me-2"></i>View Timeline 
+            <span class="badge bg-secondary ms-2">{{ logs.count }} intake{{ logs.count|pluralize }}</span>
+          </span>
+          <i class="fas fa-chevron-down"></i>
+        </button>
+        
+        <!-- Collapsible Timeline Content -->
+        <div class="collapse mt-3" id="intakeTimelineCollapse">
+          <div class="timeline-container" style="max-height: 400px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0;">
+            {% if logs %}
+              <ul class="list-group list-group-flush">
+                {% regroup logs by taken_at.date as logs_by_date %}
+                {% for date_group in logs_by_date %}
+                  <!-- Date Header -->
+                  <li class="list-group-item bg-secondary text-light border-secondary date-header">
+                    <div class="d-flex align-items-center">
+                      <i class="fas fa-calendar-day me-2"></i>
+                      <strong>{{ date_group.grouper|date:"l, F j, Y" }}</strong>
+                      <span class="badge bg-secondary ms-auto">{{ date_group.list|length }} intake{{ date_group.list|length|pluralize }}</span>
+                    </div>
+                  </li>
+                  
+                  <!-- Intakes for this date -->
+                  {% for log in date_group.list %}
+                    <li class="list-group-item bg-dark text-light border-secondary intake-item">
+                      <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                          <strong class="text-white">{{ log.compound }}</strong>
+                          {% if log.amount and log.unit %}
+                            <span class="text-muted"> — {{ log.amount }} {{ log.unit }}</span>
+                          {% endif %}
+                          <br>
+                          <small class="text-light">
+                            {{ log.taken_at|time:"H:i" }}
+                          </small>
+                          {% if log.notes %}
+                            <div class="text-secondary small mt-1">
+                              <i class="fas fa-sticky-note me-1"></i>{{ log.notes }}
+                            </div>
+                          {% endif %}
+                        </div>
+                        <div class="d-flex align-items-center">
+                          <button class="btn btn-outline-danger btn-sm delete-intake-btn" 
+                                  data-intake-id="{{ log.id }}" 
+                                  data-compound-name="{{ log.compound }}"
+                                  title="Delete this intake">
+                            <i class="fas fa-trash"></i>
+                          </button>
+                        </div>
+                      </div>
+                    </li>
+                  {% endfor %}
+                  
+                {% endfor %}
+              </ul>
+            {% else %}
+              <div class="text-center p-4">
+                <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
+                <h6 class="text-muted">No Intakes Logged</h6>
+                <p class="text-muted">Start by logging your first intake to see your timeline.</p>
+                <a href="{% url 'log_intake' %}" class="btn btn-primary btn-sm">
+                  <i class="fas fa-plus me-1"></i>Log First Intake
+                </a>
+              </div>
+            {% endif %}
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </div>
 
+<style>
+/* Custom styles for intake timeline dropdown */
+.timeline-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.timeline-container::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.timeline-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+}
+
+.timeline-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* Smooth rotation for chevron icon */
+[data-bs-toggle="collapse"] .fas.fa-chevron-down {
+  transition: transform 0.3s ease;
+}
+
+[data-bs-toggle="collapse"][aria-expanded="true"] .fas.fa-chevron-down {
+  transform: rotate(180deg);
+}
+
+/* Enhanced list item hover effect for intake items only */
+.intake-item:hover {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  transform: translateX(2px);
+  transition: all 0.2s ease;
+}
+
+/* Date header styling */
+.date-header {
+  background: linear-gradient(135deg, #6c757d, #5a6268) !important;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 12px 16px !important;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.date-header:hover {
+  background: linear-gradient(135deg, #7a8288, #646a71) !important;
+}
+
+/* Date divider styling */
+.date-divider {
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.3) 20%, rgba(255, 255, 255, 0.3) 80%, transparent);
+  margin: 8px 0;
+}
+
+/* Indent intake items slightly */
+.intake-item {
+  padding-left: 24px !important;
+}
+
+/* Delete button styling */
+.delete-intake-btn {
+  border: 1px solid #dc3545;
+  color: #dc3545;
+  background: transparent;
+  margin: 8px;
+  font-size: 0.75rem;
+  transition: all 0.2s ease;
+}
+
+.delete-intake-btn:hover {
+  background-color: #dc3545;
+  color: white;
+  transform: scale(1.1);
+}
+
+.delete-intake-btn:focus {
+  box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
+}
+</style>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-  // Example: You can pass data from Django context and render a responsive chart
-  const ctx = document.getElementById('intakeChart').getContext('2d');
-  // Replace with real data from your context
-  const chart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: [], // e.g. ['2024-07-01', ...]
-      datasets: [{
-        label: 'Intakes',
-        data: [], // e.g. [2, 1, ...]
-        backgroundColor: '#FFF',
-      }]
-    },
-    options: {
-      responsive: true,
-      scales: { x: { ticks: { color: '#FFF' } }, y: { ticks: { color: '#FFF' } } }
+document.addEventListener('DOMContentLoaded', function() {
+  const userId = {{ user.id|default:'null' }};
+  let intakeChart = null;
+  
+  // Color assignment tracking (same system as effect-curves.js)
+  const compoundColors = new Map();
+  
+  /**
+   * Load and display intake statistics  
+   */
+  async function loadIntakeStatistics() {
+    if (!userId) {
+      showIntakeStatsNoData(true);
+      return;
     }
-  });
+    
+    showIntakeStatsLoading(true);
+    
+    try {
+      // Fetch intake logs for the user (all time for statistics)
+      const response = await fetch(`/api/logs/intakelog/?user=${userId}`);
+      const data = await response.json();
+      
+      console.log('All intake logs data:', data); // Debug log
+      
+      if (!data.results || data.results.length === 0) {
+        showIntakeStatsNoData(true);
+        return;
+      }
+      
+      // Count intakes by compound
+      const compoundCounts = {};
+      data.results.forEach(intake => {
+        const compoundName = intake.compound.name;
+        compoundCounts[compoundName] = (compoundCounts[compoundName] || 0) + 1;
+        console.log(`Found compound: ${compoundName}, total count: ${compoundCounts[compoundName]}`); // Debug log
+      });
+      
+      console.log('Final compound counts:', compoundCounts); // Debug log
+      
+      // Sort compounds by count (descending) - show all compounds, not just top 10
+      const sortedCompounds = Object.entries(compoundCounts)
+        .sort(([,a], [,b]) => b - a);
+      
+      const labels = sortedCompounds.map(([name, count]) => name);
+      const counts = sortedCompounds.map(([name, count]) => count);
+      
+      console.log('Chart labels:', labels); // Debug log
+      console.log('Chart counts:', counts); // Debug log
+      
+      // Create the chart
+      createIntakeChart(labels, counts);
+      showIntakeStatsChart(true);
+      
+    } catch (error) {
+      console.error('Error loading intake statistics:', error);
+      showIntakeStatsNoData(true);
+    } finally {
+      showIntakeStatsLoading(false);
+    }
+  }
+  
+  /**
+   * Get or assign a color for a compound name (same logic as effect-curves.js)
+   */
+  function getColorForCompound(compoundName) {
+    // Normalize compound name for consistency
+    const normalizedName = compoundName.trim().toLowerCase();
+    
+    if (!compoundColors.has(normalizedName)) {
+      // Instead of using hash, assign colors sequentially to ensure uniqueness
+      const assignedColors = Array.from(compoundColors.values());
+      const color = getNextAvailableColor(assignedColors);
+      compoundColors.set(normalizedName, color);
+      console.log(`Assigned color ${color} to compound ${compoundName} in intake stats`); // Debug log
+    }
+    return compoundColors.get(normalizedName);
+  }
+  
+  /**
+   * Get the next available color that hasn't been assigned yet
+   */
+  function getNextAvailableColor(assignedColors) {
+    const colors = [
+      '#FF6384', // Red/Pink
+      '#36A2EB', // Blue  
+      '#FFCE56', // Yellow
+      '#4BC0C0', // Teal
+      '#9966FF', // Purple
+      '#FF9F40', // Orange
+      '#FF6B9D', // Pink
+      '#2ECC71', // Green
+      '#E74C3C', // Red
+      '#3498DB', // Light Blue
+      '#F39C12', // Orange
+      '#9B59B6', // Purple
+      '#1ABC9C', // Turquoise
+      '#E67E22', // Dark Orange
+      '#34495E', // Dark Gray
+      '#16A085', // Dark Teal
+      '#27AE60', // Dark Green
+      '#8E44AD', // Dark Purple
+      '#2980B9', // Dark Blue
+      '#D35400', // Burnt Orange
+      '#C0392B', // Dark Red
+      '#8B4513', // Saddle Brown
+      '#556B2F', // Dark Olive Green
+      '#4B0082', // Indigo
+      '#DC143C', // Crimson
+      '#FF1493', // Deep Pink
+      '#00CED1', // Dark Turquoise
+      '#FF4500', // Red Orange
+      '#32CD32', // Lime Green
+      '#BA55D3'  // Medium Orchid
+    ];
+    
+    // Find the first color that hasn't been assigned
+    for (const color of colors) {
+      if (!assignedColors.includes(color)) {
+        return color;
+      }
+    }
+    
+    // If all predefined colors are used, generate a random color
+    return generateRandomColor();
+  }
+  
+  /**
+   * Generate a random color when all predefined colors are exhausted
+   */
+  function generateRandomColor() {
+    const hue = Math.floor(Math.random() * 360);
+    const saturation = 70 + Math.floor(Math.random() * 30); // 70-100%
+    const lightness = 45 + Math.floor(Math.random() * 20);  // 45-65%
+    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+  }
+
+  /**
+   * Create the intake statistics bar chart
+   */
+  function createIntakeChart(labels, data) {
+    const ctx = document.getElementById('intakeChart').getContext('2d');
+    
+    // Destroy existing chart if it exists
+    if (intakeChart) {
+      intakeChart.destroy();
+    }
+    
+    // Generate colors based on compound names (same sequential logic as effect curves)
+    const backgroundColors = labels.map(compoundName => {
+      const color = getColorForCompound(compoundName);
+      console.log(`Color for ${compoundName} in intake stats:`, color); // Debug log
+      // Convert hex to rgba with transparency for background
+      const hex = color.replace('#', '');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, 0.8)`;
+    });
+    
+    const borderColors = labels.map(compoundName => {
+      const color = getColorForCompound(compoundName);
+      // Convert hex to rgba with full opacity for border
+      const hex = color.replace('#', '');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, 1)`;
+    });
+
+    intakeChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Total Intakes',
+          data: data,
+          backgroundColor: backgroundColors,
+          borderColor: borderColors,
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          title: {
+            display: true,
+            text: 'Total Intakes by Compound',
+            color: '#FFF'
+          },
+          legend: {
+            display: false // Hide legend since we only have one dataset
+          }
+        },
+        scales: {
+          x: {
+            ticks: {
+              color: '#FFF',
+              maxRotation: 45,
+              minRotation: 0
+            },
+            grid: {
+              color: 'rgba(255, 255, 255, 0.1)'
+            }
+          },
+          y: {
+            ticks: {
+              color: '#FFF',
+              beginAtZero: true,
+              stepSize: 1
+            },
+            grid: {
+              color: 'rgba(255, 255, 255, 0.1)'
+            }
+          }
+        }
+      }
+    });
+  }
+  
+  /**
+   * Show/hide loading state for intake stats
+   */
+  function showIntakeStatsLoading(show) {
+    document.getElementById('intakeStatsLoading').style.display = show ? 'block' : 'none';
+    document.getElementById('intakeChart').style.display = show ? 'none' : 'block';
+    document.getElementById('intakeStatsNoData').style.display = 'none';
+  }
+  
+  /**
+   * Show/hide no data state for intake stats
+   */
+  function showIntakeStatsNoData(show) {
+    document.getElementById('intakeStatsNoData').style.display = show ? 'block' : 'none';
+    document.getElementById('intakeChart').style.display = show ? 'none' : 'block';
+    document.getElementById('intakeStatsLoading').style.display = 'none';
+  }
+  
+  /**
+   * Show chart for intake stats
+   */
+  function showIntakeStatsChart(show) {
+    document.getElementById('intakeChart').style.display = show ? 'block' : 'none';
+    document.getElementById('intakeStatsNoData').style.display = 'none';
+    document.getElementById('intakeStatsLoading').style.display = 'none';
+  }
+  
+  /**
+   * Delete intake log
+   */
+  async function deleteIntake(intakeId, compoundName) {
+    if (!confirm(`Are you sure you want to delete the ${compoundName} intake? This action cannot be undone.`)) {
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/logs/intakelog/${intakeId}/`, {
+        method: 'DELETE',
+        headers: {
+          'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || 
+                        document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                        getCookie('csrftoken'),
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        // Reload the page to refresh the timeline and charts
+        window.location.reload();
+      } else {
+        alert('Error deleting intake. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error deleting intake:', error);
+      alert('Error deleting intake. Please try again.');
+    }
+  }
+  
+  /**
+   * Get CSRF token from cookies
+   */
+  function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+      const cookies = document.cookie.split(';');
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+          break;
+        }
+      }
+    }
+    return cookieValue;
+  }
+  
+  /**
+   * Add event listeners for delete buttons
+   */
+  function setupDeleteButtons() {
+    document.querySelectorAll('.delete-intake-btn').forEach(button => {
+      button.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const intakeId = this.getAttribute('data-intake-id');
+        const compoundName = this.getAttribute('data-compound-name');
+        
+        deleteIntake(intakeId, compoundName);
+      });
+    });
+  }
+  
+  // Load intake statistics on page load
+  loadIntakeStatistics();
+  
+  // Setup delete button event listeners
+  setupDeleteButtons();
+});
 </script>
 {% endblock %}

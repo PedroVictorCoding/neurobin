@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'logs',
     'accounts',
     'research',
+    'change_requests',
 ]
 
 MIDDLEWARE = [

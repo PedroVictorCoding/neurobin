@@ -7,7 +7,7 @@ import json
 class CompoundChangeRequestForm(forms.ModelForm):
     # Compound specific fields
     name = forms.CharField(max_length=200, required=False)
-    compound_description = forms.CharField(widget=forms.Textarea(attrs={'rows': 4}), required=False)
+    description = forms.CharField(widget=forms.Textarea(attrs={'rows': 4}), required=False)
     categories = forms.CharField(widget=forms.HiddenInput(), required=False)
     
     class Meta:
@@ -25,7 +25,7 @@ class CompoundChangeRequestForm(forms.ModelForm):
         if compound:
             # Pre-fill with current compound data
             self.fields['name'].initial = compound.name
-            self.fields['compound_description'].initial = compound.description or ''
+            self.fields['description'].initial = compound.description or ''
             
             # Set categories as comma-separated IDs
             category_ids = list(compound.categories.values_list('id', flat=True))
@@ -41,7 +41,7 @@ class CompoundChangeRequestForm(forms.ModelForm):
             if cleaned_data.get('name') != self.compound.name:
                 changes_detected = True
             
-            if cleaned_data.get('compound_description') != (self.compound.description or ''):
+            if cleaned_data.get('description') != (self.compound.description or ''):
                 changes_detected = True
             
             # Check categories
@@ -77,7 +77,7 @@ class CompoundChangeRequestForm(forms.ModelForm):
             }
         
         # Check description changes
-        new_desc = self.cleaned_data.get('compound_description', '').strip()
+        new_desc = self.cleaned_data.get('description', '').strip()
         current_desc = self.compound.description or ''
         if new_desc != current_desc:
             changes['description'] = {
@@ -96,9 +96,9 @@ class CompoundChangeRequestForm(forms.ModelForm):
         
         if set(current_category_ids) != set(new_category_ids):
             # Get category names for display
-            from compounds.models import CompoundCategories
-            current_names = list(CompoundCategories.objects.filter(id__in=current_category_ids).values_list('name', flat=True))
-            new_names = list(CompoundCategories.objects.filter(id__in=new_category_ids).values_list('name', flat=True))
+            from compounds.models import CompoundCategory
+            current_names = list(CompoundCategory.objects.filter(id__in=current_category_ids).values_list('name', flat=True))
+            new_names = list(CompoundCategory.objects.filter(id__in=new_category_ids).values_list('name', flat=True))
             
             changes['categories'] = {
                 'before': current_names,

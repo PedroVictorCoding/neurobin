@@ -717,6 +717,48 @@
       border: 1px solid var(--border-primary) !important;
       border-radius: 8px;
     }
+    
+    /* Input Icons - Calendar picker and dropdown indicators */
+    input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+      background-image: url('data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>');
+      background-color: transparent;
+      color: var(--text-primary);
+      cursor: pointer;
+      opacity: 0.8;
+      transition: all 0.3s ease;
+    }
+    
+    input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+      opacity: 1;
+      background-color: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+    }
+    
+    /* Date input specific styling */
+    input[type="date"]::-webkit-calendar-picker-indicator,
+    input[type="time"]::-webkit-calendar-picker-indicator {
+      background-image: url('data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>');
+      background-color: transparent;
+      color: var(--text-primary);
+      cursor: pointer;
+      opacity: 0.8;
+      transition: all 0.3s ease;
+    }
+    
+    input[type="date"]::-webkit-calendar-picker-indicator:hover,
+    input[type="time"]::-webkit-calendar-picker-indicator:hover {
+      opacity: 1;
+      background-color: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+    }
+    
+    /* Select dropdown arrows */
+    select.form-select {
+      background-image: url('data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,9 12,15 18,9"></polyline></svg>');
+      background-repeat: no-repeat;
+      background-position: right 0.75rem center;
+      background-size: 16px 12px;
+    }
   </style>
 </head>
 
@@ -757,6 +799,13 @@
                 <li><a class="dropdown-item ps-4" href="{% url 'research:snippet_list' %}">Browse Research</a></li>
                 {% if user.is_autheticated %}
                 <li><a class="dropdown-item ps-4" href="">Add Research</a></li>
+                {% endif %}
+
+                {% if user.is_authenticated %}
+                <li><h6 class="dropdown-header text-white fw-bold">Logs</h6></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'log_intake' %}">Log Intake</a></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'analytics_dashboard' %}">Logs Dashboard</a></li>
+
                 {% endif %}
 
                 {% if user.is_staff %}

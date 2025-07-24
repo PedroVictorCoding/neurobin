@@ -34,6 +34,7 @@ urlpatterns = [
     path('logs/', include('logs.urls')),
     path('intake/', include('logs.urls')),
     path('research/', include('research.urls')),
+    path('change-requests/', include('change_requests.urls')),
     
     # API Root
     path('api/', api_root, name='api_root'),

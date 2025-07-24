@@ -11,7 +11,7 @@
     <div class="d-flex flex-column flex-sm-row justify-content-center gap-3 mt-4">
       <a href="{% url 'compound_list' %}" class="btn btn-lg px-4" style="background:#FFF; color:#111; border:none;">Browse Compounds</a>
       {% if user.is_authenticated %}
-        <a href="{% url 'intake_timeline' %}" class="btn btn-lg px-4" style="background:transparent; color:#FFF; border:1px solid #FFF;">Log Compound</a>
+        <a href="{% url 'analytics_dashboard' %}" class="btn btn-lg px-4" style="background:transparent; color:#FFF; border:1px solid #FFF;">Log Compound</a>
       {% endif %}
     </div>
   </div>

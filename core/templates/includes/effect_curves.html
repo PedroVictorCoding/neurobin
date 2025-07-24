@@ -11,14 +11,6 @@
             {% endif %}
         </h5>
         <div class="effect-controls">
-            {% if page_type == 'dashboard' %}
-                <div class="btn-group btn-group-sm" role="group">
-                    <button type="button" class="btn btn-outline-primary active" data-timeframe="today">Today</button>
-                    <button type="button" class="btn btn-outline-primary" data-timeframe="yesterday">Yesterday</button>
-                    <button type="button" class="btn btn-outline-primary" data-timeframe="week">This Week</button>
-                </div>
-            {% endif %}
-            
             <button class="btn btn-sm btn-outline-secondary ms-2" id="refreshCurves">
                 <i class="fas fa-sync-alt"></i>
             </button>
@@ -27,6 +19,12 @@
     
     <div class="chart-container" style="position: relative; height: 400px;">
         <canvas id="effectCurveChart"></canvas>
+    </div>
+    
+    <!-- Warning for compounds without effect windows -->
+    <div id="missingEffectWindowsWarning" class="alert alert-warning mt-2" style="display: none;">
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        <span id="missingEffectWindowsText"></span>
     </div>
     
     <!-- Chart Legend/Info -->
@@ -44,7 +42,7 @@
                         {% if page_type == 'compound_detail' %}
                             <div><strong>Time Format:</strong> T+00:00 (relative to intake)</div>
                         {% else %}
-                            <div><strong>Time Format:</strong> Actual time</div>
+                            <div><strong>Time Format:</strong> UTC time</div>
                         {% endif %}
                     </small>
                 </div>
@@ -81,8 +79,7 @@
 
 <!-- Include Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
-<script src="{% static 'js/effect-curves.js' %}"></script>
+<script src="{% static 'js/effect-curves.js' %}?v={% now "U" %}"></script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -91,6 +88,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const pageType = '{{ page_type }}';
     const compoundId = {{ compound.id|default:'null' }};
     const userId = {{ user.id|default:'null' }};
+    
+    console.log('Effect curves loading with page type:', pageType); // Debug log
     
     // Chart configuration based on page type
     const chartOptions = {
@@ -102,6 +101,22 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize chart and API
     const effectChart = new EffectCurveChart('effectCurveChart', chartOptions);
     const api = new EffectDataAPI();
+    
+    // Debug: Check if our methods exist
+    console.log('EffectCurveChart methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(effectChart)));
+    console.log('getColorForCompound method exists:', typeof effectChart.getColorForCompound === 'function');
+    
+    // Test color consistency
+    if (typeof effectChart.getColorForCompound === 'function') {
+        const testColor1 = effectChart.getColorForCompound('TAK-653');
+        const testColor2 = effectChart.getColorForCompound('TAK-653');
+        const testColor3 = effectChart.getColorForCompound('tak-653');
+        console.log('Color consistency test:');
+        console.log('TAK-653 (1):', testColor1);
+        console.log('TAK-653 (2):', testColor2);
+        console.log('tak-653 (3):', testColor3);
+        console.log('All same?', testColor1 === testColor2 && testColor2 === testColor3);
+    }
     
     // Current timeframe for dashboard
     let currentTimeframe = 'today';
@@ -139,6 +154,8 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (!effectWindows.results || effectWindows.results.length === 0) {
             showNoData(true);
+            // Show warning for compound without effect windows
+            showMissingEffectWindowsWarning(['{{ compound.name|default:"This compound" }}']);
             return;
         }
         
@@ -162,7 +179,7 @@ document.addEventListener('DOMContentLoaded', function() {
             showNoData(true);
             return;
         }
-        
+
         const params = {
             user: userId,
             ...getDateRangeParams(currentTimeframe)
@@ -170,45 +187,76 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const intakeLogs = await api.getIntakeLogs(params);
         
+        console.log(`API returned ${intakeLogs.results?.length || 0} intake logs`); // Debug log
+        console.log('Full intake logs response:', intakeLogs); // Debug log
+        
+        // Debug: Log each intake's compound and date
+        if (intakeLogs.results) {
+            intakeLogs.results.forEach((log, index) => {
+                console.log(`Intake ${index + 1}: ${log.compound.name} taken at ${log.taken_at}`); // Debug log
+                console.log(`Compound object:`, log.compound); // Debug log
+                console.log(`Effect windows in compound:`, log.compound.effect_windows); // Debug log
+            });
+        }
+        
         if (!intakeLogs.results || intakeLogs.results.length === 0) {
             showNoData(true);
             return;
         }
         
-        // Get effect windows for compounds in intake logs
-        const compoundIds = [...new Set(intakeLogs.results.map(log => log.compound.id))];
-        const effectWindowPromises = compoundIds.map(id => api.getCompoundEffectWindows(id));
-        const effectWindowsResults = await Promise.all(effectWindowPromises);
+        // Check for compounds without effect windows - use the data already in intake logs
+        const compoundsWithoutEffectWindows = [];
+        const enrichedIntakesWithEffectWindows = [];
         
-        // Combine intake logs with effect windows
-        const enrichedIntakes = intakeLogs.results.map(intake => {
-            const effectWindows = effectWindowsResults.find(result => 
-                result.results && result.results.some(ew => ew.compound.id === intake.compound.id)
-            );
-            
-            return {
-                ...intake,
-                compound: {
-                    ...intake.compound,
-                    effect_windows: effectWindows ? effectWindows.results.filter(ew => ew.compound.id === intake.compound.id) : []
+        intakeLogs.results.forEach(intake => {
+            console.log(`Checking compound: ${intake.compound.name}, effect_windows:`, intake.compound.effect_windows); // Debug log
+            // Check if effect_windows is missing, null, undefined, or empty array
+            if (!intake.compound.effect_windows || intake.compound.effect_windows.length === 0) {
+                if (!compoundsWithoutEffectWindows.includes(intake.compound.name)) {
+                    compoundsWithoutEffectWindows.push(intake.compound.name);
+                    console.log(`Added ${intake.compound.name} to compounds without effect windows`); // Debug log
                 }
-            };
+            } else {
+                enrichedIntakesWithEffectWindows.push(intake);
+                console.log(`${intake.compound.name} has ${intake.compound.effect_windows.length} effect windows`); // Debug log
+            }
         });
+        
+        console.log('Compounds without effect windows:', compoundsWithoutEffectWindows); // Debug log
+        console.log('Compounds with effect windows:', enrichedIntakesWithEffectWindows.length); // Debug log
         
         effectChart.clearCurves();
         effectChart.setTitle(`Effect Timeline - ${currentTimeframe.charAt(0).toUpperCase() + currentTimeframe.slice(1)}`);
         
-        // Calculate reference date for timeline
-        const referenceDate = getReferenceDate(currentTimeframe);
+        // Show warning for compounds without effect windows
+        if (compoundsWithoutEffectWindows.length > 0) {
+            console.log('Showing warning for compounds:', compoundsWithoutEffectWindows); // Debug log
+            showMissingEffectWindowsWarning(compoundsWithoutEffectWindows);
+        } else {
+            console.log('No compounds without effect windows, hiding warning'); // Debug log
+            showMissingEffectWindowsWarning([]);
+        }
         
-        // Calculate max doses for scaling
-        calculateMaxDoses(enrichedIntakes);
-        
-        // Add curves
-        effectChart.addIntakeCurves(enrichedIntakes, referenceDate);
-        
-        showChart(true);
-        updateIntakeLegend(enrichedIntakes);
+        // If we have some intakes with effect windows, show the chart
+        if (enrichedIntakesWithEffectWindows.length > 0) {
+            // Calculate reference date for timeline
+            const referenceDate = getReferenceDate(currentTimeframe);
+            
+            // Calculate max doses for scaling
+            calculateMaxDoses(enrichedIntakesWithEffectWindows);
+            
+            // Add curves - use the intake logs directly since they already have effect_windows
+            effectChart.addIntakeCurves(enrichedIntakesWithEffectWindows, referenceDate);
+            
+            showChart(true);
+            updateIntakeLegend(enrichedIntakesWithEffectWindows);
+        } else if (compoundsWithoutEffectWindows.length > 0) {
+            // Only compounds without effect windows - show no data but keep warning visible
+            showNoData(true);
+            showMissingEffectWindowsWarning(compoundsWithoutEffectWindows);
+        } else {
+            showNoData(true);
+        }
     }
     
     /**
@@ -218,27 +266,38 @@ document.addEventListener('DOMContentLoaded', function() {
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         
+        console.log(`Current time: ${now.toISOString()}`); // Debug log
+        console.log(`Today start: ${today.toISOString()}`); // Debug log
+        
+        let params;
         switch (timeframe) {
             case 'today':
-                return {
+                const todayEnd = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+                params = {
                     taken_at__gte: today.toISOString(),
-                    taken_at__lt: new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString()
+                    taken_at__lt: todayEnd.toISOString()
                 };
+                console.log(`Today filter: ${params.taken_at__gte} to ${params.taken_at__lt}`); // Debug log
+                break;
             case 'yesterday':
                 const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-                return {
+                params = {
                     taken_at__gte: yesterday.toISOString(),
                     taken_at__lt: today.toISOString()
                 };
+                break;
             case 'week':
                 const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-                return {
+                params = {
                     taken_at__gte: weekAgo.toISOString(),
                     taken_at__lt: new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString()
                 };
+                break;
             default:
-                return {};
+                params = {};
         }
+        
+        return params;
     }
     
     /**
@@ -281,13 +340,16 @@ document.addEventListener('DOMContentLoaded', function() {
      */
     function updateLegend(effectWindows) {
         const legend = document.getElementById('chartLegend');
-        const legendItems = effectWindows.map((ew, index) => `
-            <span class="legend-item me-3">
-                <span class="legend-color" style="background-color: ${effectChart.generateColor(index)}"></span>
-                ${ew.get_effect_shape_display || ew.effect_shape} 
-                (${ew.onset_minutes}m → ${ew.duration_minutes}m)
-            </span>
-        `).join('');
+        const legendItems = effectWindows.map((ew, index) => {
+            const color = effectChart.getColorForCompound(ew.compound.name);
+            return `
+                <span class="legend-item me-3">
+                    <span class="legend-color" style="background-color: ${color}"></span>
+                    ${ew.get_effect_shape_display || ew.effect_shape} 
+                    (${ew.onset_minutes}m → ${ew.duration_minutes}m)
+                </span>
+            `;
+        }).join('');
         
         legend.innerHTML = legendItems;
     }
@@ -297,15 +359,9 @@ document.addEventListener('DOMContentLoaded', function() {
      */
     function updateIntakeLegend(intakeLogs) {
         const legend = document.getElementById('chartLegend');
-        const legendItems = intakeLogs.map((intake, index) => `
-            <span class="legend-item me-3">
-                <span class="legend-color" style="background-color: ${effectChart.generateColor(index)}"></span>
-                ${intake.compound.name} (${intake.amount}${intake.unit})
-                <small class="text-muted">- ${new Date(intake.taken_at).toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit', hour12: false})}</small>
-            </span>
-        `).join('');
         
-        legend.innerHTML = legendItems;
+        // Clear the legend - no items displayed
+        legend.innerHTML = '';
     }
     
     /**
@@ -315,6 +371,9 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('chartLoading').style.display = show ? 'block' : 'none';
         document.querySelector('.chart-container').style.display = show ? 'none' : 'block';
         document.getElementById('chartNoData').style.display = 'none';
+        if (show) {
+            document.getElementById('missingEffectWindowsWarning').style.display = 'none';
+        }
     }
     
     /**
@@ -324,6 +383,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('chartNoData').style.display = show ? 'block' : 'none';
         document.querySelector('.chart-container').style.display = show ? 'none' : 'block';
         document.getElementById('chartLoading').style.display = 'none';
+        // Don't hide warning here - it should persist when showing no data state
     }
     
     /**
@@ -333,6 +393,32 @@ document.addEventListener('DOMContentLoaded', function() {
         document.querySelector('.chart-container').style.display = show ? 'block' : 'none';
         document.getElementById('chartNoData').style.display = 'none';
         document.getElementById('chartLoading').style.display = 'none';
+        // Don't automatically hide warning here - let the calling function control it
+    }
+    
+    /**
+     * Show/hide missing effect windows warning
+     */
+    function showMissingEffectWindowsWarning(compoundNames) {
+        console.log('showMissingEffectWindowsWarning called with:', compoundNames); // Debug log
+        const warning = document.getElementById('missingEffectWindowsWarning');
+        const text = document.getElementById('missingEffectWindowsText');
+        
+        console.log('Warning element:', warning); // Debug log
+        console.log('Text element:', text); // Debug log
+        
+        if (compoundNames && compoundNames.length > 0) {
+            const compoundList = compoundNames.join(', ');
+            const plural = compoundNames.length > 1;
+            const message = `No effect curve data available for: ${compoundList}`;
+            console.log('Setting warning message:', message); // Debug log
+            text.textContent = message;
+            warning.style.display = 'block';
+            console.log('Warning should now be visible'); // Debug log
+        } else {
+            console.log('Hiding warning'); // Debug log
+            warning.style.display = 'none';
+        }
     }
     
     // Event listeners
@@ -394,5 +480,16 @@ document.addEventListener('DOMContentLoaded', function() {
 .effect-controls {
     display: flex;
     align-items: center;
+}
+
+#missingEffectWindowsWarning {
+    font-size: 0.875rem;
+    border-left: 4px solid #ffc107;
+    background-color: #fff3cd;
+    border-color: #ffeaa7;
+}
+
+#missingEffectWindowsWarning .fas {
+    color: #856404;
 }
 </style>

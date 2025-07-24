@@ -1,0 +1,168 @@
+{% extends 'base.html' %}
+
+{% block title %}Change Request: {{ change_request.title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h1>Change Request: {{ change_request.title }}</h1>
+            
+            <div class="card mb-4">
+                <div class="card-header">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>Status:</strong>
+                            {% if change_request.status == 'pending' %}
+                                <span class="badge bg-warning">Pending</span>
+                            {% elif change_request.status == 'approved' %}
+                                <span class="badge bg-success">Approved</span>
+                            {% elif change_request.status == 'rejected' %}
+                                <span class="badge bg-danger">Rejected</span>
+                            {% elif change_request.status == 'applied' %}
+                                <span class="badge bg-primary">Applied</span>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <strong>Requested by:</strong> {{ change_request.requested_by.username }}
+                            <br>
+                            <small class="text-muted">{{ change_request.created_at|date:"M d, Y H:i" }}</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p><strong>Description:</strong></p>
+                    <p>{{ change_request.description|linebreaks }}</p>
+                    
+                    {% if change_request.content_object %}
+                    <p><strong>Target:</strong> {{ change_request.content_type.model|title }}: {{ change_request.content_object }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <!-- Changes Diff Display -->
+            {% if change_request.changes_data %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-code-branch"></i> Proposed Changes</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-minus text-danger"></i> Before</h6>
+                            <div class="border p-3 bg-light">
+                                {% for field, data in change_request.changes_data.items %}
+                                    <div class="mb-2">
+                                        <strong>{{ field|title }}:</strong>
+                                        <div class="text-danger">{{ data.old_value|default:"(empty)" }}</div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-plus text-success"></i> After</h6>
+                            <div class="border p-3 bg-light">
+                                {% for field, data in change_request.changes_data.items %}
+                                    <div class="mb-2">
+                                        <strong>{{ field|title }}:</strong>
+                                        <div class="text-success">{{ data.new_value|default:"(empty)" }}</div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- Review Section -->
+            {% if change_request.reviewed_by %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-clipboard-check"></i> Review</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Reviewed by:</strong> {{ change_request.reviewed_by.username }}</p>
+                    <p><strong>Reviewed at:</strong> {{ change_request.reviewed_at|date:"M d, Y H:i" }}</p>
+                    {% if change_request.review_notes %}
+                    <p><strong>Notes:</strong></p>
+                    <p>{{ change_request.review_notes|linebreaks }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- Applied Changes -->
+            {% if change_request.status == 'applied' and change_request.applied_by %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-check-circle"></i> Applied</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Applied by:</strong> {{ change_request.applied_by.username }}</p>
+                    <p><strong>Applied at:</strong> {{ change_request.applied_at|date:"M d, Y H:i" }}</p>
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- Comments Section -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-comments"></i> Comments</h5>
+                </div>
+                <div class="card-body">
+                    {% if comments %}
+                        {% for comment in comments %}
+                        <div class="border-bottom pb-3 mb-3">
+                            <div class="d-flex justify-content-between">
+                                <strong>{{ comment.user.username }}</strong>
+                                <small class="text-muted">{{ comment.created_at|date:"M d, Y H:i" }}</small>
+                            </div>
+                            <p class="mt-2">{{ comment.comment|linebreaks }}</p>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="text-muted">No comments yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <!-- Actions -->
+            {% if user.is_staff and change_request.status == 'pending' %}
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-cogs"></i> Actions</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post" action="{% url 'change_requests:apply' change_request.pk %}">
+                        {% csrf_token %}
+                        <div class="row">
+                            <div class="col-md-6">
+                                <button type="submit" name="action" value="approve" class="btn btn-success">
+                                    <i class="fas fa-check"></i> Approve & Apply
+                                </button>
+                            </div>
+                            <div class="col-md-6">
+                                <button type="submit" name="action" value="reject" class="btn btn-danger">
+                                    <i class="fas fa-times"></i> Reject
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <label for="review_notes" class="form-label">Review Notes (optional):</label>
+                            <textarea name="review_notes" id="review_notes" class="form-control" rows="3"></textarea>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+            
+            <div class="mt-4">
+                <a href="{% url 'change_requests:list' %}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to List
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

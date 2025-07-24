@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+
+{% block title %}Change Requests{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h1>Change Requests</h1>
+            
+            <div class="mb-3">
+                <button class="btn btn-outline-secondary" onclick="location.reload()">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+            
+            {% if change_requests %}
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Requested By</th>
+                            <th>Status</th>
+                            <th>Target</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for request in change_requests %}
+                        <tr>
+                            <td>{{ request.title }}</td>
+                            <td>{{ request.requested_by.username }}</td>
+                            <td>
+                                {% if request.status == 'pending' %}
+                                    <span class="badge bg-warning">Pending</span>
+                                {% elif request.status == 'approved' %}
+                                    <span class="badge bg-success">Approved</span>
+                                {% elif request.status == 'rejected' %}
+                                    <span class="badge bg-danger">Rejected</span>
+                                {% elif request.status == 'applied' %}
+                                    <span class="badge bg-primary">Applied</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if request.content_object %}
+                                    {{ request.content_type.model|title }}: {{ request.content_object }}
+                                {% endif %}
+                            </td>
+                            <td>{{ request.created_at|date:"M d, Y H:i" }}</td>
+                            <td>
+                                <a href="{% url 'change_requests:detail' request.pk %}" class="btn btn-sm btn-outline-primary">
+                                    <i class="fas fa-eye"></i> View
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i> No change requests found.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
