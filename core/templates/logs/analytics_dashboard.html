@@ -61,7 +61,7 @@
         <div class="collapse mt-3" id="intakeTimelineCollapse">
           <div class="timeline-container" style="max-height: 400px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0;">
             {% if logs %}
-              <ul class="list-group list-group-flush">
+              <ul class="list-group list-group-flush" style="overflow-x: hidden;">
                 {% regroup logs by taken_at.date as logs_by_date %}
                 {% for date_group in logs_by_date %}
                   <!-- Date Header -->
