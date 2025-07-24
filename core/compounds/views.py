@@ -7,7 +7,7 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
 
-from .models import Compound, CompoundSafetyScreening, CompoundRating, CompoundCategories, CompoundMechanismOfAction, Target, EffectWindow
+from .models import Compound, CompoundSafetyScreening, CompoundRating, CompoundCategories, CompoundMechanismOfAction, Target, EffectWindow, CompoundTargetInteraction
 from .forms import CompoundForm, MechanismOfActionForm, CategoryForm, TargetForm
 
 
@@ -66,6 +66,24 @@ def compound_detail(request, slug):
         snippets = []
         user_reviews = {}
 
+    # Get mechanisms ordered by affinity from CompoundTargetInteraction
+    # Priority order: very_high > high > medium > low > very_low > unknown
+    affinity_order = {
+        'very_high': 1,
+        'high': 2, 
+        'medium': 3,
+        'low': 4,
+        'very_low': 5,
+        'unknown': 6,
+    }
+    
+    # Get target interactions with affinity data
+    target_interactions = compound.target_interactions.select_related('target').all()
+    
+    # Sort by affinity priority (lower number = higher priority)
+    target_interactions = sorted(target_interactions, 
+                               key=lambda x: affinity_order.get(x.affinity_level, 6))
+
     context = {
         'compound': compound,
         'safety_report': safety_report,
@@ -74,6 +92,7 @@ def compound_detail(request, slug):
         'research_snippets': snippets,
         'user_reviews': user_reviews,
         'all_categories': CompoundCategories.objects.all(),
+        'target_interactions': target_interactions,
     }
 
     return render(request, 'compounds/compound_detail.html', context)

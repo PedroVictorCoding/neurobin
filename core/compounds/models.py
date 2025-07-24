@@ -3,6 +3,37 @@ from django.utils.text import slugify
 from django.conf import settings
 
 
+class ActionType(models.Model):
+    """Standardized action types for compound-target interactions"""
+    name = models.CharField(max_length=100, unique=True, help_text="Action type (e.g., agonist, antagonist, inhibitor)")
+    display_name = models.CharField(max_length=100, help_text="Human-readable display name")
+    description = models.TextField(blank=True, help_text="Description of this action type")
+    category = models.CharField(max_length=50, blank=True, help_text="Broad category (e.g., activation, inhibition, modulation)")
+    
+    class Meta:
+        verbose_name = "Action Type"
+        verbose_name_plural = "Action Types"
+        ordering = ['name']
+    
+    def __str__(self):
+        return self.display_name or self.name
+
+
+class TargetType(models.Model):
+    """Standardized target types for biological targets"""
+    name = models.CharField(max_length=100, unique=True, help_text="Target type (e.g., receptor, enzyme, ion_channel)")
+    display_name = models.CharField(max_length=100, help_text="Human-readable display name")
+    description = models.TextField(blank=True, help_text="Description of this target type")
+    category = models.CharField(max_length=50, blank=True, help_text="Broad category (e.g., membrane, intracellular, secreted)")
+    
+    class Meta:
+        verbose_name = "Target Type"
+        verbose_name_plural = "Target Types"
+        ordering = ['name']
+    
+    def __str__(self):
+        return self.display_name or self.name
+
 
 class CompoundCategories(models.Model):
     name = models.CharField(max_length=200, unique=True)
@@ -47,6 +78,14 @@ class Target(models.Model):
         choices=TARGET_TYPES,
         default='receptor',
         help_text="Type of target (deprecated, use target_type)"
+    )
+    # New structured target type reference
+    structured_target_type = models.ForeignKey(
+        TargetType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Structured target type reference"
     )
     description = models.TextField(blank=True, help_text="Detailed description of the target")
     organism = models.CharField(
@@ -534,6 +573,14 @@ class CompoundTargetInteraction(models.Model):
         max_length=50,
         choices=MECHANISM_CHOICES,
         help_text="How the compound interacts with this target"
+    )
+    # New structured action type reference
+    structured_action_type = models.ForeignKey(
+        ActionType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Structured action type reference"
     )
     affinity_level = models.CharField(
         max_length=20,

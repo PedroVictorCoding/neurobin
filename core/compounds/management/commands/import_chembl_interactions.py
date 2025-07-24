@@ -18,7 +18,10 @@ from typing import List, Dict, Optional, Set, Tuple
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.db.models import Q
-from compounds.models import Compound, Target, CompoundTargetInteraction, CompoundToCompoundTargetInteraction
+from compounds.models import (
+    Compound, Target, CompoundTargetInteraction, CompoundToCompoundTargetInteraction,
+    ActionType, TargetType
+)
 
 try:
     import requests
@@ -65,6 +68,128 @@ class ChEMBLImporter:
             'Accept': 'application/json'
         })
         self.slow_mode = slow_mode
+        # Initialize standard types on first use
+        self._action_types_initialized = False
+        self._target_types_initialized = False
+    
+    def ensure_action_types(self):
+        """Ensure standard ActionType entries exist."""
+        if self._action_types_initialized:
+            return
+        
+        standard_action_types = [
+            ('agonist', 'Agonist', 'Activates the target by binding to the active site', 'activation'),
+            ('antagonist', 'Antagonist', 'Blocks target activity by competitive binding', 'inhibition'),
+            ('partial_agonist', 'Partial Agonist', 'Partially activates the target', 'modulation'),
+            ('inverse_agonist', 'Inverse Agonist', 'Reduces target activity below baseline', 'inhibition'),
+            ('inhibitor', 'Inhibitor', 'Prevents or reduces target activity', 'inhibition'),
+            ('activator', 'Activator', 'Increases target activity or function', 'activation'),
+            ('modulator', 'Modulator', 'Alters target activity (positive or negative)', 'modulation'),
+            ('blocker', 'Blocker', 'Blocks target function or pathway', 'inhibition'),
+            ('opener', 'Opener', 'Opens or activates channels/gates', 'activation'),
+            ('inducer', 'Inducer', 'Increases expression or production of target', 'activation'),
+            ('substrate', 'Substrate', 'Acts as a substrate for enzymatic activity', 'interaction'),
+            ('binder', 'Binder', 'Binds to target without clear functional effect', 'interaction'),
+            ('pam', 'Positive Allosteric Modulator', 'Enhances target activity through allosteric binding', 'modulation'),
+            ('nam', 'Negative Allosteric Modulator', 'Reduces target activity through allosteric binding', 'modulation'),
+            ('unknown', 'Unknown', 'Mechanism of action not determined', 'unknown'),
+        ]
+        
+        for name, display_name, description, category in standard_action_types:
+            ActionType.objects.get_or_create(
+                name=name,
+                defaults={
+                    'display_name': display_name,
+                    'description': description,
+                    'category': category
+                }
+            )
+        
+        self._action_types_initialized = True
+    
+    def ensure_target_types(self):
+        """Ensure standard TargetType entries exist."""
+        if self._target_types_initialized:
+            return
+        
+        standard_target_types = [
+            ('receptor', 'Receptor', 'Membrane or intracellular proteins that bind signaling molecules', 'membrane'),
+            ('enzyme', 'Enzyme', 'Proteins that catalyze biochemical reactions', 'catalytic'),
+            ('ion_channel', 'Ion Channel', 'Membrane proteins that allow selective ion passage', 'membrane'),
+            ('transporter', 'Transporter', 'Proteins that move substances across membranes', 'membrane'),
+            ('protein', 'Protein', 'General protein targets', 'protein'),
+            ('single_protein', 'Single Protein', 'Individual protein targets', 'protein'),
+            ('protein_complex', 'Protein Complex', 'Multi-subunit protein assemblies', 'protein'),
+            ('protein_family', 'Protein Family', 'Groups of related proteins', 'protein'),
+            ('cell_line', 'Cell Line', 'Cultured cell systems', 'cellular'),
+            ('tissue', 'Tissue', 'Organized cellular structures', 'cellular'),
+            ('organism', 'Organism', 'Whole organism targets', 'organism'),
+            ('unknown', 'Unknown', 'Target type not determined', 'unknown'),
+            ('other', 'Other', 'Other target types not listed', 'other'),
+        ]
+        
+        for name, display_name, description, category in standard_target_types:
+            TargetType.objects.get_or_create(
+                name=name,
+                defaults={
+                    'display_name': display_name,
+                    'description': description,
+                    'category': category
+                }
+            )
+        
+        self._target_types_initialized = True
+    
+    def get_or_create_action_type(self, mechanism_str: str) -> ActionType:
+        """Get or create ActionType from mechanism string."""
+        self.ensure_action_types()
+        
+        # Normalize the mechanism string
+        normalized = self.normalize_mechanism(mechanism_str)
+        
+        # Try to find existing ActionType
+        action_type = ActionType.objects.filter(name=normalized).first()
+        if action_type:
+            return action_type
+        
+        # If not found, create with the original string as display name
+        action_type, created = ActionType.objects.get_or_create(
+            name=normalized,
+            defaults={
+                'display_name': mechanism_str.title() if mechanism_str else 'Unknown',
+                'description': f'Parsed from ChEMBL: {mechanism_str}',
+                'category': 'unknown'
+            }
+        )
+        
+        return action_type
+    
+    def get_or_create_target_type(self, target_type_str: str) -> TargetType:
+        """Get or create TargetType from ChEMBL target type string."""
+        self.ensure_target_types()
+        
+        # Normalize target type string
+        if not target_type_str:
+            target_type_str = 'unknown'
+        
+        normalized = target_type_str.lower().strip().replace(' ', '_')
+        
+        # Try to find existing TargetType
+        target_type = TargetType.objects.filter(name=normalized).first()
+        if target_type:
+            return target_type
+        
+        # If not found, create with the original string as display name
+        target_type, created = TargetType.objects.get_or_create(
+            name=normalized,
+            defaults={
+                'display_name': target_type_str.title() if target_type_str else 'Unknown',
+                'description': f'Parsed from ChEMBL: {target_type_str}',
+                'category': 'unknown'
+            }
+        )
+        
+        return target_type
     
     def fetch_with_retry(self, url: str, params: Dict = None, max_retries: int = 3) -> Optional[Dict]:
         """Fetch data from ChEMBL API with retry logic."""
@@ -1183,6 +1308,9 @@ class Command(BaseCommand):
         mechanism_raw = mechanism_data.get('mechanism_of_action', '')
         mechanism = importer.normalize_mechanism(mechanism_raw)
         
+        # Get or create structured action type
+        structured_action_type = importer.get_or_create_action_type(mechanism_raw)
+        
         # Calculate affinity level
         affinity_level = importer.calculate_affinity_level(activities)
         
@@ -1192,6 +1320,7 @@ class Command(BaseCommand):
             target=target,
             defaults={
                 'mechanism': mechanism,
+                'structured_action_type': structured_action_type,
                 'affinity_level': affinity_level,
                 'notes': mechanism_raw,
                 'source': 'ChEMBL'
@@ -1201,8 +1330,10 @@ class Command(BaseCommand):
         if not created and interaction.source == 'ChEMBL':
             # Update existing ChEMBL interaction
             interaction.mechanism = mechanism
+            interaction.structured_action_type = structured_action_type
             interaction.affinity_level = affinity_level
             interaction.notes = mechanism_raw
+            interaction.save()
             interaction.save()
         
         action = "Created" if created else "Updated"
@@ -1232,12 +1363,16 @@ class Command(BaseCommand):
         description = target_data.get('description', '')
         organism = target_data.get('organism', '')
         
+        # Get or create structured target type
+        structured_target_type = importer.get_or_create_target_type(target_data.get('target_type', 'unknown'))
+        
         # Check if target exists by name (without ChEMBL ID)
         existing_target = Target.objects.filter(name=target_name, chembl_id__isnull=True).first()
         if existing_target:
             # Update existing target with ChEMBL data
             existing_target.chembl_id = target_chembl_id
             existing_target.target_type = target_type
+            existing_target.structured_target_type = structured_target_type
             if not existing_target.description:
                 existing_target.description = description
             existing_target.save()
@@ -1252,6 +1387,7 @@ class Command(BaseCommand):
                     'name': target_name,
                     'target_type': target_type,
                     'type': target_type,  # For backward compatibility
+                    'structured_target_type': structured_target_type,
                     'description': description,
                     'organism': organism
                 }
