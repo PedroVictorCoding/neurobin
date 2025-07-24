@@ -9,6 +9,12 @@ from .views import (
     CompoundSafetyScreeningViewSet,
     EffectWindowViewSet
 )
+from .api_views import (
+    CompoundTargetInteractionListView,
+    CompoundToCompoundInteractionListView,
+    compound_interactions,
+    compound_pair_interactions
+)
 
 router = DefaultRouter()
 router.register(r'compoundcategories', CompoundCategoriesViewSet)
@@ -21,4 +27,8 @@ router.register(r'effectwindow', EffectWindowViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('compound-target-interactions/', CompoundTargetInteractionListView.as_view(), name='compound-target-interactions'),
+    path('compound-compound-interactions/', CompoundToCompoundInteractionListView.as_view(), name='compound-compound-interactions'),
+    path('compound/<int:compound_id>/interactions/', compound_interactions, name='compound-interactions'),
+    path('compound-pair-interactions/', compound_pair_interactions, name='compound-pair-interactions'),
 ]

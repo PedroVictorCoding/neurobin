@@ -17,7 +17,23 @@ class CompoundCategories(models.Model):
         return self.name
 
 class Target(models.Model):
+    TARGET_TYPES = [
+        ('receptor', 'Receptor'),
+        ('enzyme', 'Enzyme'),
+        ('ion_channel', 'Ion Channel'),
+        ('transporter', 'Transporter'),
+        ('protein', 'Protein'),
+        ('other', 'Other'),
+    ]
+    
     name = models.CharField(max_length=255, unique=True, help_text="Name of the target (e.g., GABA-A receptor, Dopamine transporter)")
+    type = models.CharField(
+        max_length=100,
+        choices=TARGET_TYPES,
+        default='receptor',
+        help_text="Type of target (e.g., receptor, enzyme, ion channel, transporter)"
+    )
+    description = models.TextField(blank=True, help_text="Detailed description of the target")
 
     class Meta:
         verbose_name = "Target"
@@ -115,6 +131,13 @@ class Compound(models.Model):
 
     def __str__(self):
         return self.name
+    
+    def get_interactions(self):
+        """Get all interactions involving this compound"""
+        from django.db.models import Q
+        return CompoundToCompoundTargetInteraction.objects.filter(
+            Q(compound_a=self) | Q(compound_b=self)
+        ).select_related('compound_a', 'compound_b', 'target', 'created_by')
 
 
 class CompoundRating(models.Model):
@@ -443,7 +466,160 @@ class EffectWindow(models.Model):
             return max(0, intensity)
 
 
+class CompoundTargetInteraction(models.Model):
+    """Defines how one compound acts on a single target"""
+    MECHANISM_CHOICES = [
+        ('agonist', 'Agonist'),
+        ('antagonist', 'Antagonist'),
+        ('partial_agonist', 'Partial Agonist'),
+        ('inverse_agonist', 'Inverse Agonist'),
+        ('pam', 'Positive Allosteric Modulator'),
+        ('nam', 'Negative Allosteric Modulator'),
+        ('inhibitor', 'Inhibitor'),
+        ('inducer', 'Inducer'),
+        ('activator', 'Activator'),
+        ('binder', 'Binder'),
+        ('substrate', 'Substrate'),
+        ('unknown', 'Unknown'),
+    ]
+    
+    AFFINITY_CHOICES = [
+        ('very_high', 'Very High (nM)'),
+        ('high', 'High (low μM)'),
+        ('moderate', 'Moderate (μM)'),
+        ('low', 'Low (high μM)'),
+        ('very_low', 'Very Low (mM+)'),
+        ('unknown', 'Unknown'),
+    ]
+    
+    compound = models.ForeignKey('Compound', on_delete=models.CASCADE, related_name='target_interactions')
+    target = models.ForeignKey('Target', on_delete=models.CASCADE, related_name='compound_interactions')
+    mechanism = models.CharField(
+        max_length=50,
+        choices=MECHANISM_CHOICES,
+        help_text="How the compound interacts with this target"
+    )
+    affinity_level = models.CharField(
+        max_length=20,
+        choices=AFFINITY_CHOICES,
+        default='unknown',
+        help_text="Binding affinity level"
+    )
+    notes = models.TextField(blank=True, help_text="Additional notes about this interaction")
+    
+    class Meta:
+        unique_together = ('compound', 'target', 'mechanism')
+        verbose_name = "Compound-Target Interaction"
+        verbose_name_plural = "Compound-Target Interactions"
+        ordering = ['compound', 'target']
+    
+    def __str__(self):
+        return f"{self.compound.name} → {self.target.name} ({self.mechanism})"
 
 
-
+class CompoundToCompoundTargetInteraction(models.Model):
+    """Represents an interaction between two compounds through a shared target"""
+    INTERACTION_TYPE_CHOICES = [
+        ('synergistic', 'Synergistic'),
+        ('antagonistic', 'Antagonistic'),
+        ('competitive_metabolism', 'Competitive Metabolism'),
+        ('enzyme_inhibition', 'Enzyme Inhibition'),
+        ('enzyme_induction', 'Enzyme Induction'),
+        ('receptor_competition', 'Receptor Competition'),
+        ('additive', 'Additive'),
+        ('unknown', 'Unknown'),
+    ]
+    
+    CONFIDENCE_CHOICES = [
+        ('low', 'Low'),
+        ('medium', 'Medium'),
+        ('high', 'High'),
+    ]
+    
+    compound_a = models.ForeignKey(
+        'Compound', 
+        on_delete=models.CASCADE, 
+        related_name='interactions_as_compound_a',
+        help_text="First compound in the interaction"
+    )
+    compound_b = models.ForeignKey(
+        'Compound', 
+        on_delete=models.CASCADE, 
+        related_name='interactions_as_compound_b',
+        help_text="Second compound in the interaction"
+    )
+    target = models.ForeignKey(
+        'Target', 
+        on_delete=models.CASCADE, 
+        related_name='compound_compound_interactions',
+        help_text="Shared target through which the interaction occurs"
+    )
+    interaction_type = models.CharField(
+        max_length=50,
+        choices=INTERACTION_TYPE_CHOICES,
+        help_text="Type of interaction between the compounds"
+    )
+    description = models.TextField(
+        help_text="Detailed description of the interaction (e.g., 'Compound A inhibits CYP2D6, delaying metabolism of Compound B')"
+    )
+    confidence = models.CharField(
+        max_length=10,
+        choices=CONFIDENCE_CHOICES,
+        default='medium',
+        help_text="Confidence level of this interaction data"
+    )
+    source = models.CharField(
+        max_length=500,
+        blank=True,
+        help_text="Source reference (PubMed ID, DOI, or URL)"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True
+    )
+    
+    class Meta:
+        unique_together = ('compound_a', 'compound_b', 'target')
+        verbose_name = "Compound-to-Compound Interaction"
+        verbose_name_plural = "Compound-to-Compound Interactions"
+        ordering = ['compound_a', 'compound_b', 'target']
+    
+    def __str__(self):
+        return f"{self.compound_a.name} ↔ {self.compound_b.name} via {self.target.name}"
+    
+    def save(self, *args, **kwargs):
+        # Ensure compound_a and compound_b are different
+        if self.compound_a == self.compound_b:
+            raise ValueError("A compound cannot interact with itself")
+        
+        # Ensure consistent ordering (compound_a.id < compound_b.id) to prevent duplicates
+        if self.compound_a.id > self.compound_b.id:
+            self.compound_a, self.compound_b = self.compound_b, self.compound_a
+        
+        super().save(*args, **kwargs)
+    
+    def get_compound_a_mechanism(self):
+        """Get the mechanism of action for compound A on the shared target"""
+        try:
+            interaction = CompoundTargetInteraction.objects.get(
+                compound=self.compound_a, 
+                target=self.target
+            )
+            return interaction.mechanism
+        except CompoundTargetInteraction.DoesNotExist:
+            return 'unknown'
+    
+    def get_compound_b_mechanism(self):
+        """Get the mechanism of action for compound B on the shared target"""
+        try:
+            interaction = CompoundTargetInteraction.objects.get(
+                compound=self.compound_b, 
+                target=self.target
+            )
+            return interaction.mechanism
+        except CompoundTargetInteraction.DoesNotExist:
+            return 'unknown'
 

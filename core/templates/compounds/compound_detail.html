@@ -155,13 +155,13 @@
     </div>
   </div>
   <!-- Change Request Button for Authenticated Users -->
-{% if user.is_authenticated %}
+<!--{% if user.is_authenticated %}
 <div class="text-center">
   <button type="button" class="btn btn-sm btn-outline-secondary" style="width:100%" id="requestChangesBtn" data-compound-id="{{ compound.id }}">
     <i class="fas fa-edit"></i> Request Changes
   </button>
 </div>
-{% endif %}
+{% endif %}-->
 </div>
 
 
@@ -171,6 +171,65 @@
      style="max-width: 700px; width: 100%; border-radius: 10px;">
   <div class="card-body">
     {% include 'includes/effect_curves.html' with page_type='compound_detail' %}
+  </div>
+</div>
+
+<!-- Compound Interactions Section -->
+<div class="card bg-neurobin-card text-light mb-3 shadow p-3"
+     style="max-width: 700px; width: 100%; border-radius: 10px;">
+  <div class="card-body">
+    <h2 class="card-title mb-4 text-white fw-semibold">
+      <i class="fas fa-exchange-alt text-warning"></i> Compound Interactions
+    </h2>
+    
+    <div id="interactionsLoading" class="text-center p-4" style="display: none;">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <p class="mt-2 text-muted">Loading interaction data...</p>
+    </div>
+    
+    <div id="interactionsNoData" class="text-center p-4" style="display: none;">
+      <i class="fas fa-info-circle fa-2x text-muted mb-3"></i>
+      <h6 class="text-muted">No Known Interactions</h6>
+      <p class="text-muted">No documented interactions found for this compound.</p>
+    </div>
+    
+    <div id="interactionsTable" style="display: none;">
+      <div class="table-responsive">
+        <table class="table table-dark table-striped table-hover">
+          <thead>
+            <tr>
+              <th scope="col">Interacting Compound</th>
+              <th scope="col">Shared Target</th>
+              <th scope="col">{{ compound.name }} Action</th>
+              <th scope="col">Other Action</th>
+              <th scope="col">Interaction Type</th>
+            </tr>
+          </thead>
+          <tbody id="interactionsTableBody">
+            <!-- Dynamic content will be populated here -->
+          </tbody>
+        </table>
+      </div>
+      
+      <!-- Interaction Details Modal -->
+      <div class="modal fade" id="interactionDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content bg-dark">
+            <div class="modal-header">
+              <h5 class="modal-title text-white">Interaction Details</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-light">
+              <div id="interactionDetailContent">
+                <!-- Dynamic content will be populated here -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1400,6 +1459,87 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+    
+    // Function to load compound interactions
+    async function loadCompoundInteractions() {
+        console.log('Loading compound interactions...');
+        const compoundId = {{ compound.id }};
+        const loadingElement = document.getElementById('interactionsLoading');
+        const noDataElement = document.getElementById('interactionsNoData');
+        const tableElement = document.getElementById('interactionsTable');
+        const tableBody = document.getElementById('interactionsTableBody');
+        
+        // Show loading state
+        loadingElement.style.display = 'block';
+        noDataElement.style.display = 'none';
+        tableElement.style.display = 'none';
+        
+        try {
+            const response = await fetch(`/api/compounds/compound/${compoundId}/interactions/`);
+            const data = await response.json();
+            console.log('API Data:', data);
+            
+            if (response.ok && data.interactions && data.interactions.length > 0) {
+                // Show interactions table
+                tableBody.innerHTML = '';
+                
+                data.interactions.forEach(interaction => {
+                    const row = document.createElement('tr');
+                    row.style.cursor = 'pointer';
+                    row.onclick = () => showInteractionDetail(interaction);
+                    
+                    row.innerHTML = `
+                        <td><strong>${interaction.other_compound}</strong></td>
+                        <td><span class="badge bg-info">${interaction.shared_target}</span></td>
+                        <td><span class="badge bg-secondary">${interaction.current_compound_mechanism}</span></td>
+                        <td><span class="badge bg-secondary">${interaction.other_compound_mechanism}</span></td>
+                        <td><span class="badge bg-danger">${interaction.interaction_type.replace(/_/g, ' ')}</span></td>
+                    `;
+                    
+                    tableBody.appendChild(row);
+                });
+                
+                loadingElement.style.display = 'none';
+                tableElement.style.display = 'block';
+            } else {
+                // No interactions found
+                loadingElement.style.display = 'none';
+                noDataElement.style.display = 'block';
+            }
+        } catch (error) {
+            console.error('Error loading compound interactions:', error);
+            loadingElement.style.display = 'none';
+            noDataElement.innerHTML = `
+                <i class="fas fa-exclamation-triangle fa-2x text-warning mb-3"></i>
+                <h6 class="text-warning">Error Loading Interactions</h6>
+                <p class="text-muted">Failed to load interaction data. Please try again later.</p>
+            `;
+            noDataElement.style.display = 'block';
+        }
+    }
+
+    // Function to show interaction detail modal
+    function showInteractionDetail(interaction) {
+        const modal = new bootstrap.Modal(document.getElementById('interactionDetailModal'));
+        const content = document.getElementById('interactionDetailContent');
+        
+        content.innerHTML = `
+            <div class="row">
+                <div class="col-md-12">
+                    <h6 class="text-info">Interaction Details</h6>
+                    <p><strong>Compounds:</strong> {{ compound.name }} ↔ ${interaction.other_compound}</p>
+                    <p><strong>Shared Target:</strong> ${interaction.shared_target}</p>
+                    <p><strong>Interaction Type:</strong> ${interaction.interaction_type}</p>
+                    <p><strong>Description:</strong> ${interaction.description || 'No description available.'}</p>
+                </div>
+            </div>
+        `;
+        
+        modal.show();
+    }
+    
+    // Load compound interactions on page load
+    loadCompoundInteractions();
 });
 </script>
 </div>

@@ -10,8 +10,4 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(
-            "DROP TABLE IF EXISTS change_requests_compoundversion;",
-            reverse_sql="-- Cannot reverse this migration"
-        ),
     ]

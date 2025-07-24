@@ -7,7 +7,9 @@ from .models import (
     CompoundMechanismOfAction, 
     CompoundRating, 
     CompoundSafetyScreening,
-    EffectWindow
+    EffectWindow,
+    CompoundTargetInteraction,
+    CompoundToCompoundTargetInteraction
 )
 
 
@@ -16,6 +18,7 @@ class CompoundAdmin(admin.ModelAdmin):
     list_display = ('name', 'slug', 'smiles')
     prepopulated_fields = {'slug': ('name',)}
     filter_horizontal = ('categories',)
+    search_fields = ('name', 'aliases', 'description')
     fields = ('name', 'slug', 'description', 'aliases', 'smiles', 'categories', 'mechanism_of_action')
 
 @admin.register(CompoundCategories)
@@ -25,8 +28,9 @@ class CompoundCategoriesAdmin(admin.ModelAdmin):
 
 @admin.register(Target)
 class TargetAdmin(admin.ModelAdmin):
-    list_display = ('name',)
-    search_fields = ('name',)
+    list_display = ('name', 'type')
+    search_fields = ('name', 'description')
+    list_filter = ('type',)
 
 @admin.register(CompoundMechanismOfAction)
 class CompoundMechanismOfActionAdmin(admin.ModelAdmin):
@@ -70,3 +74,49 @@ class EffectWindowAdmin(admin.ModelAdmin):
         if not change:  # Only set created_by on creation
             obj.created_by = request.user
         super().save_model(request, obj, form, change)
+
+
+@admin.register(CompoundTargetInteraction)
+class CompoundTargetInteractionAdmin(admin.ModelAdmin):
+    list_display = ('compound', 'target', 'mechanism', 'affinity_level')
+    list_filter = ('mechanism', 'affinity_level', 'target__type')
+    search_fields = ('compound__name', 'target__name', 'notes')
+    autocomplete_fields = ('compound', 'target')
+    
+    fieldsets = (
+        ('Interaction Details', {
+            'fields': ('compound', 'target', 'mechanism', 'affinity_level')
+        }),
+        ('Additional Information', {
+            'fields': ('notes',)
+        })
+    )
+
+
+@admin.register(CompoundToCompoundTargetInteraction)
+class CompoundToCompoundTargetInteractionAdmin(admin.ModelAdmin):
+    list_display = ('compound_a', 'compound_b', 'target', 'interaction_type', 'confidence')
+    list_filter = ('interaction_type', 'confidence', 'target__type', 'created_at')
+    search_fields = ('compound_a__name', 'compound_b__name', 'target__name', 'description')
+    autocomplete_fields = ('compound_a', 'compound_b', 'target')
+    readonly_fields = ('created_at',)
+    
+    fieldsets = (
+        ('Compounds and Target', {
+            'fields': ('compound_a', 'compound_b', 'target')
+        }),
+        ('Interaction Details', {
+            'fields': ('interaction_type', 'description', 'confidence')
+        }),
+        ('Source and Metadata', {
+            'fields': ('source', 'created_by', 'created_at')
+        })
+    )
+    
+    def save_model(self, request, obj, form, change):
+        if not change:  # Only set created_by on creation
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('compound_a', 'compound_b', 'target')
