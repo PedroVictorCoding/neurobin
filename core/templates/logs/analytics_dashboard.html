@@ -211,9 +211,6 @@ document.addEventListener('DOMContentLoaded', function() {
   const userId = {{ user.id|default:'null' }};
   let intakeChart = null;
   
-  // Color assignment tracking (same system as effect-curves.js)
-  const compoundColors = new Map();
-  
   /**
    * Load and display intake statistics  
    */
@@ -270,81 +267,6 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   /**
-   * Get or assign a color for a compound name (same logic as effect-curves.js)
-   */
-  function getColorForCompound(compoundName) {
-    // Normalize compound name for consistency
-    const normalizedName = compoundName.trim().toLowerCase();
-    
-    if (!compoundColors.has(normalizedName)) {
-      // Instead of using hash, assign colors sequentially to ensure uniqueness
-      const assignedColors = Array.from(compoundColors.values());
-      const color = getNextAvailableColor(assignedColors);
-      compoundColors.set(normalizedName, color);
-      console.log(`Assigned color ${color} to compound ${compoundName} in intake stats`); // Debug log
-    }
-    return compoundColors.get(normalizedName);
-  }
-  
-  /**
-   * Get the next available color that hasn't been assigned yet
-   */
-  function getNextAvailableColor(assignedColors) {
-    const colors = [
-      '#FF6384', // Red/Pink
-      '#36A2EB', // Blue  
-      '#FFCE56', // Yellow
-      '#4BC0C0', // Teal
-      '#9966FF', // Purple
-      '#FF9F40', // Orange
-      '#FF6B9D', // Pink
-      '#2ECC71', // Green
-      '#E74C3C', // Red
-      '#3498DB', // Light Blue
-      '#F39C12', // Orange
-      '#9B59B6', // Purple
-      '#1ABC9C', // Turquoise
-      '#E67E22', // Dark Orange
-      '#34495E', // Dark Gray
-      '#16A085', // Dark Teal
-      '#27AE60', // Dark Green
-      '#8E44AD', // Dark Purple
-      '#2980B9', // Dark Blue
-      '#D35400', // Burnt Orange
-      '#C0392B', // Dark Red
-      '#8B4513', // Saddle Brown
-      '#556B2F', // Dark Olive Green
-      '#4B0082', // Indigo
-      '#DC143C', // Crimson
-      '#FF1493', // Deep Pink
-      '#00CED1', // Dark Turquoise
-      '#FF4500', // Red Orange
-      '#32CD32', // Lime Green
-      '#BA55D3'  // Medium Orchid
-    ];
-    
-    // Find the first color that hasn't been assigned
-    for (const color of colors) {
-      if (!assignedColors.includes(color)) {
-        return color;
-      }
-    }
-    
-    // If all predefined colors are used, generate a random color
-    return generateRandomColor();
-  }
-  
-  /**
-   * Generate a random color when all predefined colors are exhausted
-   */
-  function generateRandomColor() {
-    const hue = Math.floor(Math.random() * 360);
-    const saturation = 70 + Math.floor(Math.random() * 30); // 70-100%
-    const lightness = 45 + Math.floor(Math.random() * 20);  // 45-65%
-    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-  }
-
-  /**
    * Create the intake statistics bar chart
    */
   function createIntakeChart(labels, data) {
@@ -355,9 +277,9 @@ document.addEventListener('DOMContentLoaded', function() {
       intakeChart.destroy();
     }
     
-    // Generate colors based on compound names (same sequential logic as effect curves)
+    // Generate colors based on compound names (using global color manager)
     const backgroundColors = labels.map(compoundName => {
-      const color = getColorForCompound(compoundName);
+      const color = window.CompoundColorManager.getColorForCompound(compoundName);
       console.log(`Color for ${compoundName} in intake stats:`, color); // Debug log
       // Convert hex to rgba with transparency for background
       const hex = color.replace('#', '');
@@ -368,7 +290,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     const borderColors = labels.map(compoundName => {
-      const color = getColorForCompound(compoundName);
+      const color = window.CompoundColorManager.getColorForCompound(compoundName);
       // Convert hex to rgba with full opacity for border
       const hex = color.replace('#', '');
       const r = parseInt(hex.substring(0, 2), 16);

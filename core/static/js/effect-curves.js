@@ -97,7 +97,6 @@ class EffectCurveChart {
         this.canvas = document.getElementById(canvasId);
         this.ctx = this.canvas.getContext('2d');
         this.chart = null;
-        this.compoundColors = new Map(); // Store compound name -> color mapping
         this.options = {
             responsive: true,
             maintainAspectRatio: false,
@@ -394,85 +393,10 @@ class EffectCurveChart {
     }
     
     /**
-     * Get or assign a color for a compound name
+     * Get or assign a color for a compound name (uses global color manager)
      */
     getColorForCompound(compoundName) {
-        // Normalize compound name for consistency
-        const normalizedName = compoundName.trim().toLowerCase();
-        
-        if (!this.compoundColors.has(normalizedName)) {
-            // Instead of using hash, assign colors sequentially to ensure uniqueness
-            const assignedColors = Array.from(this.compoundColors.values());
-            const color = this.getNextAvailableColor(assignedColors);
-            this.compoundColors.set(normalizedName, color);
-            console.log(`Assigned color ${color} to compound ${compoundName}`); // Debug log
-        }
-        return this.compoundColors.get(normalizedName);
-    }
-    
-    /**
-     * Get the next available color that hasn't been assigned yet
-     */
-    getNextAvailableColor(assignedColors) {
-        const colors = [
-            '#FF6384', // Red/Pink
-            '#36A2EB', // Blue  
-            '#FFCE56', // Yellow
-            '#4BC0C0', // Teal
-            '#9966FF', // Purple
-            '#FF9F40', // Orange
-            '#FF6B9D', // Pink
-            '#2ECC71', // Green
-            '#E74C3C', // Red
-            '#3498DB', // Light Blue
-            '#F39C12', // Orange
-            '#9B59B6', // Purple
-            '#1ABC9C', // Turquoise
-            '#E67E22', // Dark Orange
-            '#34495E', // Dark Gray
-            '#16A085', // Dark Teal
-            '#27AE60', // Dark Green
-            '#8E44AD', // Dark Purple
-            '#2980B9', // Dark Blue
-            '#D35400', // Burnt Orange
-            '#C0392B', // Dark Red
-            '#8B4513', // Saddle Brown
-            '#556B2F', // Dark Olive Green
-            '#4B0082', // Indigo
-            '#DC143C', // Crimson
-            '#FF1493', // Deep Pink
-            '#00CED1', // Dark Turquoise
-            '#FF4500', // Red Orange
-            '#32CD32', // Lime Green
-            '#BA55D3'  // Medium Orchid
-        ];
-        
-        // Find the first color that hasn't been assigned
-        for (const color of colors) {
-            if (!assignedColors.includes(color)) {
-                return color;
-            }
-        }
-        
-        // If all predefined colors are used, generate a random color
-        return this.generateRandomColor();
-    }
-    
-    /**
-     * Generate a random color when all predefined colors are exhausted
-     */
-    generateRandomColor() {
-        const hue = Math.floor(Math.random() * 360);
-        const saturation = 70 + Math.floor(Math.random() * 30); // 70-100%
-        const lightness = 45 + Math.floor(Math.random() * 20);  // 45-65%
-        return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-    }
-    
-    /**
-     * Get all assigned compound colors (for debugging)
-     */
-    getAllCompoundColors() {
-        return Object.fromEntries(this.compoundColors);
+        return window.CompoundColorManager.getColorForCompound(compoundName);
     }
     
     /**
