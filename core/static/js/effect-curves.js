@@ -122,6 +122,92 @@ class EffectCurveChart {
                     mode: 'index',
                     intersect: false,
                 },
+                plugins: {
+                    zoom: {
+                        zoom: {
+                            wheel: {
+                                enabled: !this.options.showRelativeTime, // Only enable zoom for timeline view (analytics dashboard)
+                            },
+                            pinch: {
+                                enabled: !this.options.showRelativeTime // Only enable zoom for timeline view (analytics dashboard)
+                            },
+                            mode: 'x', // Only zoom on x-axis (time)
+                            scaleMode: 'x', // Only scale x-axis
+                        },
+                        pan: {
+                            enabled: !this.options.showRelativeTime, // Only enable pan for timeline view (analytics dashboard)
+                            mode: 'x', // Only pan on x-axis
+                            scaleMode: 'x',
+                        },
+                        limits: {
+                            x: {
+                                min: 0,    // 00:00 (start of day)
+                                max: 1440, // 24:00 (end of day - 1440 minutes)
+                                minRange: 60 // Minimum zoom range of 1 hour (60 minutes)
+                            }
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Effect Curves Over Time'
+                    },
+                    legend: {
+                        display: false, // Disable the chart legend
+                        position: 'top'
+                    },
+                    tooltip: {
+                        enabled: true, // Enable tooltips to show compound info
+                        mode: 'nearest',
+                        intersect: false,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: 'white',
+                        bodyColor: 'white',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        callbacks: {
+                            title: (context) => {
+                                const value = context[0].parsed.x;
+                                if (this.options.showRelativeTime) {
+                                    const hours = Math.floor(value / 60);
+                                    const minutes = value % 60;
+                                    return `T+${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                                } else {
+                                    // Convert minutes from midnight to HH:MM format
+                                    const totalMinutes = Math.floor(value);
+                                    const hours = Math.floor(totalMinutes / 60) % 24;
+                                    const minutes = totalMinutes % 60;
+                                    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                                }
+                            },
+                            label: (context) => {
+                                const dataset = context.dataset;
+                                const compoundName = dataset.metadata?.compound?.name || 'Unknown Compound';
+                                const value = Math.round(context.parsed.y * 10) / 10;
+                                
+                                // Show compound name and dose if available
+                                let label = `${compoundName}: ${value}%`;
+                                if (dataset.metadata?.intake) {
+                                    const intake = dataset.metadata.intake;
+                                    label += ` (${intake.amount}${intake.unit})`;
+                                }
+                                
+                                return label;
+                            },
+                            afterLabel: (context) => {
+                                // Add additional compound info if available
+                                const compound = context.dataset.metadata?.compound;
+                                if (compound?.description) {
+                                    const description = compound.description;
+                                    if (description.length > 100) {
+                                        return `${description.substring(0, 100)}...`;
+                                    }
+                                    return description;
+                                }
+                                return null;
+                            }
+                        }
+                    }
+                },
                 scales: {
                     x: {
                         type: 'linear',
@@ -158,41 +244,6 @@ class EffectCurveChart {
                         max: 100,
                         ticks: {
                             callback: (value) => `${value}%`
-                        }
-                    }
-                },
-                plugins: {
-                    title: {
-                        display: true,
-                        text: 'Effect Curves Over Time'
-                    },
-                    legend: {
-                        display: true,
-                        position: 'top'
-                    },
-                    tooltip: {
-                        mode: 'index',
-                        intersect: false,
-                        callbacks: {
-                            title: (context) => {
-                                const value = context[0].parsed.x;
-                                if (this.options.showRelativeTime) {
-                                    const hours = Math.floor(value / 60);
-                                    const minutes = value % 60;
-                                    return `T+${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-                                } else {
-                                    // Convert minutes from midnight to HH:MM format
-                                    const totalMinutes = Math.floor(value);
-                                    const hours = Math.floor(totalMinutes / 60) % 24;
-                                    const minutes = totalMinutes % 60;
-                                    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-                                }
-                            },
-                            label: (context) => {
-                                const datasetLabel = context.dataset.label || '';
-                                const value = Math.round(context.parsed.y * 10) / 10;
-                                return `${datasetLabel}: ${value}%`;
-                            }
                         }
                     }
                 }
@@ -245,12 +296,12 @@ class EffectCurveChart {
             label: `${effectData.compound.name}${intakeData ? ` (${intakeData.amount}${intakeData.unit})` : ''}`,
             data: chartData,
             borderColor: color,
-            backgroundColor: color + '20', // Add transparency
+            backgroundColor: color + '30', // Semitransparent fill (30% opacity)
             borderWidth: 2,
-            fill: false,
+            fill: true, // Enable fill area under the curve
             tension: 0.1,
-            pointRadius: 1,
-            pointHoverRadius: 5,
+            pointRadius: 0, // Start with data points hidden
+            pointHoverRadius: 0, // Start with hover disabled
             metadata: {
                 compound: effectData.compound,
                 effectWindow: effectData,

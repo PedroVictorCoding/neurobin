@@ -35,7 +35,7 @@
                     <!-- Dynamic legend will be populated here -->
                 </div>
             </div>
-            <div class="col-md-4">
+            <!--<div class="col-md-4">
                 <div class="chart-stats">
                     <small class="text-muted">
                         <div><strong>Resolution:</strong> 5 minutes</div>
@@ -46,9 +46,57 @@
                         {% endif %}
                     </small>
                 </div>
-            </div>
+            </div>-->
         </div>
     </div>
+
+    <!-- View Controls Dropdown -->
+    {% if page_type == 'dashboard' %}
+    <div class="mt-3">
+        <!-- Dropdown Toggle Button -->
+        <button class="btn btn-outline-light w-100 text-start d-flex justify-content-between align-items-center" 
+                type="button" 
+                data-bs-toggle="collapse" 
+                data-bs-target="#viewControlsCollapse" 
+                aria-expanded="false" 
+                aria-controls="viewControlsCollapse">
+          <span>
+            <i class="fas fa-cog me-2"></i>View Controls
+          </span>
+          <i class="fas fa-chevron-down"></i>
+        </button>
+        
+        <!-- Collapsible View Controls Content -->
+        <div class="collapse mt-3" id="viewControlsCollapse">
+          <div class="view-controls-container" style="border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 16px;">
+            
+            <!-- Compound Visibility Toggles -->
+            <div class="mb-3" id="compoundTogglesSection" style="display: none;">
+              <label class="form-label text-light">
+                <i class="fas fa-eye me-2"></i>Show/Hide Compounds
+              </label>
+              <div id="compoundToggles">
+                <!-- Dynamic compound toggle buttons will be added here -->
+              </div>
+            </div>
+            
+            <!-- Chart Options -->
+            <div class="mb-0">
+              <label class="form-label text-light">
+                <i class="fas fa-sliders-h me-2"></i>Display Options
+              </label>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="showDataPoints">
+                <label class="form-check-label text-light" for="showDataPoints">
+                  Show Data Points
+                </label>
+              </div>
+            </div>
+            
+          </div>
+        </div>
+    </div>
+    {% endif %}
     
     <!-- Loading state -->
     <div id="chartLoading" class="text-center p-4" style="display: none;">
@@ -79,6 +127,7 @@
 
 <!-- Include Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 <script src="{% static 'js/effect-curves.js' %}?v={% now "U" %}"></script>
 
 <script>
@@ -342,13 +391,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const legend = document.getElementById('chartLegend');
         const legendItems = effectWindows.map((ew, index) => {
             const color = effectChart.getColorForCompound(ew.compound.name);
-            return `
-                <span class="legend-item me-3">
-                    <span class="legend-color" style="background-color: ${color}"></span>
-                    ${ew.get_effect_shape_display || ew.effect_shape} 
-                    (${ew.onset_minutes}m → ${ew.duration_minutes}m)
-                </span>
-            `;
+            return ``;
         }).join('');
         
         legend.innerHTML = legendItems;
@@ -362,6 +405,84 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Clear the legend - no items displayed
         legend.innerHTML = '';
+        
+        // Update compound toggles in the dropdown
+        updateCompoundToggles(intakeLogs);
+    }
+    
+    /**
+     * Create compound toggle buttons in the dropdown
+     */
+    function updateCompoundToggles(intakeLogs) {
+        const compoundTogglesContainer = document.getElementById('compoundToggles');
+        const compoundTogglesSection = document.getElementById('compoundTogglesSection');
+        
+        if (!compoundTogglesContainer || !compoundTogglesSection) return;
+        
+        // Get unique compounds from intake logs
+        const compounds = [];
+        const compoundNames = new Set();
+        
+        intakeLogs.forEach(intake => {
+            if (!compoundNames.has(intake.compound.name)) {
+                compounds.push({
+                    name: intake.compound.name,
+                    color: effectChart.getColorForCompound(intake.compound.name)
+                });
+                compoundNames.add(intake.compound.name);
+            }
+        });
+        
+        if (compounds.length === 0) {
+            compoundTogglesSection.style.display = 'none';
+            return;
+        }
+        
+        // Show the section and create toggle buttons
+        compoundTogglesSection.style.display = 'block';
+        
+        const toggleButtons = compounds.map(compound => {
+            const normalizedName = compound.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+            return `
+                <div class="form-check d-flex align-items-center mb-2">
+                    <input class="form-check-input compound-toggle" type="checkbox" 
+                           id="compound-${normalizedName}" 
+                           data-compound-name="${compound.name}" 
+                           checked>
+                    <label class="form-check-label text-light ms-2 d-flex align-items-center" for="compound-${normalizedName}">
+                        <span class="compound-color-indicator" style="display: inline-block; width: 12px; height: 12px; background-color: ${compound.color}; border-radius: 2px; margin-right: 8px;"></span>
+                        ${compound.name}
+                    </label>
+                </div>
+            `;
+        }).join('');
+        
+        compoundTogglesContainer.innerHTML = toggleButtons;
+        
+        // Add event listeners to the toggle checkboxes
+        document.querySelectorAll('.compound-toggle').forEach(checkbox => {
+            checkbox.addEventListener('change', function() {
+                const compoundName = this.dataset.compoundName;
+                const isVisible = this.checked;
+                toggleCompoundVisibility(compoundName, isVisible);
+            });
+        });
+    }
+    
+    /**
+     * Toggle visibility of a compound's curves
+     */
+    function toggleCompoundVisibility(compoundName, isVisible) {
+        if (!effectChart.chart || !effectChart.chart.data.datasets) return;
+        
+        effectChart.chart.data.datasets.forEach(dataset => {
+            if (dataset.metadata && dataset.metadata.compound && 
+                dataset.metadata.compound.name === compoundName) {
+                dataset.hidden = !isVisible;
+            }
+        });
+        
+        effectChart.chart.update();
     }
     
     /**
@@ -426,6 +547,12 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Timeframe buttons for dashboard
     if (pageType === 'dashboard') {
+        // Display options checkboxes
+        document.getElementById('showDataPoints').addEventListener('change', function() {
+            toggleDataPoints(this.checked);
+        });
+        
+        // Legacy timeframe buttons (if they exist)
         document.querySelectorAll('[data-timeframe]').forEach(button => {
             button.addEventListener('click', function() {
                 // Update active button
@@ -437,6 +564,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 loadEffectCurves();
             });
         });
+    }
+    
+    /**
+     * Toggle data points visibility
+     */
+    function toggleDataPoints(show) {
+        if (effectChart.chart && effectChart.chart.data.datasets) {
+            effectChart.chart.data.datasets.forEach(dataset => {
+                dataset.pointRadius = show ? 1 : 0;
+                dataset.pointHoverRadius = show ? 5 : 0;
+            });
+            effectChart.chart.update();
+        }
     }
     
     // Initial load
