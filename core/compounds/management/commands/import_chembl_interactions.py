@@ -490,6 +490,208 @@ class ChEMBLImporter:
         except Exception as e:
             print(f"[!] Error fetching indications for {chembl_id}: {e}")
             return []
+    
+    def get_atc_classifications(self, chembl_id: str) -> List[Dict]:
+        """Get ATC (Anatomical Therapeutic Chemical) classifications for a compound from ChEMBL."""
+        url = f"{self.BASE_URL}/drug.json"
+        params = {'molecule_chembl_id': chembl_id, 'limit': 10}
+        
+        try:
+            data = self.fetch_with_retry(url, params)
+            if data and 'drugs' in data and data['drugs']:
+                # Get the first drug entry (should be only one for specific ChEMBL ID)
+                drug_data = data['drugs'][0]
+                atc_classifications = drug_data.get('atc_classification', [])
+                return atc_classifications
+            return []
+        except Exception as e:
+            print(f"[!] Error fetching ATC codes for {chembl_id}: {e}")
+            return []
+    
+    def get_drug_families_from_atc(self, atc_codes: List[Dict]) -> List[str]:
+        """Extract drug family names from ATC classification codes."""
+        families = []
+        
+        # ATC code structure: First letter = Anatomical main group
+        # Second level (first two chars) = Therapeutic subgroup
+        # Third level (first three chars) = Pharmacological subgroup
+        # Fourth level (first four chars) = Chemical subgroup
+        # Fifth level (full code) = Chemical substance
+        
+        atc_to_family = {
+            # A - Alimentary tract and metabolism
+            'A01': 'Dental Preparations',
+            'A02': 'Antacids',
+            'A03': 'Antispasmodics',
+            'A04': 'Antiemetics',
+            'A05': 'Bile Therapy',
+            'A06': 'Laxatives',
+            'A07': 'Antidiarrheals',
+            'A08': 'Anti-obesity',
+            'A09': 'Digestives',
+            'A10': 'Antidiabetics',
+            'A11': 'Vitamins',
+            'A12': 'Mineral Supplements',
+            'A13': 'Tonics',
+            'A14': 'Anabolic Agents',
+            'A16': 'Other Alimentary Drugs',
+            
+            # B - Blood and blood forming organs
+            'B01': 'Antithrombotics',
+            'B02': 'Antihemorrhagics',
+            'B03': 'Antianemics',
+            'B05': 'Blood Substitutes',
+            'B06': 'Other Hematological',
+            
+            # C - Cardiovascular system
+            'C01': 'Cardiac Therapy',
+            'C02': 'Antihypertensives',
+            'C03': 'Diuretics',
+            'C04': 'Peripheral Vasodilators',
+            'C05': 'Vasoprotectives',
+            'C07': 'Beta Blockers',
+            'C08': 'Calcium Channel Blockers',
+            'C09': 'ACE Inhibitors',
+            'C10': 'Lipid Modifying Agents',
+            
+            # D - Dermatologicals
+            'D01': 'Antifungals (Dermatological)',
+            'D02': 'Emollients',
+            'D03': 'Burns Treatment',
+            'D04': 'Anti-pruritics',
+            'D05': 'Anti-psoriatics',
+            'D06': 'Antibiotics (Dermatological)',
+            'D07': 'Corticosteroids (Dermatological)',
+            'D08': 'Antiseptics',
+            'D09': 'Medicated Dressings',
+            'D10': 'Anti-acne',
+            'D11': 'Other Dermatological',
+            
+            # G - Genitourinary system and sex hormones
+            'G01': 'Gynecological Anti-infectives',
+            'G02': 'Other Gynecological',
+            'G03': 'Sex Hormones',
+            'G04': 'Urological',
+            
+            # H - Systemic hormonal preparations
+            'H01': 'Pituitary Hormones',
+            'H02': 'Corticosteroids',
+            'H03': 'Thyroid Therapy',
+            'H04': 'Pancreatic Hormones',
+            'H05': 'Calcium Homeostasis',
+            
+            # J - Antiinfectives for systemic use
+            'J01': 'Antibacterials',
+            'J02': 'Antimycotics',
+            'J04': 'Antimycobacterials',
+            'J05': 'Antivirals',
+            'J06': 'Immune Sera',
+            'J07': 'Vaccines',
+            
+            # L - Antineoplastic and immunomodulating agents
+            'L01': 'Antineoplastics',
+            'L02': 'Endocrine Therapy',
+            'L03': 'Immunostimulants',
+            'L04': 'Immunosuppressants',
+            
+            # M - Musculo-skeletal system
+            'M01': 'Anti-inflammatory',
+            'M02': 'Topical Anti-rheumatic',
+            'M03': 'Muscle Relaxants',
+            'M04': 'Antigout',
+            'M05': 'Bone Diseases',
+            'M09': 'Other Musculo-skeletal',
+            
+            # N - Nervous system
+            'N01': 'Anesthetics',
+            'N02': 'Analgesics',
+            'N03': 'Antiepileptics',
+            'N04': 'Anti-Parkinson',
+            'N05': 'Psycholeptics',
+            'N06': 'Psychoanaleptics',
+            'N07': 'Other Nervous System',
+            
+            # P - Antiparasitic products
+            'P01': 'Antiprotozoals',
+            'P02': 'Anthelmintics',
+            'P03': 'Ectoparasiticides',
+            
+            # R - Respiratory system
+            'R01': 'Nasal Preparations',
+            'R02': 'Throat Preparations',
+            'R03': 'Obstructive Airway Diseases',
+            'R05': 'Cough and Cold',
+            'R06': 'Antihistamines',
+            'R07': 'Other Respiratory',
+            
+            # S - Sensory organs
+            'S01': 'Ophthalmologicals',
+            'S02': 'Otologicals',
+            'S03': 'Ophthalmological and Otological',
+            
+            # V - Various
+            'V01': 'Allergens',
+            'V03': 'All Other Therapeutic Products',
+            'V04': 'Diagnostic Agents',
+            'V06': 'General Nutrients',
+            'V07': 'All Other Non-therapeutic Products',
+            'V08': 'Contrast Media',
+            'V09': 'Diagnostic Radiopharmaceuticals',
+            'V10': 'Therapeutic Radiopharmaceuticals',
+            'V20': 'Surgical Dressings',
+        }
+        
+        # More specific mappings for common drug subclasses
+        specific_mappings = {
+            'N05A': 'Antipsychotics',
+            'N05B': 'Anxiolytics', 
+            'N05C': 'Hypnotics and Sedatives',
+            'N06A': 'Antidepressants',
+            'N06B': 'Psychostimulants',
+            'C07A': 'Beta Blockers',
+            'C08C': 'Calcium Channel Blockers',
+            'C09A': 'ACE Inhibitors',
+            'C09C': 'Angiotensin II Antagonists',
+            'C10A': 'Statins',
+            'J01C': 'Beta-lactam Antibacterials',
+            'J01D': 'Cephalosporins',
+            'J01F': 'Macrolides',
+            'J01G': 'Aminoglycosides',
+            'J01M': 'Quinolone Antibacterials',
+            'M01A': 'NSAIDs',
+            'A10A': 'Insulins',
+            'A10B': 'Blood Glucose Lowering Drugs',
+        }
+        
+        for atc_data in atc_codes:
+            atc_code = atc_data.get('code', '')
+            description = atc_data.get('description', '')
+            
+            if atc_code:
+                # First try specific mappings (4 chars)
+                if len(atc_code) >= 4:
+                    prefix_4 = atc_code[:4]
+                    if prefix_4 in specific_mappings:
+                        families.append(specific_mappings[prefix_4])
+                        continue
+                
+                # Then try 3-char mappings
+                if len(atc_code) >= 3:
+                    prefix_3 = atc_code[:3]
+                    if prefix_3 in atc_to_family:
+                        families.append(atc_to_family[prefix_3])
+                        continue
+                
+                # If no mapping found, try to extract from description
+                if description:
+                    # Extract the last part of the description which is usually the specific class
+                    desc_parts = description.split(':')
+                    if len(desc_parts) > 1:
+                        family_name = desc_parts[-1].strip()
+                        if family_name and len(family_name) > 3:
+                            families.append(family_name)
+        
+        return list(set(families))  # Remove duplicates
 
 
 class Command(BaseCommand):
@@ -1041,6 +1243,17 @@ class Command(BaseCommand):
                             categories_to_add.append(category_name)
                             phase = indication_data.get('max_phase_for_ind', 'N/A')
                             self.stdout.write(f"    [+] Found indication: {indication} → {category_name} (Phase {phase})")
+            
+            # Add drug families from ATC classifications
+            if importer and compound.chembl_id:
+                atc_codes = importer.get_atc_classifications(compound.chembl_id)
+                if atc_codes:
+                    drug_families = importer.get_drug_families_from_atc(atc_codes)
+                    for family in drug_families:
+                        categories_to_add.append(family)
+                        self.stdout.write(f"    [+] Found drug family: {family}")
+                else:
+                    self.stdout.write(f"    [i] No ATC classifications found for {compound.chembl_id}")
             
             # Create and add categories
             for cat_name in set(categories_to_add):  # Remove duplicates
