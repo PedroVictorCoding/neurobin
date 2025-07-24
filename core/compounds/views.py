@@ -14,6 +14,9 @@ from .forms import CompoundForm, MechanismOfActionForm, CategoryForm, TargetForm
 def compound_detail(request, slug):
     compound = get_object_or_404(Compound, slug=slug)
     
+    # Increment view count
+    compound.increment_views()
+    
     #safety_report = CompoundSafetyScreening.objects.filter(compound=compound).order_by('-created_by').first()
     #safety_report = compound.compoundsafetyscreening_set.all()
     safety_report = getattr(compound, 'safety_report', None)
@@ -98,6 +101,11 @@ def compound_detail(request, slug):
     return render(request, 'compounds/compound_detail.html', context)
 
 
+def compound_details(request, slug):
+    """Enhanced compound details view with view tracking"""
+    return compound_detail(request, slug)
+
+
 def is_staff_user(user):
     return user.is_authenticated and user.is_staff
 
@@ -160,7 +168,8 @@ def compound_search(request):
     })
 
 def compound_list(request):
-    compounds = Compound.objects.all()
+    # Order compounds by view count (descending) then by name
+    compounds = Compound.objects.all().order_by('-views', 'name')
     return render(request, "compounds/compound_list.html", {"compounds": compounds})
 
 def mechanism_list(request):

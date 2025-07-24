@@ -195,6 +195,10 @@ class Compound(models.Model):
         related_name='compounds',
         blank=True,
     )
+    views = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of times this compound page has been viewed"
+    )
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -203,6 +207,12 @@ class Compound(models.Model):
 
     def __str__(self):
         return self.name
+    
+    def increment_views(self):
+        """Safely increment view count using F() to avoid race conditions"""
+        from django.db.models import F
+        Compound.objects.filter(pk=self.pk).update(views=F('views') + 1)
+        self.refresh_from_db(fields=['views'])
     
     def get_interactions(self):
         """Get all interactions involving this compound"""

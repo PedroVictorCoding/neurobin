@@ -3,6 +3,7 @@ from django.urls import path, include
 
 from .views import (
     compound_detail,
+    compound_details,
     add_compound,
     submit_rating,
     compound_search,
@@ -33,6 +34,7 @@ urlpatterns = [
     path('api/mechanisms/', api_mechanisms, name='api_mechanisms'),
     path('api/categories/', api_categories, name='api_categories'),
 
+    path('<slug:slug>/details/', compound_details, name='compound_details'),
     path('<slug:slug>/', compound_detail, name='compound_detail'),
     path('<slug:slug>/rate/', submit_rating, name='submit_rating'),
     path('<slug:slug>/snippet/<int:snippet_id>/review/', review_snippet, name='review_snippet'),
