@@ -68,6 +68,36 @@
     color: #fff;
     box-shadow: 0 0 0 0.2rem rgba(108, 117, 125, 0.25);
   }
+  
+  /* Mechanisms scrollable container */
+  .mechanisms-scrollable {
+    max-height: 200px;
+    overflow-y: auto;
+    width: 100%;
+    border: 1px solid #495057;
+    border-radius: 8px;
+    background: rgba(52, 58, 64, 0.3);
+    padding: 15px;
+    box-sizing: border-box;
+  }
+  
+  .mechanisms-scrollable::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  .mechanisms-scrollable::-webkit-scrollbar-track {
+    background: #343a40;
+    border-radius: 4px;
+  }
+  
+  .mechanisms-scrollable::-webkit-scrollbar-thumb {
+    background: #6c757d;
+    border-radius: 4px;
+  }
+  
+  .mechanisms-scrollable::-webkit-scrollbar-thumb:hover {
+    background: #adb5bd;
+  }
 </style>
 
 <!-- Admin Control Panel -->
@@ -105,7 +135,7 @@
               <div class="d-flex justify-content-between align-items-center mb-2">
                 <p class="fw-medium text-secondary mb-0"><strong>Mechanisms</strong></p>
               </div>
-              <div id="mechanismsContainer" class="mb-3">
+              <div id="mechanismsContainer" class="mechanisms-scrollable mb-3">
                 {% for m in mechanisms %}
                   {% if m.target_name %}
                     <div class="d-flex align-items-center mb-2 mechanism-item" data-mechanism-id="{{ m.id }}">

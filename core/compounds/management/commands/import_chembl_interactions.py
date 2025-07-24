@@ -88,15 +88,108 @@ class ChEMBLImporter:
                     return None
     
     def get_compound_mechanisms(self, chembl_id: str) -> List[Dict]:
-        """Fetch mechanism data for a compound."""
+        """Fetch comprehensive mechanism data for a compound from both mechanism and activity endpoints."""
+        mechanisms = []
+        
+        # 1. Get explicit mechanisms from ChEMBL mechanism endpoint
         url = f"{self.BASE_URL}/mechanism.json"
-        params = {'molecule_chembl_id': chembl_id}
+        params = {'molecule_chembl_id': chembl_id, 'limit': 50}
         
         data = self.fetch_with_retry(url, params)
-        if not data:
-            return []
+        if data:
+            explicit_mechanisms = data.get('mechanisms', [])
+            for mech in explicit_mechanisms:
+                mechanisms.append({
+                    **mech,
+                    'source': 'mechanism',
+                    'priority': 1  # Explicit mechanisms have highest priority
+                })
         
-        return data.get('mechanisms', [])
+        # 2. Get high-affinity targets from activity data
+        activity_url = f"{self.BASE_URL}/activity.json"
+        activity_params = {
+            'molecule_chembl_id': chembl_id,
+            'limit': 100,
+            'standard_type__in': 'IC50,EC50,Ki,Kd,pIC50,pEC50,pKi,pKd',
+            'target_type': 'SINGLE PROTEIN'  # Focus on single protein targets
+        }
+        
+        activity_data = self.fetch_with_retry(activity_url, activity_params)
+        if activity_data:
+            activities = activity_data.get('activities', [])
+            
+            # Group by target and find best affinity
+            target_affinities = {}
+            for activity in activities:
+                target_id = activity.get('target_chembl_id')
+                if not target_id:
+                    continue
+                
+                # Convert activity values to comparable format (lower is better for IC50/Ki)
+                standard_value = activity.get('standard_value')
+                standard_type = activity.get('standard_type', '').lower()
+                pchembl_value = activity.get('pchembl_value')
+                
+                if not standard_value and not pchembl_value:
+                    continue
+                
+                # Use pChEMBL value if available (higher is better), otherwise convert standard value
+                if pchembl_value:
+                    affinity_score = float(pchembl_value)
+                elif standard_value:
+                    try:
+                        value = float(standard_value)
+                        # Convert to pValue (higher is better)
+                        if value > 0:
+                            import math
+                            if standard_type.startswith('p'):
+                                affinity_score = value  # Already a p-value
+                            else:
+                                # Convert to -log10(value in M)
+                                # Assume nM if no units specified
+                                value_in_m = value / 1e9 if value > 1 else value / 1e6
+                                affinity_score = -math.log10(value_in_m)
+                        else:
+                            continue
+                    except (ValueError, TypeError):
+                        continue
+                else:
+                    continue
+                
+                # Keep the best affinity for each target
+                if target_id not in target_affinities or affinity_score > target_affinities[target_id]['affinity']:
+                    target_affinities[target_id] = {
+                        'affinity': affinity_score,
+                        'target_pref_name': activity.get('target_pref_name', ''),
+                        'standard_type': standard_type,
+                        'standard_value': standard_value,
+                        'pchembl_value': pchembl_value,
+                        'assay_description': activity.get('assay_description', '')
+                    }
+            
+            # Add high-affinity targets as mechanisms (affinity > 6.0 pValue = < 1μM)
+            for target_id, data in target_affinities.items():
+                if data['affinity'] >= 6.0:  # High affinity threshold
+                    # Skip if we already have this target from explicit mechanisms
+                    existing_targets = [m.get('target_chembl_id') for m in mechanisms]
+                    if target_id not in existing_targets:
+                        mechanisms.append({
+                            'target_chembl_id': target_id,
+                            'mechanism_of_action': f"High affinity binding (pActivity: {data['affinity']:.1f})",
+                            'source': 'activity',
+                            'priority': 2,  # Activity-derived mechanisms have lower priority
+                            'affinity_score': data['affinity'],
+                            'target_pref_name': data['target_pref_name'],
+                            'assay_info': data['assay_description'][:100] if data['assay_description'] else ''
+                        })
+        
+        # Sort by priority (explicit mechanisms first) then by affinity
+        mechanisms.sort(key=lambda x: (
+            x.get('priority', 3),
+            -x.get('affinity_score', 0)
+        ))
+        
+        return mechanisms[:15]  # Return top 15 most relevant mechanisms
     
     def get_compound_activities(self, chembl_id: str) -> List[Dict]:
         """Fetch activity data for affinity level calculation."""
@@ -939,17 +1032,24 @@ class Command(BaseCommand):
         return clean_indication
     
     def _add_compound_mechanisms(self, compound: Compound, chembl_id: str, importer: ChEMBLImporter, slow_mode: bool = False):
-        """Add mechanisms of action from ChEMBL mechanism data."""
+        """Add mechanisms of action from ChEMBL mechanism and activity data."""
         from compounds.models import CompoundMechanismOfAction
         
         try:
-            # Get mechanism data from ChEMBL
+            # Get comprehensive mechanism data (explicit + high-affinity targets)
             mechanisms = importer.get_compound_mechanisms(chembl_id)
+            
+            if not mechanisms:
+                self.stdout.write(f"[!] No mechanisms found for {chembl_id}")
+                return
             
             if slow_mode:
                 time.sleep(1)
             
-            for mechanism_data in mechanisms:
+            self.stdout.write(f"    [→] Found {len(mechanisms)} potential mechanisms")
+            
+            added_count = 0
+            for i, mechanism_data in enumerate(mechanisms):
                 target_chembl_id = mechanism_data.get('target_chembl_id')
                 if not target_chembl_id:
                     continue
@@ -959,12 +1059,37 @@ class Command(BaseCommand):
                 if not target:
                     continue
                 
-                # Normalize mechanism terms
+                # Get mechanism details
                 mechanism_raw = mechanism_data.get('mechanism_of_action', '')
+                source = mechanism_data.get('source', 'unknown')
+                priority = mechanism_data.get('priority', 3)
+                affinity_score = mechanism_data.get('affinity_score', 0)
+                
+                # For activity-derived mechanisms, create more descriptive mechanism text
+                if source == 'activity' and affinity_score > 0:
+                    if affinity_score >= 8.0:
+                        potency_desc = "very high affinity"
+                    elif affinity_score >= 7.0:
+                        potency_desc = "high affinity"
+                    elif affinity_score >= 6.0:
+                        potency_desc = "moderate affinity"
+                    else:
+                        potency_desc = "low affinity"
+                    mechanism_raw = f"{potency_desc} target interaction"
+                
+                # Normalize mechanism terms
                 mechanism_normalized = importer.normalize_mechanism(mechanism_raw)
                 
                 # Map to interaction types
                 interaction_type = self._map_mechanism_to_interaction_type(mechanism_normalized)
+                
+                # Create detailed description
+                if source == 'mechanism':
+                    description = f"{mechanism_raw} (ChEMBL mechanism data)"
+                elif source == 'activity':
+                    description = f"{mechanism_raw} (pActivity: {affinity_score:.1f}, from ChEMBL activity data)"
+                else:
+                    description = mechanism_raw
                 
                 # Create mechanism of action
                 moa, created = CompoundMechanismOfAction.objects.get_or_create(
@@ -972,21 +1097,30 @@ class Command(BaseCommand):
                     target_interaction=interaction_type,
                     defaults={
                         'target_type': target.target_type,
-                        'description': f"{mechanism_raw} (from ChEMBL mechanism data)"
+                        'description': description
                     }
                 )
                 
                 # Add to compound
                 compound.mechanism_of_action.add(moa)
+                added_count += 1
+                
+                # Show priority and source info
+                priority_emoji = "🎯" if priority == 1 else "📊" if priority == 2 else "📋"
+                affinity_text = f" (pAct: {affinity_score:.1f})" if affinity_score > 0 else ""
                 
                 action = "Created" if created else "Added existing"
-                self.stdout.write(f"    [+] {action} mechanism: {target.name} ({interaction_type})")
+                self.stdout.write(f"    {priority_emoji} {action} mechanism: {target.name} ({interaction_type}){affinity_text}")
                 
                 if slow_mode and created:
                     time.sleep(0.5)
+            
+            self.stdout.write(f"    [✓] Added {added_count} mechanisms to {compound.name}")
                     
         except Exception as e:
             self.stdout.write(f"    [!] Error adding mechanisms: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _map_mechanism_to_interaction_type(self, mechanism: str) -> str:
         """Map normalized mechanism to interaction type choices."""
