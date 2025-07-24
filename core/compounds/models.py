@@ -24,16 +24,36 @@ class Target(models.Model):
         ('transporter', 'Transporter'),
         ('protein', 'Protein'),
         ('other', 'Other'),
+        ('unknown', 'Unknown'),
     ]
     
     name = models.CharField(max_length=255, unique=True, help_text="Name of the target (e.g., GABA-A receptor, Dopamine transporter)")
+    chembl_id = models.CharField(
+        max_length=20, 
+        blank=True, 
+        null=True, 
+        unique=True,
+        help_text="ChEMBL target ID (e.g., CHEMBL2095189)"
+    )
+    target_type = models.CharField(
+        max_length=100,
+        choices=TARGET_TYPES,
+        default='unknown',
+        help_text="Type of target (e.g., receptor, enzyme, ion channel, transporter)"
+    )
+    # Keep the old 'type' field for backward compatibility
     type = models.CharField(
         max_length=100,
         choices=TARGET_TYPES,
         default='receptor',
-        help_text="Type of target (e.g., receptor, enzyme, ion channel, transporter)"
+        help_text="Type of target (deprecated, use target_type)"
     )
     description = models.TextField(blank=True, help_text="Detailed description of the target")
+    organism = models.CharField(
+        max_length=255, 
+        blank=True, 
+        help_text="Organism (e.g., Homo sapiens, Mus musculus)"
+    )
 
     class Meta:
         verbose_name = "Target"
@@ -42,6 +62,12 @@ class Target(models.Model):
 
     def __str__(self):
         return self.name
+    
+    def save(self, *args, **kwargs):
+        # Sync target_type with type field for backward compatibility
+        if not self.target_type or self.target_type == 'unknown':
+            self.target_type = self.type
+        super().save(*args, **kwargs)
 
 class CompoundMechanismOfAction(models.Model):
     INTERACTION_TYPES = [
@@ -103,6 +129,13 @@ class Compound(models.Model):
     name = models.CharField(max_length=500, unique=True)
     description = models.TextField(blank=True)
     slug = models.SlugField(unique=True, blank=True)
+    chembl_id = models.CharField(
+        max_length=20, 
+        blank=True, 
+        null=True, 
+        unique=True,
+        help_text="ChEMBL compound ID (e.g., CHEMBL25)"
+    )
     aliases = models.CharField(
         max_length=255,
         blank=True,
@@ -480,15 +513,18 @@ class CompoundTargetInteraction(models.Model):
         ('activator', 'Activator'),
         ('binder', 'Binder'),
         ('substrate', 'Substrate'),
+        ('modulator', 'Modulator'),
+        ('blocker', 'Blocker'),
+        ('opener', 'Opener'),
         ('unknown', 'Unknown'),
     ]
     
     AFFINITY_CHOICES = [
-        ('very_high', 'Very High (nM)'),
-        ('high', 'High (low μM)'),
-        ('moderate', 'Moderate (μM)'),
-        ('low', 'Low (high μM)'),
-        ('very_low', 'Very Low (mM+)'),
+        ('high', 'High (< 100 nM)'),
+        ('medium', 'Medium (100-1000 nM)'),
+        ('low', 'Low (> 1000 nM)'),
+        ('very_high', 'Very High (< 10 nM)'),
+        ('very_low', 'Very Low (> 10 μM)'),
         ('unknown', 'Unknown'),
     ]
     
@@ -506,6 +542,11 @@ class CompoundTargetInteraction(models.Model):
         help_text="Binding affinity level"
     )
     notes = models.TextField(blank=True, help_text="Additional notes about this interaction")
+    source = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Data source (e.g., ChEMBL, PubMed, manual)"
+    )
     
     class Meta:
         unique_together = ('compound', 'target', 'mechanism')
@@ -522,6 +563,7 @@ class CompoundToCompoundTargetInteraction(models.Model):
     INTERACTION_TYPE_CHOICES = [
         ('synergistic', 'Synergistic'),
         ('antagonistic', 'Antagonistic'),
+        ('competitive', 'Competitive'),
         ('competitive_metabolism', 'Competitive Metabolism'),
         ('enzyme_inhibition', 'Enzyme Inhibition'),
         ('enzyme_induction', 'Enzyme Induction'),

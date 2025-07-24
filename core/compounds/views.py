@@ -131,7 +131,8 @@ def compound_search(request):
 
     if query:
         results = Compound.objects.filter(
-            Q(name__icontains=query)
+            Q(name__icontains=query) |
+            Q(aliases__icontains=query)
         )
 
     return render(request, 'compounds/compound_search_results.html', {

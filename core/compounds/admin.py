@@ -15,11 +15,11 @@ from .models import (
 
 @admin.register(Compound)
 class CompoundAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug', 'smiles')
+    list_display = ('name', 'slug', 'chembl_id', 'smiles')
     prepopulated_fields = {'slug': ('name',)}
     filter_horizontal = ('categories',)
-    search_fields = ('name', 'aliases', 'description')
-    fields = ('name', 'slug', 'description', 'aliases', 'smiles', 'categories', 'mechanism_of_action')
+    search_fields = ('name', 'aliases', 'description', 'chembl_id')
+    fields = ('name', 'slug', 'chembl_id', 'description', 'aliases', 'smiles', 'categories', 'mechanism_of_action')
 
 @admin.register(CompoundCategories)
 class CompoundCategoriesAdmin(admin.ModelAdmin):
@@ -28,9 +28,9 @@ class CompoundCategoriesAdmin(admin.ModelAdmin):
 
 @admin.register(Target)
 class TargetAdmin(admin.ModelAdmin):
-    list_display = ('name', 'type')
-    search_fields = ('name', 'description')
-    list_filter = ('type',)
+    list_display = ('name', 'target_type', 'chembl_id', 'organism')
+    search_fields = ('name', 'description', 'chembl_id')
+    list_filter = ('target_type',)
 
 @admin.register(CompoundMechanismOfAction)
 class CompoundMechanismOfActionAdmin(admin.ModelAdmin):
@@ -78,8 +78,8 @@ class EffectWindowAdmin(admin.ModelAdmin):
 
 @admin.register(CompoundTargetInteraction)
 class CompoundTargetInteractionAdmin(admin.ModelAdmin):
-    list_display = ('compound', 'target', 'mechanism', 'affinity_level')
-    list_filter = ('mechanism', 'affinity_level', 'target__type')
+    list_display = ('compound', 'target', 'mechanism', 'affinity_level', 'source')
+    list_filter = ('mechanism', 'affinity_level', 'source', 'target__target_type')
     search_fields = ('compound__name', 'target__name', 'notes')
     autocomplete_fields = ('compound', 'target')
     
@@ -88,7 +88,7 @@ class CompoundTargetInteractionAdmin(admin.ModelAdmin):
             'fields': ('compound', 'target', 'mechanism', 'affinity_level')
         }),
         ('Additional Information', {
-            'fields': ('notes',)
+            'fields': ('notes', 'source')
         })
     )
 
@@ -96,7 +96,7 @@ class CompoundTargetInteractionAdmin(admin.ModelAdmin):
 @admin.register(CompoundToCompoundTargetInteraction)
 class CompoundToCompoundTargetInteractionAdmin(admin.ModelAdmin):
     list_display = ('compound_a', 'compound_b', 'target', 'interaction_type', 'confidence')
-    list_filter = ('interaction_type', 'confidence', 'target__type', 'created_at')
+    list_filter = ('interaction_type', 'confidence', 'target__target_type', 'created_at')
     search_fields = ('compound_a__name', 'compound_b__name', 'target__name', 'description')
     autocomplete_fields = ('compound_a', 'compound_b', 'target')
     readonly_fields = ('created_at',)
