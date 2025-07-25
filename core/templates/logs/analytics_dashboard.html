@@ -11,11 +11,14 @@
     </div>
   </div>
   
-  <!-- Original Analytics (can be enhanced later) -->
-  <div class="row mt-4">
-    <div class="col-12">
-      <div class="card bg-neurobin-card p-4 shadow mb-4">
-        <h4 class="text-white mb-3">Intake Statistics</h4>
+  <!-- 2x2 Analytics Grid -->
+  <div class="row mt-4 g-4">
+    <!-- Top Left: Intake Statistics -->
+    <div class="col-md-6">
+      <div class="card bg-neurobin-card p-4 shadow h-100">
+        <h4 class="text-white mb-3">
+          <i class="fas fa-chart-bar me-2"></i>Intake Statistics
+        </h4>
         <div id="intakeStatsLoading" class="text-center p-4" style="display: none;">
           <div class="spinner-border text-primary" role="status">
             <span class="visually-hidden">Loading...</span>
@@ -27,38 +30,176 @@
           <h6 class="text-muted">No Intake Data Available</h6>
           <p class="text-muted">No intake logs found for analysis.</p>
         </div>
-        <canvas id="intakeChart" style="width:100%;max-width:100%;max-height:400px;"></canvas>
+        <canvas id="intakeChart" style="width:100%;max-width:100%;max-height:300px;"></canvas>
+      </div>
+    </div>
+    
+    <!-- Top Right: Today's Interactions -->
+    <div class="col-md-6">
+      <div class="card bg-neurobin-card p-4 shadow h-100">
+        <h4 class="text-white mb-3">
+          <i class="fas fa-network-wired me-2"></i>Today's Interactions
+        </h4>
+        
+        {% if todays_compounds %}
+          <div class="mb-3">
+            <h6 class="text-light">Today's Compounds:</h6>
+            <div class="d-flex flex-wrap gap-2 mb-3">
+              {% for compound in todays_compounds %}
+                <span class="badge bg-primary">{{ compound.name }}</span>
+              {% endfor %}
+            </div>
+          </div>
+          
+          {% if todays_interactions %}
+            <div class="interactions-list" style="max-height: 200px; overflow-y: auto;">
+              {% for interaction in todays_interactions %}
+                <div class="interaction-item p-3 mb-2 border border-secondary rounded">
+                  <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                      <strong class="text-warning">{{ interaction.compound_a.name }}</strong>
+                      <span class="text-muted">↔</span>
+                      <strong class="text-warning">{{ interaction.compound_b.name }}</strong>
+                    </div>
+                    <span class="badge bg-{{ interaction.interaction_type|default:'secondary' }}">
+                      {{ interaction.get_interaction_type_display|default:'Unknown' }}
+                    </span>
+                  </div>
+                  <div class="mt-2">
+                    <small class="text-light">
+                      <i class="fas fa-bullseye me-1"></i>Target: {{ interaction.target.name }}
+                    </small>
+                  </div>
+                  {% if interaction.description %}
+                    <div class="mt-1">
+                      <small class="text-muted">{{ interaction.description|truncatechars:100 }}</small>
+                    </div>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-center p-3">
+              <i class="fas fa-handshake fa-2x text-success mb-2"></i>
+              <h6 class="text-success">No Known Interactions</h6>
+              <small class="text-muted">No interactions found between today's compounds</small>
+            </div>
+          {% endif %}
+        {% else %}
+          <div class="text-center p-3">
+            <i class="fas fa-calendar-plus fa-3x text-muted mb-3"></i>
+            <h6 class="text-muted">No Compounds Today</h6>
+            <p class="text-muted">Log your first intake for today to see potential interactions.</p>
+            <a href="{% url 'log_intake' %}" class="btn btn-primary btn-sm">
+              <i class="fas fa-plus me-1"></i>Log Intake
+            </a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+    
+    <!-- Bottom Left: Recent Activity -->
+    <div class="col-md-6">
+      <div class="card bg-neurobin-card p-4 shadow h-100">
+        <h4 class="text-white mb-3">
+          <i class="fas fa-clock me-2"></i>Recent Activity
+        </h4>
+        
+        {% if logs %}
+          <div class="recent-logs" style="max-height: 300px; overflow-y: auto;">
+            {% for log in logs|slice:":5" %}
+              <div class="log-item p-2 mb-2 border-bottom border-secondary">
+                <div class="d-flex justify-content-between align-items-start">
+                  <div>
+                    <strong class="text-white">{{ log.compound.name }}</strong>
+                    {% if log.amount and log.unit %}
+                      <span class="text-muted"> — {{ log.amount }} {{ log.unit }}</span>
+                    {% endif %}
+                  </div>
+                  <small class="text-muted">{{ log.taken_at|timesince }} ago</small>
+                </div>
+                {% if log.notes %}
+                  <small class="text-secondary">{{ log.notes|truncatechars:50 }}</small>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+          
+          <div class="text-center mt-3">
+            <button class="btn btn-outline-light btn-sm" 
+                    data-bs-toggle="collapse" 
+                    data-bs-target="#fullTimelineCollapse">
+              View Full Timeline
+            </button>
+          </div>
+        {% else %}
+          <div class="text-center p-3">
+            <i class="fas fa-history fa-3x text-muted mb-3"></i>
+            <h6 class="text-muted">No Activity Yet</h6>
+            <p class="text-muted">Your intake history will appear here.</p>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+    
+    <!-- Bottom Right: Quick Actions -->
+    <div class="col-md-6">
+      <div class="card bg-neurobin-card p-4 shadow h-100">
+        <h4 class="text-white mb-3">
+          <i class="fas fa-bolt me-2"></i>Quick Actions
+        </h4>
+        
+        <div class="d-grid gap-3">
+          <a href="{% url 'log_intake' %}" class="btn btn-primary btn-lg">
+            <i class="fas fa-plus me-2"></i>Log New Intake
+          </a>
+          
+          <a href="{% url 'compound_list' %}" class="btn btn-outline-light">
+            <i class="fas fa-pills me-2"></i>Browse Compounds
+          </a>
+          
+          <a href="{% url 'research:snippet_list' %}" class="btn btn-outline-info">
+            <i class="fas fa-microscope me-2"></i>Research Hub
+          </a>
+        </div>
+        
+        <!-- Quick Stats -->
+        <div class="mt-4">
+          <h6 class="text-light mb-3">Quick Stats</h6>
+          <div class="row g-2">
+            <div class="col-6">
+              <div class="bg-dark p-2 rounded text-center">
+                <div class="h5 text-primary mb-0">{{ logs.count }}</div>
+                <small class="text-muted">Total Intakes</small>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="bg-dark p-2 rounded text-center">
+                <div class="h5 text-success mb-0">{{ todays_logs.count }}</div>
+                <small class="text-muted">Today</small>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
   
-  <!-- Intake Timeline Dropdown -->
+  <!-- Full Timeline (Collapsible) -->
   <div class="row mt-4">
     <div class="col-12">
-      <div class="card bg-neurobin-card p-4 shadow mb-4">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-          <h4 class="text-white mb-0">Intake Timeline</h4>
-          <a href="{% url 'log_intake' %}" class="btn btn-outline-light btn-sm">
-            <i class="fas fa-plus me-1"></i>Log New Intake
-          </a>
-        </div>
-        
-        <!-- Dropdown Toggle Button -->
-        <button class="btn btn-outline-light w-100 text-start d-flex justify-content-between align-items-center" 
-                type="button" 
-                data-bs-toggle="collapse" 
-                data-bs-target="#intakeTimelineCollapse" 
-                aria-expanded="false" 
-                aria-controls="intakeTimelineCollapse">
-          <span>
-            <i class="fas fa-clock me-2"></i>View Timeline 
-            <span class="badge bg-secondary ms-2">{{ logs.count }} intake{{ logs.count|pluralize }}</span>
-          </span>
-          <i class="fas fa-chevron-down"></i>
-        </button>
-        
-        <!-- Collapsible Timeline Content -->
-        <div class="collapse mt-3" id="intakeTimelineCollapse">
+      <div class="collapse" id="fullTimelineCollapse">
+        <div class="card bg-neurobin-card p-4 shadow">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="text-white mb-0">Complete Intake Timeline</h4>
+            <button class="btn btn-outline-light btn-sm" 
+                    data-bs-toggle="collapse" 
+                    data-bs-target="#fullTimelineCollapse">
+              <i class="fas fa-times me-1"></i>Close
+            </button>
+          </div>
+          
+          <!-- Timeline Content -->
           <div class="timeline-container" style="max-height: 400px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0;">
             {% if logs %}
               <ul class="list-group list-group-flush" style="overflow-x: hidden;">
@@ -201,22 +342,26 @@
 </div>
 
 <style>
-/* Custom styles for intake timeline dropdown */
-.timeline-container::-webkit-scrollbar {
+/* Custom styles for intake timeline dropdown and interactions */
+.timeline-container::-webkit-scrollbar,
+.interactions-list::-webkit-scrollbar {
   width: 8px;
 }
 
-.timeline-container::-webkit-scrollbar-track {
+.timeline-container::-webkit-scrollbar-track,
+.interactions-list::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 4px;
 }
 
-.timeline-container::-webkit-scrollbar-thumb {
+.timeline-container::-webkit-scrollbar-thumb,
+.interactions-list::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.3);
   border-radius: 4px;
 }
 
-.timeline-container::-webkit-scrollbar-thumb:hover {
+.timeline-container::-webkit-scrollbar-thumb:hover,
+.interactions-list::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.5);
 }
 
@@ -230,7 +375,9 @@
 }
 
 /* Enhanced list item hover effect for intake items only */
-.intake-item:hover {
+.intake-item:hover,
+.log-item:hover,
+.interaction-item:hover {
   background-color: rgba(255, 255, 255, 0.05) !important;
   transform: translateX(2px);
   transition: all 0.2s ease;
@@ -260,6 +407,23 @@
 .intake-item {
   padding-left: 24px !important;
 }
+
+/* Card equal height styling */
+.h-100 {
+  height: 100% !important;
+}
+
+/* Interaction badges styling */
+.interaction-item {
+  transition: all 0.2s ease;
+}
+
+/* Badge color mapping for interaction types */
+.badge.bg-synergistic { background-color: #28a745 !important; }
+.badge.bg-antagonistic { background-color: #dc3545 !important; }
+.badge.bg-additive { background-color: #17a2b8 !important; }
+.badge.bg-competitive { background-color: #fd7e14 !important; }
+.badge.bg-unknown { background-color: #6c757d !important; }
 
 /* Delete button styling */
 .delete-intake-btn {
@@ -305,365 +469,224 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  const userId = {{ user.id|default:'null' }};
-  let intakeChart = null;
+  // Initialize the intake statistics chart
+  const ctx = document.getElementById('intakeChart');
+  if (ctx) {
+    loadIntakeStats();
+  }
+
+  // Set up event listeners
+  setupEditButtons();
+  setupDeleteButtons();
+});
+
+// Function to load and display intake statistics
+function loadIntakeStats() {
+  const loadingElement = document.getElementById('intakeStatsLoading');
+  const noDataElement = document.getElementById('intakeStatsNoData');
+  const chartElement = document.getElementById('intakeChart');
   
-  /**
-   * Load and display intake statistics  
-   */
-  async function loadIntakeStatistics() {
-    if (!userId) {
-      showIntakeStatsNoData(true);
-      return;
-    }
-    
-    showIntakeStatsLoading(true);
-    
-    try {
-      // Fetch intake logs for the user (all time for statistics)
-      const response = await fetch(`/api/logs/intakelog/?user=${userId}`);
-      const data = await response.json();
-      
-      console.log('All intake logs data:', data); // Debug log
+  loadingElement.style.display = 'block';
+  
+  // Get user ID from Django template
+  const userId = {{ user.id|default:'null' }};
+  
+  if (!userId) {
+    loadingElement.style.display = 'none';
+    noDataElement.style.display = 'block';
+    return;
+  }
+
+  // Fetch intake data via API
+  fetch(`/api/logs/intakelog/?format=json`)
+    .then(response => response.json())
+    .then(data => {
+      loadingElement.style.display = 'none';
       
       if (!data.results || data.results.length === 0) {
-        showIntakeStatsNoData(true);
+        noDataElement.style.display = 'block';
         return;
       }
-      
-      // Count intakes by compound
-      const compoundCounts = {};
-      data.results.forEach(intake => {
-        const compoundName = intake.compound.name;
-        compoundCounts[compoundName] = (compoundCounts[compoundName] || 0) + 1;
-        console.log(`Found compound: ${compoundName}, total count: ${compoundCounts[compoundName]}`); // Debug log
-      });
-      
-      console.log('Final compound counts:', compoundCounts); // Debug log
-      
-      // Sort compounds by count (descending) - show all compounds, not just top 10
-      const sortedCompounds = Object.entries(compoundCounts)
-        .sort(([,a], [,b]) => b - a);
-      
-      const labels = sortedCompounds.map(([name, count]) => name);
-      const counts = sortedCompounds.map(([name, count]) => count);
-      
-      console.log('Chart labels:', labels); // Debug log
-      console.log('Chart counts:', counts); // Debug log
-      
-      // Create the chart
-      createIntakeChart(labels, counts);
-      showIntakeStatsChart(true);
-      
-    } catch (error) {
-      console.error('Error loading intake statistics:', error);
-      showIntakeStatsNoData(true);
-    } finally {
-      showIntakeStatsLoading(false);
-    }
-  }
-  
-  /**
-   * Create the intake statistics bar chart
-   */
-  function createIntakeChart(labels, data) {
-    const ctx = document.getElementById('intakeChart').getContext('2d');
-    
-    // Destroy existing chart if it exists
-    if (intakeChart) {
-      intakeChart.destroy();
-    }
-    
-    // Generate colors based on compound names (using global color manager)
-    const backgroundColors = labels.map(compoundName => {
-      const color = window.CompoundColorManager.getColorForCompound(compoundName);
-      console.log(`Color for ${compoundName} in intake stats:`, color); // Debug log
-      // Convert hex to rgba with transparency for background
-      const hex = color.replace('#', '');
-      const r = parseInt(hex.substring(0, 2), 16);
-      const g = parseInt(hex.substring(2, 4), 16);
-      const b = parseInt(hex.substring(4, 6), 16);
-      return `rgba(${r}, ${g}, ${b}, 0.8)`;
-    });
-    
-    const borderColors = labels.map(compoundName => {
-      const color = window.CompoundColorManager.getColorForCompound(compoundName);
-      // Convert hex to rgba with full opacity for border
-      const hex = color.replace('#', '');
-      const r = parseInt(hex.substring(0, 2), 16);
-      const g = parseInt(hex.substring(2, 4), 16);
-      const b = parseInt(hex.substring(4, 6), 16);
-      return `rgba(${r}, ${g}, ${b}, 1)`;
-    });
 
-    intakeChart = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: 'Total Intakes',
-          data: data,
-          backgroundColor: backgroundColors,
-          borderColor: borderColors,
-          borderWidth: 1
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          title: {
-            display: true,
-            text: 'Total Intakes by Compound',
-            color: '#FFF'
-          },
-          legend: {
-            display: false // Hide legend since we only have one dataset
-          }
+      // Process data for chart
+      const compoundCounts = {};
+      data.results.forEach(log => {
+        const compoundName = log.compound_name || log.compound;
+        compoundCounts[compoundName] = (compoundCounts[compoundName] || 0) + 1;
+      });
+
+      // Create chart
+      const labels = Object.keys(compoundCounts);
+      const values = Object.values(compoundCounts);
+      
+      new Chart(chartElement, {
+        type: 'doughnut',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: values,
+            backgroundColor: [
+              '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', 
+              '#9966FF', '#FF9F40', '#FF6384', '#36A2EB'
+            ],
+            borderWidth: 2,
+            borderColor: '#2a2a2a'
+          }]
         },
-        scales: {
-          x: {
-            ticks: {
-              color: '#FFF',
-              maxRotation: 45,
-              minRotation: 0
-            },
-            grid: {
-              color: 'rgba(255, 255, 255, 0.1)'
-            }
-          },
-          y: {
-            ticks: {
-              color: '#FFF',
-              beginAtZero: true,
-              stepSize: 1
-            },
-            grid: {
-              color: 'rgba(255, 255, 255, 0.1)'
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: {
+                color: '#ffffff',
+                font: {
+                  size: 12
+                }
+              }
             }
           }
         }
+      });
+    })
+    .catch(error => {
+      console.error('Error loading intake stats:', error);
+      loadingElement.style.display = 'none';
+      noDataElement.style.display = 'block';
+    });
+}
+
+// Function to set up edit button event listeners
+function setupEditButtons() {
+  document.querySelectorAll('.edit-intake-btn').forEach(button => {
+    button.addEventListener('click', function() {
+      const intakeId = this.getAttribute('data-intake-id');
+      const compoundName = this.getAttribute('data-compound-name');
+      const compoundId = this.getAttribute('data-compound-id');
+      const amount = this.getAttribute('data-amount');
+      const unit = this.getAttribute('data-unit');
+      const takenAt = this.getAttribute('data-taken-at');
+      const notes = this.getAttribute('data-notes');
+
+      // Populate edit form
+      document.getElementById('editIntakeId').value = intakeId;
+      document.getElementById('editAmount').value = amount || '';
+      document.getElementById('editUnit').value = unit || 'mg';
+      document.getElementById('editTakenAt').value = takenAt || '';
+      document.getElementById('editNotes').value = notes || '';
+
+      // Load compounds for dropdown and set current compound
+      loadCompoundsForEdit(compoundId);
+
+      // Show modal
+      const modal = new bootstrap.Modal(document.getElementById('editIntakeModal'));
+      modal.show();
+    });
+  });
+}
+
+// Function to set up delete button event listeners
+function setupDeleteButtons() {
+  document.querySelectorAll('.delete-intake-btn').forEach(button => {
+    button.addEventListener('click', function() {
+      const intakeId = this.getAttribute('data-intake-id');
+      const compoundName = this.getAttribute('data-compound-name');
+
+      if (confirm(`Are you sure you want to delete the intake for ${compoundName}?`)) {
+        deleteIntake(intakeId);
       }
     });
-  }
+  });
+}
+
+// Function to load compounds for edit dropdown
+function loadCompoundsForEdit(selectedCompoundId) {
+  const select = document.getElementById('editCompound');
   
-  /**
-   * Show/hide loading state for intake stats
-   */
-  function showIntakeStatsLoading(show) {
-    document.getElementById('intakeStatsLoading').style.display = show ? 'block' : 'none';
-    document.getElementById('intakeChart').style.display = show ? 'none' : 'block';
-    document.getElementById('intakeStatsNoData').style.display = 'none';
-  }
-  
-  /**
-   * Show/hide no data state for intake stats
-   */
-  function showIntakeStatsNoData(show) {
-    document.getElementById('intakeStatsNoData').style.display = show ? 'block' : 'none';
-    document.getElementById('intakeChart').style.display = show ? 'none' : 'block';
-    document.getElementById('intakeStatsLoading').style.display = 'none';
-  }
-  
-  /**
-   * Show chart for intake stats
-   */
-  function showIntakeStatsChart(show) {
-    document.getElementById('intakeChart').style.display = show ? 'block' : 'none';
-    document.getElementById('intakeStatsNoData').style.display = 'none';
-    document.getElementById('intakeStatsLoading').style.display = 'none';
-  }
-  
-  /**
-   * Edit intake log
-   */
-  async function editIntake(intakeId, compoundName, compoundId, amount, unit, takenAt, notes) {
-    // Populate the form with current values
-    document.getElementById('editIntakeId').value = intakeId;
-    document.getElementById('editAmount').value = amount || '';
-    document.getElementById('editUnit').value = unit || 'mg';
-    document.getElementById('editTakenAt').value = takenAt || '';
-    document.getElementById('editNotes').value = notes || '';
-    
-    // Load compounds for the dropdown
-    await loadCompoundsForEdit();
-    
-    // Set the selected compound
-    document.getElementById('editCompound').value = compoundId;
-    
-    // Show the modal
-    const modal = new bootstrap.Modal(document.getElementById('editIntakeModal'));
-    modal.show();
-  }
-  
-  /**
-   * Load compounds for the edit dropdown
-   */
-  async function loadCompoundsForEdit() {
-    try {
-      const response = await fetch('/api/compounds/compound/');
-      const data = await response.json();
+  fetch('/api/compounds/compound/?format=json')
+    .then(response => response.json())
+    .then(data => {
+      select.innerHTML = '<option value="">Select a compound...</option>';
       
-      const compoundSelect = document.getElementById('editCompound');
-      compoundSelect.innerHTML = '<option value="">Select a compound...</option>';
-      
-      if (data.results) {
-        data.results.forEach(compound => {
-          const option = document.createElement('option');
-          option.value = compound.id;
-          option.textContent = compound.name;
-          compoundSelect.appendChild(option);
-        });
-      }
-    } catch (error) {
-      console.error('Error loading compounds:', error);
-    }
-  }
-  
-  /**
-   * Save intake edit
-   */
-  async function saveIntakeEdit() {
-    const intakeId = document.getElementById('editIntakeId').value;
-    const compoundId = document.getElementById('editCompound').value;
-    const amount = document.getElementById('editAmount').value;
-    const unit = document.getElementById('editUnit').value;
-    const takenAt = document.getElementById('editTakenAt').value;
-    const notes = document.getElementById('editNotes').value;
-    
-    if (!compoundId || !takenAt) {
-      alert('Please fill in all required fields (Compound and Taken At).');
-      return;
-    }
-    
-    try {
-      const response = await fetch(`/api/logs/intakelog/${intakeId}/`, {
-        method: 'PATCH',
-        headers: {
-          'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || 
-                        document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
-                        getCookie('csrftoken'),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          compound: compoundId,
-          amount: amount,
-          unit: unit,
-          taken_at: takenAt,
-          notes: notes
-        })
+      data.results.forEach(compound => {
+        const option = document.createElement('option');
+        option.value = compound.id;
+        option.textContent = compound.name;
+        if (compound.id == selectedCompoundId) {
+          option.selected = true;
+        }
+        select.appendChild(option);
       });
-      
-      if (response.ok) {
-        // Close the modal
-        const modal = bootstrap.Modal.getInstance(document.getElementById('editIntakeModal'));
-        modal.hide();
-        
-        // Reload the page to refresh the timeline and charts
-        window.location.reload();
-      } else {
-        const errorData = await response.json();
-        alert('Error updating intake: ' + (errorData.detail || 'Please try again.'));
-      }
-    } catch (error) {
-      console.error('Error updating intake:', error);
+    })
+    .catch(error => {
+      console.error('Error loading compounds:', error);
+    });
+}
+
+// Function to save intake edits
+document.getElementById('saveIntakeEdit').addEventListener('click', function() {
+  const intakeId = document.getElementById('editIntakeId').value;
+  const compoundId = document.getElementById('editCompound').value;
+  const amount = document.getElementById('editAmount').value;
+  const unit = document.getElementById('editUnit').value;
+  const takenAt = document.getElementById('editTakenAt').value;
+  const notes = document.getElementById('editNotes').value;
+
+  if (!compoundId || !takenAt) {
+    alert('Please fill in all required fields.');
+    return;
+  }
+
+  const data = {
+    compound: compoundId,
+    amount: amount,
+    unit: unit,
+    taken_at: takenAt,
+    notes: notes
+  };
+
+  fetch(`/api/logs/intakelog/${intakeId}/`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+    },
+    body: JSON.stringify(data)
+  })
+  .then(response => {
+    if (response.ok) {
+      location.reload(); // Refresh page to show updates
+    } else {
       alert('Error updating intake. Please try again.');
     }
-  }
-  
-  /**
-   * Delete intake log
-   */
-  async function deleteIntake(intakeId, compoundName) {
-    if (!confirm(`Are you sure you want to delete the ${compoundName} intake? This action cannot be undone.`)) {
-      return;
+  })
+  .catch(error => {
+    console.error('Error updating intake:', error);
+    alert('Error updating intake. Please try again.');
+  });
+});
+
+// Function to delete intake
+function deleteIntake(intakeId) {
+  fetch(`/api/logs/intakelog/${intakeId}/`, {
+    method: 'DELETE',
+    headers: {
+      'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
     }
-    
-    try {
-      const response = await fetch(`/api/logs/intakelog/${intakeId}/`, {
-        method: 'DELETE',
-        headers: {
-          'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || 
-                        document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
-                        getCookie('csrftoken'),
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (response.ok) {
-        // Reload the page to refresh the timeline and charts
-        window.location.reload();
-      } else {
-        alert('Error deleting intake. Please try again.');
-      }
-    } catch (error) {
-      console.error('Error deleting intake:', error);
+  })
+  .then(response => {
+    if (response.ok) {
+      location.reload(); // Refresh page to show updates
+    } else {
       alert('Error deleting intake. Please try again.');
     }
-  }
-  
-  /**
-   * Get CSRF token from cookies
-   */
-  function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-      const cookies = document.cookie.split(';');
-      for (let i = 0; i < cookies.length; i++) {
-        const cookie = cookies[i].trim();
-        if (cookie.substring(0, name.length + 1) === (name + '=')) {
-          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-          break;
-        }
-      }
-    }
-    return cookieValue;
-  }
-  
-  /**
-   * Add event listeners for action buttons (edit and delete)
-   */
-  function setupActionButtons() {
-    // Setup edit button event listeners
-    document.querySelectorAll('.edit-intake-btn').forEach(button => {
-      button.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        const intakeId = this.getAttribute('data-intake-id');
-        const compoundName = this.getAttribute('data-compound-name');
-        const compoundId = this.getAttribute('data-compound-id');
-        const amount = this.getAttribute('data-amount');
-        const unit = this.getAttribute('data-unit');
-        const takenAt = this.getAttribute('data-taken-at');
-        const notes = this.getAttribute('data-notes');
-        
-        editIntake(intakeId, compoundName, compoundId, amount, unit, takenAt, notes);
-      });
-    });
-    
-    // Setup delete button event listeners
-    document.querySelectorAll('.delete-intake-btn').forEach(button => {
-      button.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        const intakeId = this.getAttribute('data-intake-id');
-        const compoundName = this.getAttribute('data-compound-name');
-        
-        deleteIntake(intakeId, compoundName);
-      });
-    });
-  }
-  
-  // Load intake statistics on page load
-  loadIntakeStatistics();
-  
-  // Setup action button event listeners
-  setupActionButtons();
-  
-  // Setup save intake edit button
-  document.getElementById('saveIntakeEdit').addEventListener('click', saveIntakeEdit);
-});
+  })
+  .catch(error => {
+    console.error('Error deleting intake:', error);
+    alert('Error deleting intake. Please try again.');
+  });
+}
 </script>
+
 {% endblock %}

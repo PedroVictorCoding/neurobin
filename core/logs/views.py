@@ -18,9 +18,39 @@ def log_intake(request):
 
 @login_required
 def analytics_dashboard(request):
+    from django.utils import timezone
+    from datetime import datetime, timedelta
+    from compounds.models import CompoundToCompoundTargetInteraction
+    from django.db.models import Q
+    
     logs = IntakeLog.objects.filter(user=request.user).order_by('-taken_at')
+    
+    # Get today's date
+    today = timezone.now().date()
+    
+    # Get today's compounds
+    todays_logs = IntakeLog.objects.filter(
+        user=request.user,
+        taken_at__date=today
+    ).select_related('compound')
+    
+    todays_compounds = [log.compound for log in todays_logs]
+    
+    # Find interactions between today's compounds
+    interactions = []
+    if len(todays_compounds) > 1:
+        compound_ids = [c.id for c in todays_compounds]
+        interactions = CompoundToCompoundTargetInteraction.objects.filter(
+            Q(compound_a__id__in=compound_ids, compound_b__id__in=compound_ids)
+        ).select_related('compound_a', 'compound_b', 'target').distinct()
+    
     # You can aggregate data here for the dashboard
-    return render(request, "logs/analytics_dashboard.html", {"logs": logs})
+    return render(request, "logs/analytics_dashboard.html", {
+        "logs": logs,
+        "todays_compounds": todays_compounds,
+        "todays_interactions": interactions,
+        "todays_logs": todays_logs
+    })
 
 
 # REST Framework ViewSets

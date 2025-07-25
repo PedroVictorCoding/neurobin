@@ -98,6 +98,64 @@
   .mechanisms-scrollable::-webkit-scrollbar-thumb:hover {
     background: #adb5bd;
   }
+  
+  /* Compact interactions table styles */
+  .interactions-table {
+    font-size: 0.85rem;
+  }
+  
+  .interactions-table th {
+    padding: 0.5rem;
+    border-bottom: 2px solid #495057;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  .interactions-table td {
+    padding: 0.4rem 0.5rem;
+    vertical-align: middle;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  
+  /* Compact badges */
+  .compact-badge {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.4rem;
+    border-radius: 0.25rem;
+  }
+  
+  /* Truncated text for small columns */
+  .text-truncate-custom {
+    max-width: 120px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-block;
+  }
+  
+  /* Responsive table adjustments */
+  @media (max-width: 768px) {
+    .interactions-table {
+      font-size: 0.75rem;
+    }
+    
+    .interactions-table th,
+    .interactions-table td {
+      padding: 0.25rem;
+    }
+    
+    .text-truncate-custom {
+      max-width: 80px;
+    }
+    
+    .compact-badge {
+      font-size: 0.6rem;
+      padding: 0.15rem 0.3rem;
+    }
+  }
 </style>
 
 <!-- Admin Control Panel -->
@@ -232,14 +290,14 @@
     
     <div id="interactionsTable" style="display: none;">
       <div class="table-responsive">
-        <table class="table table-dark table-striped table-hover">
+        <table class="table table-dark table-striped table-hover interactions-table" id="interactionsTableElement">
           <thead>
             <tr>
-              <th scope="col">Interacting Compound</th>
-              <th scope="col">Shared Target</th>
-              <th scope="col">{{ compound.name }} Action</th>
+              <th scope="col">Compound</th>
+              <th scope="col">Target</th>
+              <th scope="col">{{ compound.name|truncatechars:8 }} Action</th>
               <th scope="col">Other Action</th>
-              <th scope="col">Interaction Type</th>
+              <th scope="col">Type</th>
             </tr>
           </thead>
           <tbody id="interactionsTableBody">
@@ -1506,11 +1564,31 @@ document.addEventListener('DOMContentLoaded', function() {
                     const row = document.createElement('tr');
                     
                     row.innerHTML = `
-                        <td><strong>${interaction.other_compound}</strong></td>
-                        <td><span class="badge bg-info">${interaction.shared_target}</span></td>
-                        <td><span class="badge bg-secondary">${interaction.current_compound_mechanism}</span></td>
-                        <td><span class="badge bg-secondary">${interaction.other_compound_mechanism}</span></td>
-                        <td><span class="badge bg-danger">${interaction.interaction_type.replace(/_/g, ' ')}</span></td>
+                        <td>
+                            <div class="text-truncate-custom" title="${interaction.other_compound}">
+                                <strong>${interaction.other_compound}</strong>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="badge bg-info compact-badge" title="${interaction.shared_target}">
+                                ${interaction.shared_target}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge bg-secondary compact-badge" title="${interaction.current_compound_mechanism}">
+                                ${interaction.current_compound_mechanism}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge bg-secondary compact-badge" title="${interaction.other_compound_mechanism}">
+                                ${interaction.other_compound_mechanism}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge bg-danger compact-badge" title="${interaction.interaction_type.replace(/_/g, ' ')}">
+                                ${interaction.interaction_type.replace(/_/g, ' ').substring(0, 8)}${interaction.interaction_type.length > 8 ? '...' : ''}
+                            </span>
+                        </td>
                     `;
                     
                     tableBody.appendChild(row);
