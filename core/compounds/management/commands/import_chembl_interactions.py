@@ -456,6 +456,90 @@ class ChEMBLImporter:
         
         return results
     
+    def search_all_compounds(self, limit: Optional[int] = 1000) -> List[str]:
+        """Search ChEMBL API for all available compound IDs.
+        
+        Args:
+            limit: Maximum number of compounds to fetch. If None, fetch as many as possible.
+            
+        Returns:
+            List of ChEMBL IDs found in the database.
+        """
+        chembl_ids = []
+        offset = 0
+        page_size = 1000  # ChEMBL API default limit
+        
+        print("[i] Searching ChEMBL database for all compounds...")
+        
+        # If no limit specified, use a reasonable default to prevent overwhelming the system
+        if limit is None:
+            limit = 5000  # Default to 5000 compounds if no limit specified
+            print(f"[i] No limit specified, using default limit of {limit} compounds")
+        
+        while True:
+            url = f"{self.BASE_URL}/molecule.json"
+            params = {
+                'limit': page_size,
+                'offset': offset,
+                'molecule_type': 'Small molecule',  # Focus on small molecules
+                'max_phase__gte': 1,  # Only compounds that reached at least Phase 1
+                'therapeutic_flag': True,  # Only therapeutic compounds
+            }
+            
+            print(f"[→] Fetching compounds {offset + 1}-{offset + page_size}...")
+            
+            try:
+                data = self.fetch_with_retry(url, params)
+                if not data or 'molecules' not in data:
+                    print("[!] No more compounds found")
+                    break
+                
+                molecules = data['molecules']
+                if not molecules:
+                    print("[!] No compounds in this batch")
+                    break
+                
+                # Extract ChEMBL IDs from the molecules
+                batch_ids = []
+                for molecule in molecules:
+                    chembl_id = molecule.get('molecule_chembl_id')
+                    if chembl_id:
+                        batch_ids.append(chembl_id)
+                
+                chembl_ids.extend(batch_ids)
+                print(f"[✓] Found {len(batch_ids)} compounds in this batch (total: {len(chembl_ids)})")
+                
+                # Check if we've reached our limit
+                if len(chembl_ids) >= limit:
+                    chembl_ids = chembl_ids[:limit]
+                    print(f"[i] Reached limit of {limit} compounds")
+                    break
+                
+                # Check if we've reached the end of available data
+                if len(molecules) < page_size:
+                    print("[i] Reached end of available compounds")
+                    break
+                
+                offset += page_size
+                
+                # Add delay to respect API rate limits
+                if self.slow_mode:
+                    time.sleep(2)
+                else:
+                    time.sleep(0.5)
+                
+                # Safety check to prevent infinite loops
+                if offset > 100000:  # Stop after 100k compounds max
+                    print("[!] Safety limit reached (100k compounds)")
+                    break
+                    
+            except Exception as e:
+                print(f"[!] Error during compound search at offset {offset}: {e}")
+                break
+        
+        print(f"[✓] Total compounds found: {len(chembl_ids)}")
+        return chembl_ids
+    
     def get_current_date(self) -> str:
         """Get current date for import timestamps."""
         from datetime import datetime
@@ -767,8 +851,11 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             '--no-limit',
-            action='store_true',
-            help='Skip compound limit and import as many compounds as possible'
+            type=int,
+            nargs='?',
+            const=0,  # Default to unlimited when flag is used without value
+            metavar='LIMIT',
+            help='Search ChEMBL API for therapeutic compounds. Optionally specify max number (default: unlimited, use 0 for unlimited)'
         )
         parser.add_argument(
             '--skip-existing',
@@ -800,8 +887,12 @@ class Command(BaseCommand):
         if options.get('skip_existing'):
             self.stdout.write(self.style.WARNING('[i] Skip existing enabled - will skip compounds that already exist in database'))
         
-        if options.get('no_limit'):
-            self.stdout.write(self.style.WARNING('[i] No-limit mode enabled - importing expanded compound set'))
+        if options.get('no_limit') is not None:
+            limit = options['no_limit']
+            if limit == 0:
+                self.stdout.write(self.style.WARNING('[i] No-limit mode enabled - will search ChEMBL API for all available compounds'))
+            else:
+                self.stdout.write(self.style.WARNING(f'[i] No-limit mode enabled - will search ChEMBL API for up to {limit} compounds'))
         
         # Parse phase filter if provided
         allowed_phases = []
@@ -919,76 +1010,18 @@ class Command(BaseCommand):
                 chembl_ids.extend([c.chembl_id for c in compounds])
         
         elif not chembl_ids:  # No search names and no other options
-            if options.get('no_limit'):
-                # Import from a comprehensive list of important pharmaceutical compounds
-                # This expands the default test set significantly
-                chembl_ids = [
-                    # Original test compounds
-                    "CHEMBL25",     # Caffeine
-                    "CHEMBL154",    # Fluoxetine
-                    "CHEMBL1487",   # Modafinil (Atorvastatin)
-                    "CHEMBL2103745", # TAK-653
-                    "CHEMBL112",    # Acetaminophen
-                    "CHEMBL122",    # Ketamine
-                    "CHEMBL2153138", # Psilocybin
-                    
-                    # Common cardiovascular drugs
-                    "CHEMBL1431",   # Metformin
-                    "CHEMBL419213", # Lisinopril
-                    "CHEMBL1503",   # Omeprazole
-                    "CHEMBL1464",   # Warfarin
-                    "CHEMBL1771",   # Clopidogrel
-                    "CHEMBL714",    # Albuterol
-                    "CHEMBL635",    # Prednisone
-                    "CHEMBL1624",   # Levothyroxine
-                    
-                    # Additional important drugs across therapeutic areas
-                    "CHEMBL12",     # Diazepam
-                    "CHEMBL580",    # Lorazepam
-                    "CHEMBL521",    # Ibuprofen
-                    "CHEMBL27",     # Propranolol
-                    "CHEMBL59",     # Dopamine
-                    "CHEMBL17",     # Acetazolamide
-                    "CHEMBL796",    # Methylphenidate
-                    "CHEMBL405",    # Amphetamine
-                    "CHEMBL809",    # Sertraline
-                    "CHEMBL637",    # Venlafaxine
-                    
-                    # Antibiotics and anti-infectives
-                    "CHEMBL1082",   # Penicillin
-                    "CHEMBL1200371", # Amoxicillin
-                    "CHEMBL137",    # Ciprofloxacin
-                    "CHEMBL529",    # Azithromycin
-                    "CHEMBL1043",   # Doxycycline
-                    
-                    # Neurological and psychiatric medications
-                    "CHEMBL603",    # Gabapentin
-                    "CHEMBL1381",   # Tramadol
-                    "CHEMBL1201585", # Morphine
-                    "CHEMBL278020", # Olanzapine
-                    "CHEMBL1201340", # Risperidone
-                    "CHEMBL1750",   # Lithium
-                    
-                    # Cancer therapeutics
-                    "CHEMBL88",     # Paclitaxel
-                    "CHEMBL1201862", # Cisplatin
-                    "CHEMBL1201304", # Tamoxifen
-                    "CHEMBL1743",   # Imatinib
-                    
-                    # Hormones and endocrine
-                    "CHEMBL1201631", # Insulin
-                    "CHEMBL1200766", # Testosterone
-                    "CHEMBL1200685", # Estradiol
-                    "CHEMBL1200692", # Cortisol
-                    
-                    # Additional common medications
-                    "CHEMBL142",    # Simvastatin
-                    "CHEMBL1071",   # Hydrochlorothiazide
-                    "CHEMBL1491",   # Amlodipine
-                    "CHEMBL35",     # Furosemide
-                    "CHEMBL120",    # Digoxin
-                ]
-                self.stdout.write(f"[i] No-limit mode enabled - importing {len(chembl_ids)} pharmaceutical compounds")
+            if options.get('no_limit') is not None:
+                # Dynamically fetch compounds from ChEMBL API
+                limit = options['no_limit']
+                if limit == 0:
+                    limit = None  # Unlimited
+                    self.stdout.write(f"[i] No-limit mode enabled - searching ChEMBL API for all available compounds (unlimited)")
+                else:
+                    self.stdout.write(f"[i] No-limit mode enabled - searching ChEMBL API for up to {limit} compounds")
+                
+                importer = ChEMBLImporter(slow_mode=options.get('slow_mode', False))
+                chembl_ids = importer.search_all_compounds(limit=limit)
+                self.stdout.write(f"[i] Found {len(chembl_ids)} compounds from ChEMBL API")
             else:
                 # Default test compounds (limited set)
                 chembl_ids = [
@@ -1882,6 +1915,11 @@ class Command(BaseCommand):
         target_type = target_data.get('target_type', 'unknown').lower()
         description = target_data.get('description', '')
         organism = target_data.get('organism', '')
+        
+        # Skip targets that are not from Homo sapiens
+        if organism and organism.lower() != 'homo sapiens':
+            self.stdout.write(f"  [!] Skipping non-human target: {target_name} ({organism})")
+            return None
         
         # Get or create structured target type
         structured_target_type = importer.get_or_create_target_type(target_data.get('target_type', 'unknown'))

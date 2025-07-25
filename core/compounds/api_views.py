@@ -138,3 +138,30 @@ def compound_pair_interactions(request):
         'compound_b': compound_b.name,
         'interactions': serializer.data
     })
+
+
+@api_view(['GET'])
+def compound_search_api(request):
+    """Search compounds by name and aliases for autocomplete/dropdown"""
+    query = request.GET.get('q', '').strip()
+    limit = int(request.GET.get('limit', 20))
+    
+    if not query:
+        return Response({'compounds': []})
+    
+    # Search by name and aliases
+    compounds = Compound.objects.filter(
+        Q(name__icontains=query) |
+        Q(aliases__icontains=query)
+    ).values('id', 'name', 'aliases')[:limit]
+    
+    # Format results for dropdown
+    results = []
+    for compound in compounds:
+        results.append({
+            'id': compound['id'],
+            'name': compound['name'],
+            'aliases': compound['aliases'] or ''
+        })
+    
+    return Response({'compounds': results})

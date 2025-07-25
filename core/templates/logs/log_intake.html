@@ -6,10 +6,18 @@
     <h2 class="fw-bold mb-4" style="color:#FFF;">Log Compound Intake</h2>
     <form method="post" class="card bg-neurobin-card p-4 shadow" style="max-width: 400px; margin: 0 auto;">
       {% csrf_token %}
-      <div class="mb-3 text-start">
-        <label class="form-label text-light" for="id_compound">Compound</label>
-        {{ form.compound }}
+      
+      <!-- Hidden compound field -->
+      {{ form.compound }}
+      
+      <div class="mb-3 text-start position-relative">
+        <label class="form-label text-light" for="id_compound_search">Compound</label>
+        {{ form.compound_search }}
+        <div id="compound-search-results" class="compound-dropdown" style="display: none;">
+          <!-- Search results will be populated here -->
+        </div>
       </div>
+      
       <div class="mb-3 text-start">
         <label class="form-label text-light" for="id_amount">Amount</label>
         {{ form.amount }}
@@ -33,4 +41,123 @@
     </form>
   </div>
 </div>
+
+<style>
+.compound-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-top: none;
+  border-radius: 0 0 0.375rem 0.375rem;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.compound-dropdown-item {
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  border-bottom: 1px solid #444;
+  color: #fff;
+}
+
+.compound-dropdown-item:hover {
+  background: #3a3a3a;
+}
+
+.compound-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.compound-name {
+  font-weight: 500;
+}
+
+.compound-aliases {
+  font-size: 0.85em;
+  color: #aaa;
+  margin-top: 0.25rem;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const compoundSearch = document.getElementById('id_compound_search');
+    const compoundHidden = document.getElementById('id_compound');
+    const resultsContainer = document.getElementById('compound-search-results');
+    let searchTimeout;
+
+    compoundSearch.addEventListener('input', function() {
+        const query = this.value.trim();
+        
+        if (query.length < 2) {
+            resultsContainer.style.display = 'none';
+            compoundHidden.value = '';
+            return;
+        }
+
+        // Clear previous timeout
+        clearTimeout(searchTimeout);
+        
+        // Set new timeout to avoid too many requests
+        searchTimeout = setTimeout(function() {
+            searchCompounds(query);
+        }, 300);
+    });
+
+    // Hide dropdown when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.position-relative')) {
+            resultsContainer.style.display = 'none';
+        }
+    });
+
+    function searchCompounds(query) {
+        fetch(`/api/compounds/compound-search/?q=${encodeURIComponent(query)}`)
+            .then(response => response.json())
+            .then(data => {
+                displayResults(data.compounds);
+            })
+            .catch(error => {
+                console.error('Error searching compounds:', error);
+                resultsContainer.style.display = 'none';
+            });
+    }
+
+    function displayResults(compounds) {
+        if (compounds.length === 0) {
+            resultsContainer.innerHTML = '<div class="compound-dropdown-item">No compounds found</div>';
+            resultsContainer.style.display = 'block';
+            return;
+        }
+
+        const html = compounds.map(compound => {
+            let aliasesText = '';
+            if (compound.aliases) {
+                aliasesText = `<div class="compound-aliases">Also: ${compound.aliases}</div>`;
+            }
+            
+            return `
+                <div class="compound-dropdown-item" onclick="selectCompound(${compound.id}, '${compound.name.replace(/'/g, "\\'")}')">
+                    <div class="compound-name">${compound.name}</div>
+                    ${aliasesText}
+                </div>
+            `;
+        }).join('');
+
+        resultsContainer.innerHTML = html;
+        resultsContainer.style.display = 'block';
+    }
+
+    // Global function to select compound
+    window.selectCompound = function(id, name) {
+        compoundSearch.value = name;
+        compoundHidden.value = id;
+        resultsContainer.style.display = 'none';
+    };
+});
+</script>
 {% endblock %}

@@ -13,7 +13,8 @@ from .api_views import (
     CompoundTargetInteractionListView,
     CompoundToCompoundInteractionListView,
     compound_interactions,
-    compound_pair_interactions
+    compound_pair_interactions,
+    compound_search_api
 )
 
 router = DefaultRouter()
@@ -31,4 +32,5 @@ urlpatterns = [
     path('compound-compound-interactions/', CompoundToCompoundInteractionListView.as_view(), name='compound-compound-interactions'),
     path('compound/<int:compound_id>/interactions/', compound_interactions, name='compound-interactions'),
     path('compound-pair-interactions/', compound_pair_interactions, name='compound-pair-interactions'),
+    path('compound-search/', compound_search_api, name='compound-search-api'),
 ]

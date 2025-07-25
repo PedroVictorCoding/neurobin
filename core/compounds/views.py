@@ -168,9 +168,50 @@ def compound_search(request):
     })
 
 def compound_list(request):
+    from django.core.paginator import Paginator
+    from django.http import JsonResponse
+    
     # Order compounds by view count (descending) then by name
     compounds = Compound.objects.all().order_by('-views', 'name')
-    return render(request, "compounds/compound_list.html", {"compounds": compounds})
+    
+    # Handle AJAX requests for lazy loading
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        page = request.GET.get('page', 1)
+        paginator = Paginator(compounds, 12)  # 12 compounds per page
+        
+        try:
+            compounds_page = paginator.page(page)
+        except:
+            return JsonResponse({'compounds': [], 'has_next': False})
+        
+        # Prepare compound data for JSON response
+        compounds_data = []
+        for compound in compounds_page:
+            compounds_data.append({
+                'id': compound.id,
+                'name': compound.name,
+                'slug': compound.slug,
+                'description': compound.description or '',
+                'aliases': compound.aliases or '',
+                'smiles': compound.smiles or '',
+                'categories': [{'name': cat.name} for cat in compound.categories.all()],
+                'detail_url': f'/compounds/{compound.slug}/'
+            })
+        
+        return JsonResponse({
+            'compounds': compounds_data,
+            'has_next': compounds_page.has_next(),
+            'next_page': compounds_page.next_page_number() if compounds_page.has_next() else None
+        })
+    
+    # For initial page load, return first page
+    paginator = Paginator(compounds, 12)
+    first_page = paginator.page(1)
+    
+    return render(request, "compounds/compound_list.html", {
+        "compounds": first_page,
+        "has_next": first_page.has_next()
+    })
 
 def mechanism_list(request):
     mechanisms = CompoundMechanismOfAction.objects.all()

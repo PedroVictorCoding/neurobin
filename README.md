@@ -49,6 +49,8 @@ python manage.py createsuperuser
 python manage.py runserver 0.0.0.0:9000
 ```
 
+> 📚 **For detailed setup instructions, see our [Quick Start Guide](documentation/setup/QUICKSTART.md)**
+
 ### Access Points
 - **Backend Admin:** http://localhost:9000/admin/
 - **API Documentation:** http://localhost:9000/api/
@@ -95,15 +97,40 @@ neurobin/
     └── ADMIN_ACCESS.md            # Admin guide
 ```
 
-## 🔗 Related Documentation
+## � Documentation
 
-- **[API Documentation](API_DOCUMENTATION.md)** - Complete REST API reference
-- **[Admin Access Guide](ADMIN_ACCESS.md)** - Administrative features
-- **[Database Schema](DATABASE_SCHEMA.md)** - Data model documentation
-- **[Deployment Guide](DEPLOYMENT.md)** - Production setup instructions
-- **[Development Guide](DEVELOPMENT.md)** - Development workflow and standards
-- **[Features Documentation](FEATURES.md)** - Complete feature overview
-- **[Security Guide](SECURITY.md)** - Security implementation details
+Comprehensive documentation is available in the [`documentation/`](documentation/) folder:
+
+- **[📚 Documentation Portal](documentation/README.md)** - Main documentation hub
+- **[⚡ Quick Start](documentation/setup/QUICKSTART.md)** - Get running in 5 minutes
+- **[🔧 Installation Guide](documentation/setup/INSTALLATION.md)** - Complete setup instructions
+- **[🧬 ChEMBL Import Guide](documentation/guides/CHEMBL_IMPORT_GUIDE.md)** - Import pharmaceutical data
+- **[🔌 API Documentation](documentation/api/API_DOCUMENTATION.md)** - REST API reference
+- **[🏗️ Architecture](documentation/technical/architecture.md)** - Technical architecture
+- **[🚀 Deployment](documentation/setup/DEPLOYMENT.md)** - Production deployment
+- **[👨‍💻 Development](documentation/development/DEVELOPMENT.md)** - Development workflow
+
+### Quick Links
+| Topic | Link |
+|-------|------|
+| Getting Started | [Quick Start Guide](documentation/setup/QUICKSTART.md) |
+| API Usage | [API Documentation](documentation/api/API_DOCUMENTATION.md) |
+| Data Import | [ChEMBL Import System](documentation/guides/CHEMBL_IMPORT_GUIDE.md) |
+| Technical Details | [Architecture Guide](documentation/technical/architecture.md) |
+
+## �🔗 Related Documentation
+
+## 🔗 Legacy Documentation
+
+The following documentation files are being moved to the new structure:
+
+- **[API Documentation](API_DOCUMENTATION.md)** → [New API Docs](documentation/api/API_DOCUMENTATION.md)
+- **[Admin Access Guide](ADMIN_ACCESS.md)** → [New Admin Guide](documentation/guides/ADMIN_ACCESS.md)
+- **[Database Schema](DATABASE_SCHEMA.md)** → [New Schema Docs](documentation/technical/DATABASE_SCHEMA.md)
+- **[Deployment Guide](DEPLOYMENT.md)** → [New Deployment Guide](documentation/setup/DEPLOYMENT.md)
+- **[Development Guide](DEVELOPMENT.md)** → [New Dev Guide](documentation/development/DEVELOPMENT.md)
+- **[Features Documentation](FEATURES.md)** → [New Features Guide](documentation/guides/FEATURES.md)
+- **[Security Guide](SECURITY.md)** → [New Security Guide](documentation/technical/SECURITY.md)
 
 ## 🤝 Contributing
 

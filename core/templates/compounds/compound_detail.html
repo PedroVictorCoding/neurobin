@@ -248,22 +248,6 @@
         </table>
       </div>
       
-      <!-- Interaction Details Modal -->
-      <div class="modal fade" id="interactionDetailModal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-          <div class="modal-content bg-dark">
-            <div class="modal-header">
-              <h5 class="modal-title text-white">Interaction Details</h5>
-              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body text-light">
-              <div id="interactionDetailContent">
-                <!-- Dynamic content will be populated here -->
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </div>
@@ -1520,8 +1504,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 data.interactions.forEach(interaction => {
                     const row = document.createElement('tr');
-                    row.style.cursor = 'pointer';
-                    row.onclick = () => showInteractionDetail(interaction);
                     
                     row.innerHTML = `
                         <td><strong>${interaction.other_compound}</strong></td>
@@ -1551,26 +1533,6 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
             noDataElement.style.display = 'block';
         }
-    }
-
-    // Function to show interaction detail modal
-    function showInteractionDetail(interaction) {
-        const modal = new bootstrap.Modal(document.getElementById('interactionDetailModal'));
-        const content = document.getElementById('interactionDetailContent');
-        
-        content.innerHTML = `
-            <div class="row">
-                <div class="col-md-12">
-                    <h6 class="text-info">Interaction Details</h6>
-                    <p><strong>Compounds:</strong> {{ compound.name }} ↔ ${interaction.other_compound}</p>
-                    <p><strong>Shared Target:</strong> ${interaction.shared_target}</p>
-                    <p><strong>Interaction Type:</strong> ${interaction.interaction_type}</p>
-                    <p><strong>Description:</strong> ${interaction.description || 'No description available.'}</p>
-                </div>
-            </div>
-        `;
-        
-        modal.show();
     }
     
     // Load compound interactions on page load

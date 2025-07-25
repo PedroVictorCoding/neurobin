@@ -11,14 +11,45 @@
   .compound-card {
     transition: transform 0.2s ease, box-shadow 0.2s ease;
   }
+
+  .loading-spinner {
+    display: none;
+    text-align: center;
+    padding: 20px;
+  }
+
+  .loading-spinner.show {
+    display: block;
+  }
+
+  .compound-skeleton {
+    background: linear-gradient(90deg, #2a2a2a 25%, #333 50%, #2a2a2a 75%);
+    background-size: 200% 100%;
+    animation: loading 1.5s infinite;
+  }
+
+  @keyframes loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  .fade-in {
+    animation: fadeIn 0.5s ease-in-out;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 </style>
 
 <div class="d-flex justify-content-center">
   <h1 class="mb-4 text-center">All Compounds</h1>
 </div>
-<div class="row g-4">
+
+<div id="compounds-container" class="row g-4" data-has-next="{% if has_next %}true{% else %}false{% endif %}">
   {% for compound in compounds %}
-    <div class="col-12 col-md-6 col-lg-4 d-flex">
+    <div class="col-12 col-md-6 col-lg-4 d-flex fade-in">
       <a href="{% url 'compound_detail' compound.slug %}" class="text-decoration-none w-100">
         <div class="card bg-neurobin-card text-light shadow p-3 flex-fill w-100 h-100 compound-card">
           <div class="d-flex align-items-center">
@@ -59,4 +90,214 @@
     </div>
   {% endfor %}
 </div>
+
+<!-- Loading spinner -->
+<div id="loading-spinner" class="loading-spinner">
+  <div class="d-flex justify-content-center align-items-center">
+    <div class="spinner-border text-primary me-3" role="status">
+      <span class="visually-hidden">Loading...</span>
+    </div>
+    <span class="text-light">Loading more compounds...</span>
+  </div>
+</div>
+
+<!-- Scroll sentinel for intersection observer -->
+<div id="scroll-sentinel" style="height: 1px; margin-bottom: 50px;"></div>
+
+<!-- No more content message -->
+<div id="no-more-content" class="text-center py-4" style="display: none;">
+  <p class="text-secondary">You've reached the end of the compounds list!</p>
+</div>
+
+<!-- Django template variables for JavaScript -->
+<script>
+  window.neurobin = window.neurobin || {};
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let currentPage = 1;
+    const container = document.getElementById('compounds-container');
+    let hasNext = container.dataset.hasNext === 'true';
+    let isLoading = false;
+    
+    const spinner = document.getElementById('loading-spinner');
+    const noMoreContent = document.getElementById('no-more-content');
+    const scrollSentinel = document.getElementById('scroll-sentinel');
+    
+    // Debug logging
+    console.log('Lazy loading initialized');
+    console.log('Initial hasNext:', hasNext);
+    console.log('Initial page:', currentPage);
+    
+    // Create compound card HTML
+    function createCompoundCard(compound) {
+        let categoriesHtml = '';
+        if (compound.categories && compound.categories.length > 0) {
+            categoriesHtml = '<div class="text-secondary mb-2">';
+            compound.categories.forEach(category => {
+                categoriesHtml += `<span class="badge bg-secondary text-light me-1">${category.name}</span>`;
+            });
+            categoriesHtml += '</div>';
+        }
+        
+        let structureHtml = '';
+        if (compound.smiles) {
+            structureHtml = `
+                <div class="bg-dark rounded me-3 d-flex align-items-center justify-content-center" style="width: 120px; height: 120px; border: 2px solid #7c7c7c;">
+                    <svg class="molecule-viewer" data-smiles="${compound.smiles}" width="116" height="116" style="border-radius: 10px;"></svg>
+                </div>
+            `;
+        } else {
+            structureHtml = `
+                <div class="bg-dark rounded me-3 d-flex align-items-center justify-content-center" style="width: 120px; height: 120px;">
+                    <span class="text-secondary small">No Structure</span>
+                </div>
+            `;
+        }
+        
+        let aliasesHtml = '';
+        if (compound.aliases) {
+            aliasesHtml = `<div class="small text-secondary">${compound.aliases}</div>`;
+        }
+        
+        return `
+            <div class="col-12 col-md-6 col-lg-4 d-flex fade-in">
+                <a href="${compound.detail_url}" class="text-decoration-none w-100">
+                    <div class="card bg-neurobin-card text-light shadow p-3 flex-fill w-100 h-100 compound-card">
+                        <div class="d-flex align-items-center">
+                            ${structureHtml}
+                            <div class="flex-fill">
+                                <div class="mb-2">
+                                    <h5 class="text-light mb-0">${compound.name}</h5>
+                                </div>
+                                ${categoriesHtml}
+                                ${aliasesHtml}
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            </div>
+        `;
+    }
+    
+    // Load more compounds
+    function loadMoreCompounds() {
+        if (isLoading || !hasNext) {
+            console.log('Load more blocked:', { isLoading, hasNext });
+            return;
+        }
+        
+        console.log('Loading page:', currentPage + 1);
+        isLoading = true;
+        spinner.classList.add('show');
+        
+        fetch(`?page=${currentPage + 1}`, {
+            method: 'GET',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => {
+            console.log('Response status:', response.status);
+            return response.json();
+        })
+        .then(data => {
+            console.log('Received data:', data);
+            spinner.classList.remove('show');
+            
+            if (data.compounds && data.compounds.length > 0) {
+                data.compounds.forEach(compound => {
+                    const cardHtml = createCompoundCard(compound);
+                    container.insertAdjacentHTML('beforeend', cardHtml);
+                });
+                
+                // Initialize molecule viewers for new cards
+                if (window.molecularViewer && window.molecularViewer.drawAllMolecules) {
+                    // Small delay to ensure DOM is ready
+                    setTimeout(() => {
+                        window.molecularViewer.drawAllMolecules('.molecule-viewer');
+                        console.log('Reinitialized molecule viewers for new compounds');
+                    }, 100);
+                }
+                
+                currentPage++;
+                hasNext = data.has_next;
+                
+                console.log('Updated state:', { currentPage, hasNext });
+                
+                if (!hasNext) {
+                    noMoreContent.style.display = 'block';
+                    scrollSentinel.style.display = 'none';
+                }
+            } else {
+                hasNext = false;
+                noMoreContent.style.display = 'block';
+                scrollSentinel.style.display = 'none';
+            }
+            
+            isLoading = false;
+        })
+        .catch(error => {
+            console.error('Error loading compounds:', error);
+            spinner.classList.remove('show');
+            isLoading = false;
+        });
+    }
+    
+    // Intersection Observer for infinite scroll
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            console.log('Intersection observed:', entry.isIntersecting, { hasNext, isLoading });
+            if (entry.isIntersecting && hasNext && !isLoading) {
+                loadMoreCompounds();
+            }
+        });
+    }, {
+        rootMargin: '50px' // Start loading 50px before reaching the sentinel
+    });
+    
+    // Observe the scroll sentinel element
+    if (scrollSentinel) {
+        observer.observe(scrollSentinel);
+        console.log('Observer attached to sentinel');
+    }
+    
+    // Fallback scroll listener
+    let scrollTimeout;
+    window.addEventListener('scroll', function() {
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(function() {
+            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+            const windowHeight = window.innerHeight;
+            const documentHeight = document.documentElement.scrollHeight;
+            
+            // If user scrolled to within 200px of bottom
+            if (scrollTop + windowHeight >= documentHeight - 200) {
+                console.log('Scroll threshold reached');
+                if (hasNext && !isLoading) {
+                    loadMoreCompounds();
+                }
+            }
+        }, 100);
+    });
+    
+    // Manual load more button (backup)
+    spinner.addEventListener('click', function() {
+        if (!isLoading && hasNext) {
+            loadMoreCompounds();
+        }
+    });
+    
+    // Initialize molecule viewers for initial load
+    if (window.molecularViewer && window.molecularViewer.drawAllMolecules) {
+        // Wait a bit for the DOM to be fully ready
+        setTimeout(() => {
+            window.molecularViewer.drawAllMolecules('.molecule-viewer');
+            console.log('Initialized molecule viewers for initial load');
+        }, 200);
+    }
+});
+</script>
 {% endblock %}
