@@ -483,4 +483,3 @@ class EffectWindowViewSet(viewsets.ModelViewSet):
                 'half_life_minutes': effect_window.half_life_minutes,
             }
         })
-

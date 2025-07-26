@@ -29,6 +29,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', views.home, name='home'),
     path('demo/effect-curves/', views.effect_curves_demo, name='effect_curves_demo'),
+    path('credits/', views.credits, name='credits'),
     path('compounds/', include('compounds.urls')),
     path('accounts/', include('accounts.urls')),
     path('logs/', include('logs.urls')),

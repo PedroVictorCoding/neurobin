@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Analytics Dashboard{% endblock %}
 {% block content %}
+{% csrf_token %}
 <div class="container" style="max-width: 1200px;">
   <h2 class="mb-4">Analytics Dashboard</h2>
   
@@ -17,20 +18,32 @@
     <div class="col-md-6">
       <div class="card bg-neurobin-card p-4 shadow h-100">
         <h4 class="text-white mb-3">
-          <i class="fas fa-chart-bar me-2"></i>Intake Statistics
+          <i class="fas fa-chart-pie me-2"></i>Top 10 Compounds by Intake Frequency
         </h4>
         <div id="intakeStatsLoading" class="text-center p-4" style="display: none;">
           <div class="spinner-border text-primary" role="status">
             <span class="visually-hidden">Loading...</span>
           </div>
-          <p class="mt-2 text-muted">Loading intake statistics...</p>
+          <p class="mt-2 text-muted">Loading intake frequency...</p>
         </div>
         <div id="intakeStatsNoData" class="text-center p-4" style="display: none;">
-          <i class="fas fa-chart-bar fa-3x text-muted mb-3"></i>
+          <i class="fas fa-chart-pie fa-3x text-muted mb-3"></i>
           <h6 class="text-muted">No Intake Data Available</h6>
           <p class="text-muted">No intake logs found for analysis.</p>
         </div>
-        <canvas id="intakeChart" style="width:100%;max-width:100%;max-height:300px;"></canvas>
+        <canvas id="intakeChart" style="width:100%;max-width:100%;max-height:250px;"></canvas>
+        
+        <!-- Custom Dropdown Legend -->
+        <div class="mt-3" id="chartLegendContainer" style="display: none;">
+          <div class="dropdown">
+            <button class="btn btn-outline-light btn-sm dropdown-toggle w-100" type="button" id="chartLegendDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+              <i class="fas fa-list me-2"></i>View Top 10 Breakdown
+            </button>
+            <ul class="dropdown-menu dropdown-menu-dark w-100" aria-labelledby="chartLegendDropdown" id="chartLegendList">
+              <!-- Legend items will be populated here -->
+            </ul>
+          </div>
+        </div>
       </div>
     </div>
     
@@ -106,7 +119,7 @@
         </h4>
         
         {% if logs %}
-          <div class="recent-logs" style="max-height: 300px; overflow-y: auto;">
+          <div class="recent-logs" style="max-height: 300px; overflow-y: auto;overflow-x: hidden;">
             {% for log in logs|slice:":5" %}
               <div class="log-item p-2 mb-2 border-bottom border-secondary">
                 <div class="d-flex justify-content-between align-items-start">
@@ -445,6 +458,34 @@
   box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
 }
 
+/* Chart legend dropdown styling */
+.legend-color-box {
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#chartLegendDropdown {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+#chartLegendDropdown:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.dropdown-menu-dark .dropdown-item {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dropdown-menu-dark .dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.dropdown-menu-dark .dropdown-item:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
 /* Edit button styling */
 .edit-intake-btn {
   border: 1px solid #17a2b8;
@@ -508,27 +549,46 @@ function loadIntakeStats() {
         return;
       }
 
-      // Process data for chart
+      // Process data for chart - count number of intakes per compound
       const compoundCounts = {};
       data.results.forEach(log => {
-        const compoundName = log.compound_name || log.compound;
+        // Get compound name from the compound object
+        const compoundName = log.compound && log.compound.name ? log.compound.name : 'Unknown Compound';
         compoundCounts[compoundName] = (compoundCounts[compoundName] || 0) + 1;
       });
 
-      // Create chart
-      const labels = Object.keys(compoundCounts);
-      const values = Object.values(compoundCounts);
+      // Filter out compounds with zero count, sort by count, and take top 10
+      const filteredData = Object.entries(compoundCounts)
+        .filter(([name, count]) => count > 0)
+        .sort(([,a], [,b]) => b - a) // Sort by count descending
+        .slice(0, 10); // Take only top 10
+
+      if (filteredData.length === 0) {
+        noDataElement.style.display = 'block';
+        return;
+      }
+
+      // Create chart data with dynamic colors
+      const labels = filteredData.map(([name, count]) => name);
+      const values = filteredData.map(([name, count]) => count);
       
-      new Chart(chartElement, {
+      // Generate consistent colors for each compound
+      const colors = [
+        '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', 
+        '#9966FF', '#FF9F40', '#FF6B6B', '#4ECDC4',
+        '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD',
+        '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
+      ];
+      
+      const backgroundColor = labels.map((_, index) => colors[index % colors.length]);
+      
+      const chart = new Chart(chartElement, {
         type: 'doughnut',
         data: {
           labels: labels,
           datasets: [{
             data: values,
-            backgroundColor: [
-              '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', 
-              '#9966FF', '#FF9F40', '#FF6384', '#36A2EB'
-            ],
+            backgroundColor: backgroundColor,
             borderWidth: 2,
             borderColor: '#2a2a2a'
           }]
@@ -538,23 +598,69 @@ function loadIntakeStats() {
           maintainAspectRatio: false,
           plugins: {
             legend: {
-              position: 'bottom',
-              labels: {
-                color: '#ffffff',
-                font: {
-                  size: 12
+              display: false // Disable default legend
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const label = context.label || '';
+                  const value = context.parsed;
+                  const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                  const percentage = ((value / total) * 100).toFixed(1);
+                  const timesText = value === 1 ? 'time' : 'times';
+                  return `${label}: ${value} ${timesText} (${percentage}%)`;
                 }
               }
             }
           }
         }
       });
+      
+      // Create custom dropdown legend
+      createDropdownLegend(labels, values, backgroundColor);
     })
     .catch(error => {
       console.error('Error loading intake stats:', error);
       loadingElement.style.display = 'none';
       noDataElement.style.display = 'block';
     });
+}
+
+// Function to create dropdown legend
+function createDropdownLegend(labels, values, colors) {
+  const legendContainer = document.getElementById('chartLegendContainer');
+  const legendList = document.getElementById('chartLegendList');
+  
+  if (!legendContainer || !legendList) return;
+  
+  // Clear existing legend items
+  legendList.innerHTML = '';
+  
+  // Calculate total for percentages
+  const total = values.reduce((a, b) => a + b, 0);
+  
+  // Create legend items
+  labels.forEach((label, index) => {
+    const value = values[index];
+    const percentage = ((value / total) * 100).toFixed(1);
+    const timesText = value === 1 ? 'time' : 'times';
+    const color = colors[index];
+    
+    const legendItem = document.createElement('li');
+    legendItem.innerHTML = `
+      <a class="dropdown-item d-flex align-items-center" href="#" onclick="return false;">
+        <div class="legend-color-box me-2" style="width: 16px; height: 16px; background-color: ${color}; border-radius: 2px;"></div>
+        <div class="flex-grow-1">
+          <div class="fw-bold">${label}</div>
+          <small class="text-muted">${value} ${timesText} (${percentage}%)</small>
+        </div>
+      </a>
+    `;
+    legendList.appendChild(legendItem);
+  });
+  
+  // Show the legend container
+  legendContainer.style.display = 'block';
 }
 
 // Function to set up edit button event listeners

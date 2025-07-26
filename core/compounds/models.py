@@ -93,6 +93,12 @@ class Target(models.Model):
         blank=True, 
         help_text="Organism (e.g., Homo sapiens, Mus musculus)"
     )
+    gene_name = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text="Gene name/symbol (e.g., HTR2A, DRD2)"
+    )
 
     class Meta:
         verbose_name = "Target"
@@ -721,4 +727,3 @@ class CompoundToCompoundTargetInteraction(models.Model):
             return interaction.mechanism
         except CompoundTargetInteraction.DoesNotExist:
             return 'unknown'
-

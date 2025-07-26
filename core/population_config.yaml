@@ -1,0 +1,248 @@
+# Neurobin Data Population Configuration
+# Edit this file to customize data population behavior
+
+# API Configuration
+API_SETTINGS:
+  # Rate limiting (seconds between requests)
+  chembl_rate_limit: 0.1
+  reactome_rate_limit: 0.2
+  pubchem_rate_limit: 0.2
+  uniprot_rate_limit: 0.1
+  
+  # Request timeouts (seconds)
+  request_timeout: 30
+  
+  # Retry configuration
+  max_retries: 3
+  retry_backoff: 2  # Exponential backoff multiplier
+  
+  # User agent for API requests
+  user_agent: "Neurobin-DataPopulation/1.0 (research purposes)"
+
+# Data Limits (set to null for no limits)
+DATA_LIMITS:
+  # External API data
+  max_targets_from_chembl: 5000
+  max_compounds_from_chembl: 10000
+  max_mechanisms_from_chembl: 15000
+  max_pathways_from_reactome: 2000
+  
+  # Generated/synthetic data
+  max_research_snippets: 2000
+  max_user_profiles: 100
+  max_intake_logs: 5000
+  max_compound_ratings: 10000
+  max_effect_windows: 1000
+  max_compound_interactions: 2000
+  max_change_requests: 500
+  
+  # Relationships
+  max_pathway_effects: 10000
+  max_target_interactions: 15000
+
+# Data Quality Settings
+QUALITY_SETTINGS:
+  # Minimum confidence scores
+  min_mechanism_confidence: 0.3
+  min_pathway_confidence: 0.2
+  min_interaction_confidence: 0.4
+  
+  # Data validation
+  require_smiles_for_compounds: true
+  require_uniprot_for_targets: false
+  validate_molecular_weights: true
+  
+  # Filtering
+  skip_compounds_without_mechanisms: false
+  skip_targets_without_pathways: false
+  filter_by_species: ["Homo sapiens"]  # null for all species
+
+# Content Generation Settings
+CONTENT_SETTINGS:
+  # Research snippet generation
+  snippet_types:
+    - experience_report
+    - research_paper
+    - clinical_data
+    - mechanism_study
+    - safety_report
+    - dosage_guide
+  
+  # User-generated content diversity
+  rating_distribution:
+    1: 0.05  # 5% 1-star ratings
+    2: 0.10  # 10% 2-star ratings
+    3: 0.30  # 30% 3-star ratings
+    4: 0.35  # 35% 4-star ratings
+    5: 0.20  # 20% 5-star ratings
+  
+  # Effect window parameters
+  effect_shapes:
+    - linear
+    - exponential
+    - logarithmic
+    - bell_curve
+    - plateau
+    - biphasic
+  
+  # Safety risk distribution
+  risk_levels:
+    low: 0.40
+    medium: 0.35
+    high: 0.20
+    unknown: 0.05
+
+# Database Settings
+DATABASE_SETTINGS:
+  # Batch processing
+  batch_size: 1000
+  commit_frequency: 100  # Commit every N objects
+  
+  # Performance optimization
+  use_bulk_create: true
+  disable_signals: false  # Set to true for faster imports
+  optimize_queries: true
+  
+  # Backup before population
+  create_backup: true
+  backup_location: "./backups/"
+
+# Species and Organism Settings
+SPECIES_SETTINGS:
+  primary_species: "Homo sapiens"
+  primary_tax_id: "9606"
+  
+  # Include data for these species
+  included_species:
+    - "Homo sapiens"
+    - "Mus musculus"
+    - "Rattus norvegicus"
+  
+  # Organism mappings for external APIs
+  organism_mappings:
+    "9606": "Homo sapiens"
+    "10090": "Mus musculus"
+    "10116": "Rattus norvegicus"
+
+# Logging Configuration
+LOGGING_SETTINGS:
+  # Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_level: "INFO"
+  
+  # Log file settings
+  log_to_file: true
+  log_file: "data_population.log"
+  error_log_file: "population_errors.log"
+  
+  # Console output
+  show_progress_bars: true
+  colored_output: true
+  
+  # Performance logging
+  log_api_response_times: true
+  log_database_query_times: false
+
+# External Data Sources
+DATA_SOURCES:
+  # Primary sources (always used)
+  chembl:
+    enabled: true
+    base_url: "https://www.ebi.ac.uk/chembl/api/data/"
+    version: "latest"
+  
+  reactome:
+    enabled: true
+    base_url: "https://reactome.org/ContentService/"
+    species_filter: ["9606"]  # Homo sapiens
+  
+  # Secondary sources (optional)
+  pubchem:
+    enabled: true
+    base_url: "https://pubchem.ncbi.nlm.nih.gov/rest/pug/"
+    use_for_validation: true
+  
+  uniprot:
+    enabled: true
+    base_url: "https://rest.uniprot.org/"
+    use_for_protein_data: true
+  
+  # Tertiary sources (can be disabled)
+  drugbank:
+    enabled: false  # Requires API key
+    api_key: null
+  
+  kegg:
+    enabled: false  # Limited free access
+    base_url: "https://rest.kegg.jp/"
+
+# Data Enrichment Settings
+ENRICHMENT_SETTINGS:
+  # Automatic data enhancement
+  calculate_molecular_descriptors: true
+  predict_admet_properties: false  # Requires additional libraries
+  generate_ai_summaries: true
+  
+  # Cross-reference linking
+  link_to_external_databases: true
+  validate_external_ids: true
+  
+  # Pathway analysis
+  perform_pathway_enrichment: true
+  calculate_network_metrics: true
+
+# Custom Data Settings
+CUSTOM_DATA:
+  # Add custom compound categories
+  additional_categories:
+    - "Research Tools"
+    - "Experimental Compounds"
+    - "Natural Extracts"
+    - "Synthetic Analogs"
+  
+  # Custom target types
+  additional_target_types:
+    - "membrane_protein"
+    - "secreted_enzyme"
+    - "nuclear_protein"
+  
+  # Custom interaction types
+  additional_interaction_types:
+    - "allosteric_enhancement"
+    - "cooperative_binding"
+    - "functional_selectivity"
+
+# Advanced Settings
+ADVANCED_SETTINGS:
+  # Parallel processing
+  max_workers: 4  # Number of concurrent threads
+  use_multiprocessing: false  # Use processes instead of threads
+  
+  # Memory management
+  max_memory_usage: "2GB"  # Limit memory usage
+  gc_frequency: 1000  # Garbage collection frequency
+  
+  # Error handling
+  continue_on_api_errors: true
+  skip_problematic_records: true
+  max_consecutive_errors: 50
+  
+  # Data validation
+  validate_chemical_structures: true
+  check_duplicate_entries: true
+  verify_foreign_key_constraints: true
+
+# Export Settings
+EXPORT_SETTINGS:
+  # Data export formats
+  export_formats:
+    - json
+    - csv
+    - sql
+  
+  # Export location
+  export_directory: "./exports/"
+  
+  # What to export
+  export_summary_statistics: true
+  export_data_samples: true
+  create_data_dictionary: true

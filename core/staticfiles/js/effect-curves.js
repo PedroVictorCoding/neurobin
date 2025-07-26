@@ -1,4 +1,93 @@
 /**
+ * Global compound color manager for consistent colors across all charts
+ */
+window.CompoundColorManager = {
+    compoundColors: new Map(),
+    
+    /**
+     * Get or assign a color for a compound name
+     */
+    getColorForCompound(compoundName) {
+        // Normalize compound name for consistency
+        const normalizedName = compoundName.trim().toLowerCase();
+        
+        if (!this.compoundColors.has(normalizedName)) {
+            // Instead of using hash, assign colors sequentially to ensure uniqueness
+            const assignedColors = Array.from(this.compoundColors.values());
+            const color = this.getNextAvailableColor(assignedColors);
+            this.compoundColors.set(normalizedName, color);
+            console.log(`Global color manager assigned color ${color} to compound ${compoundName}`); // Debug log
+        }
+        return this.compoundColors.get(normalizedName);
+    },
+
+    /**
+     * Get the next available color that hasn't been assigned yet
+     */
+    getNextAvailableColor(assignedColors) {
+        const colors = [
+            '#FF6384', // Red/Pink
+            '#36A2EB', // Blue  
+            '#FFCE56', // Yellow
+            '#4BC0C0', // Teal
+            '#9966FF', // Purple
+            '#FF9F40', // Orange
+            '#FF6B9D', // Pink
+            '#2ECC71', // Green
+            '#E74C3C', // Red
+            '#3498DB', // Light Blue
+            '#F39C12', // Orange
+            '#9B59B6', // Purple
+            '#1ABC9C', // Turquoise
+            '#E67E22', // Dark Orange
+            '#34495E', // Dark Gray
+            '#16A085', // Dark Teal
+            '#27AE60', // Dark Green
+            '#8E44AD', // Dark Purple
+            '#2980B9', // Dark Blue
+            '#D35400', // Burnt Orange
+            '#C0392B', // Dark Red
+            '#8B4513', // Saddle Brown
+            '#556B2F', // Dark Olive Green
+            '#4B0082', // Indigo
+            '#DC143C', // Crimson
+            '#FF1493', // Deep Pink
+            '#00CED1', // Dark Turquoise
+            '#FF4500', // Red Orange
+            '#32CD32', // Lime Green
+            '#BA55D3'  // Medium Orchid
+        ];
+        
+        // Find the first color that hasn't been assigned
+        for (const color of colors) {
+            if (!assignedColors.includes(color)) {
+                return color;
+            }
+        }
+        
+        // If all predefined colors are used, generate a random color
+        return this.generateRandomColor();
+    },
+
+    /**
+     * Generate a random color when all predefined colors are exhausted
+     */
+    generateRandomColor() {
+        const hue = Math.floor(Math.random() * 360);
+        const saturation = 70 + Math.floor(Math.random() * 30); // 70-100%
+        const lightness = 45 + Math.floor(Math.random() * 20);  // 45-65%
+        return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+    },
+
+    /**
+     * Get all assigned compound colors (for debugging)
+     */
+    getAllCompoundColors() {
+        return Object.fromEntries(this.compoundColors);
+    }
+};
+
+/**
  * Effect Curve Visualization
  * Uses Chart.js to render compound effect curves over time
  */
@@ -8,7 +97,6 @@ class EffectCurveChart {
         this.canvas = document.getElementById(canvasId);
         this.ctx = this.canvas.getContext('2d');
         this.chart = null;
-        this.compoundColors = new Map(); // Store compound name -> color mapping
         this.options = {
             responsive: true,
             maintainAspectRatio: false,
@@ -33,6 +121,92 @@ class EffectCurveChart {
                 interaction: {
                     mode: 'index',
                     intersect: false,
+                },
+                plugins: {
+                    zoom: {
+                        zoom: {
+                            wheel: {
+                                enabled: !this.options.showRelativeTime, // Only enable zoom for timeline view (analytics dashboard)
+                            },
+                            pinch: {
+                                enabled: !this.options.showRelativeTime // Only enable zoom for timeline view (analytics dashboard)
+                            },
+                            mode: 'x', // Only zoom on x-axis (time)
+                            scaleMode: 'x', // Only scale x-axis
+                        },
+                        pan: {
+                            enabled: !this.options.showRelativeTime, // Only enable pan for timeline view (analytics dashboard)
+                            mode: 'x', // Only pan on x-axis
+                            scaleMode: 'x',
+                        },
+                        limits: {
+                            x: {
+                                min: 0,    // 00:00 (start of day)
+                                max: 1440, // 24:00 (end of day - 1440 minutes)
+                                minRange: 60 // Minimum zoom range of 1 hour (60 minutes)
+                            }
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Effect Curves Over Time'
+                    },
+                    legend: {
+                        display: false, // Disable the chart legend
+                        position: 'top'
+                    },
+                    tooltip: {
+                        enabled: true, // Enable tooltips to show compound info
+                        mode: 'nearest',
+                        intersect: false,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: 'white',
+                        bodyColor: 'white',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1,
+                        callbacks: {
+                            title: (context) => {
+                                const value = context[0].parsed.x;
+                                if (this.options.showRelativeTime) {
+                                    const hours = Math.floor(value / 60);
+                                    const minutes = value % 60;
+                                    return `T+${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                                } else {
+                                    // Convert minutes from midnight to HH:MM format
+                                    const totalMinutes = Math.floor(value);
+                                    const hours = Math.floor(totalMinutes / 60) % 24;
+                                    const minutes = totalMinutes % 60;
+                                    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                                }
+                            },
+                            label: (context) => {
+                                const dataset = context.dataset;
+                                const compoundName = dataset.metadata?.compound?.name || 'Unknown Compound';
+                                const value = Math.round(context.parsed.y * 10) / 10;
+                                
+                                // Show compound name and dose if available
+                                let label = `${compoundName}: ${value}%`;
+                                if (dataset.metadata?.intake) {
+                                    const intake = dataset.metadata.intake;
+                                    label += ` (${intake.amount}${intake.unit})`;
+                                }
+                                
+                                return label;
+                            },
+                            afterLabel: (context) => {
+                                // Add additional compound info if available
+                                const compound = context.dataset.metadata?.compound;
+                                if (compound?.description) {
+                                    const description = compound.description;
+                                    if (description.length > 100) {
+                                        return `${description.substring(0, 100)}...`;
+                                    }
+                                    return description;
+                                }
+                                return null;
+                            }
+                        }
+                    }
                 },
                 scales: {
                     x: {
@@ -70,41 +244,6 @@ class EffectCurveChart {
                         max: 100,
                         ticks: {
                             callback: (value) => `${value}%`
-                        }
-                    }
-                },
-                plugins: {
-                    title: {
-                        display: true,
-                        text: 'Effect Curves Over Time'
-                    },
-                    legend: {
-                        display: true,
-                        position: 'top'
-                    },
-                    tooltip: {
-                        mode: 'index',
-                        intersect: false,
-                        callbacks: {
-                            title: (context) => {
-                                const value = context[0].parsed.x;
-                                if (this.options.showRelativeTime) {
-                                    const hours = Math.floor(value / 60);
-                                    const minutes = value % 60;
-                                    return `T+${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-                                } else {
-                                    // Convert minutes from midnight to HH:MM format
-                                    const totalMinutes = Math.floor(value);
-                                    const hours = Math.floor(totalMinutes / 60) % 24;
-                                    const minutes = totalMinutes % 60;
-                                    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-                                }
-                            },
-                            label: (context) => {
-                                const datasetLabel = context.dataset.label || '';
-                                const value = Math.round(context.parsed.y * 10) / 10;
-                                return `${datasetLabel}: ${value}%`;
-                            }
                         }
                     }
                 }
@@ -157,12 +296,12 @@ class EffectCurveChart {
             label: `${effectData.compound.name}${intakeData ? ` (${intakeData.amount}${intakeData.unit})` : ''}`,
             data: chartData,
             borderColor: color,
-            backgroundColor: color + '20', // Add transparency
+            backgroundColor: color + '30', // Semitransparent fill (30% opacity)
             borderWidth: 2,
-            fill: false,
+            fill: true, // Enable fill area under the curve
             tension: 0.1,
-            pointRadius: 1,
-            pointHoverRadius: 5,
+            pointRadius: 0, // Start with data points hidden
+            pointHoverRadius: 0, // Start with hover disabled
             metadata: {
                 compound: effectData.compound,
                 effectWindow: effectData,
@@ -212,10 +351,15 @@ class EffectCurveChart {
                         timeOffset = Math.floor((intakeTime - referenceDate) / (1000 * 60));
                     }
                 } else {
-                    // For timeline, we want to show the time in the user's local timezone
-                    // JavaScript automatically converts UTC to local timezone when parsing
-                    timeOffset = intakeTime.getHours() * 60 + intakeTime.getMinutes();
-                    console.log(`Using local time: ${Math.floor(timeOffset/60)}:${String(timeOffset%60).padStart(2, '0')}`); // Debug log
+                    // For timeline, use UTC time to match Django's storage format
+                    // This ensures consistent display regardless of browser timezone
+                    // TODO: Consider adding user timezone preference in the future
+                    timeOffset = intakeTime.getUTCHours() * 60 + intakeTime.getUTCMinutes();
+                    console.log(`Original intake time string: ${intake.taken_at}`); // Debug log
+                    console.log(`Parsed as Date: ${intakeTime.toString()}`); // Debug log
+                    console.log(`UTC hours: ${intakeTime.getUTCHours()}, minutes: ${intakeTime.getUTCMinutes()}`); // Debug log
+                    console.log(`Local hours: ${intakeTime.getHours()}, minutes: ${intakeTime.getMinutes()}`); // Debug log
+                    console.log(`Using UTC time - Calculated timeOffset: ${timeOffset} minutes = ${Math.floor(timeOffset/60)}:${String(timeOffset%60).padStart(2, '0')}`); // Debug log
                 }
                 console.log(`Calculated timeOffset: ${timeOffset} minutes from midnight`); // Debug log
             }
@@ -300,73 +444,10 @@ class EffectCurveChart {
     }
     
     /**
-     * Get or assign a color for a compound name
+     * Get or assign a color for a compound name (uses global color manager)
      */
     getColorForCompound(compoundName) {
-        // Normalize compound name for consistency
-        const normalizedName = compoundName.trim().toLowerCase();
-        
-        if (!this.compoundColors.has(normalizedName)) {
-            // Generate a deterministic color based on compound name
-            const color = this.generateColorFromName(compoundName);
-            this.compoundColors.set(normalizedName, color);
-        }
-        return this.compoundColors.get(normalizedName);
-    }
-    
-    /**
-     * Get all assigned compound colors (for debugging)
-     */
-    getAllCompoundColors() {
-        return Object.fromEntries(this.compoundColors);
-    }
-    
-    /**
-     * Generate a deterministic color based on compound name
-     */
-    generateColorFromName(compoundName) {
-        // Normalize compound name (trim, lowercase) for consistency
-        const normalizedName = compoundName.trim().toLowerCase();
-        
-        // Improved hash function with better distribution
-        let hash = 0;
-        if (normalizedName.length === 0) return '#FF6384'; // Default color
-        
-        for (let i = 0; i < normalizedName.length; i++) {
-            const char = normalizedName.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash = hash & hash; // Convert to 32-bit integer
-        }
-        
-        // Add the string length to the hash for better distribution
-        hash = hash + normalizedName.length * 31;
-        
-        // Use a larger set of distinct colors
-        const colors = [
-            '#FF6384', // Red/Pink
-            '#36A2EB', // Blue  
-            '#FFCE56', // Yellow
-            '#4BC0C0', // Teal
-            '#9966FF', // Purple
-            '#FF9F40', // Orange
-            '#FF6B9D', // Pink
-            '#C9CBCF', // Gray
-            '#2ECC71', // Green
-            '#E74C3C', // Red
-            '#3498DB', // Blue
-            '#F39C12', // Orange
-            '#9B59B6', // Purple
-            '#1ABC9C', // Turquoise
-            '#E67E22', // Orange
-            '#34495E', // Dark Gray
-            '#16A085', // Teal
-            '#27AE60', // Green
-            '#8E44AD', // Purple
-            '#2980B9'  // Blue
-        ];
-        
-        const index = Math.abs(hash) % colors.length;
-        return colors[index];
+        return window.CompoundColorManager.getColorForCompound(compoundName);
     }
     
     /**

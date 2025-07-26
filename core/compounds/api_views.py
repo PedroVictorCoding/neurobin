@@ -1,11 +1,12 @@
 from rest_framework import generics, status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from django.db.models import Q
+from django.db.models import Q, Prefetch
 from .models import (
     Compound,
     CompoundTargetInteraction,
-    CompoundToCompoundTargetInteraction
+    CompoundToCompoundTargetInteraction,
+    Target
 )
 from .serializers import (
     CompoundTargetInteractionSerializer,
@@ -165,3 +166,4 @@ def compound_search_api(request):
         })
     
     return Response({'compounds': results})
+

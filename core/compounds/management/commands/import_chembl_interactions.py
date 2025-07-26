@@ -53,12 +53,22 @@ class ChEMBLImporter:
         'substrate': 'substrate',
         'inducer': 'inducer',
         'modulator': 'modulator',
-        'positive modulator': 'modulator',
-        'negative modulator': 'modulator',
+        'positive modulator': 'pam',  # More specific for synergy detection
+        'positive allosteric modulator': 'pam',
+        'pam': 'pam',
+        'negative modulator': 'nam',
+        'negative allosteric modulator': 'nam', 
+        'nam': 'nam',
         'blocker': 'blocker',
         'channel blocker': 'blocker',
         'opener': 'opener',
+        'channel opener': 'opener',
         'activator': 'activator',
+        'binder': 'binder',
+        'binding': 'binder',
+        'high affinity binding': 'binder',
+        'inverse agonist': 'antagonist',  # Functionally similar to antagonist
+        'partial inverse agonist': 'antagonist',
     }
     
     def __init__(self, slow_mode: bool = False):
@@ -85,13 +95,13 @@ class ChEMBLImporter:
             ('inhibitor', 'Inhibitor', 'Prevents or reduces target activity', 'inhibition'),
             ('activator', 'Activator', 'Increases target activity or function', 'activation'),
             ('modulator', 'Modulator', 'Alters target activity (positive or negative)', 'modulation'),
+            ('pam', 'Positive Allosteric Modulator', 'Enhances target activity through allosteric binding', 'activation'),
+            ('nam', 'Negative Allosteric Modulator', 'Reduces target activity through allosteric binding', 'inhibition'),
             ('blocker', 'Blocker', 'Blocks target function or pathway', 'inhibition'),
             ('opener', 'Opener', 'Opens or activates channels/gates', 'activation'),
             ('inducer', 'Inducer', 'Increases expression or production of target', 'activation'),
             ('substrate', 'Substrate', 'Acts as a substrate for enzymatic activity', 'interaction'),
             ('binder', 'Binder', 'Binds to target without clear functional effect', 'interaction'),
-            ('pam', 'Positive Allosteric Modulator', 'Enhances target activity through allosteric binding', 'modulation'),
-            ('nam', 'Negative Allosteric Modulator', 'Reduces target activity through allosteric binding', 'modulation'),
             ('unknown', 'Unknown', 'Mechanism of action not determined', 'unknown'),
         ]
         
@@ -213,10 +223,10 @@ class ChEMBLImporter:
                     return None
     
     def get_compound_mechanisms(self, chembl_id: str) -> List[Dict]:
-        """Fetch comprehensive mechanism data for a compound from both mechanism and activity endpoints."""
+        """Fetch drug mechanism data for a compound from ChEMBL mechanism endpoint only."""
         mechanisms = []
         
-        # 1. Get explicit mechanisms from ChEMBL mechanism endpoint
+        # Get only explicit drug mechanisms from ChEMBL mechanism endpoint
         url = f"{self.BASE_URL}/mechanism.json"
         params = {'molecule_chembl_id': chembl_id, 'limit': 50}
         
@@ -224,97 +234,32 @@ class ChEMBLImporter:
         if data:
             explicit_mechanisms = data.get('mechanisms', [])
             for mech in explicit_mechanisms:
-                mechanisms.append({
-                    **mech,
-                    'source': 'mechanism',
-                    'priority': 1  # Explicit mechanisms have highest priority
-                })
+                # Only include mechanisms with actual mechanism_of_action data
+                mechanism_action = mech.get('mechanism_of_action', '').strip()
+                if mechanism_action and mechanism_action.lower() != 'unknown':
+                    mechanisms.append({
+                        **mech,
+                        'source': 'mechanism',
+                        'priority': 1  # All are explicit drug mechanisms
+                    })
         
-        # 2. Get high-affinity targets from activity data
-        activity_url = f"{self.BASE_URL}/activity.json"
-        activity_params = {
-            'molecule_chembl_id': chembl_id,
-            'limit': 100,
-            'standard_type__in': 'IC50,EC50,Ki,Kd,pIC50,pEC50,pKi,pKd',
-            'target_type': 'SINGLE PROTEIN'  # Focus on single protein targets
-        }
+        # Note: Removed activity-based "high affinity binding" mechanisms
+        # Now only showing curated drug mechanisms from ChEMBL
         
-        activity_data = self.fetch_with_retry(activity_url, activity_params)
-        if activity_data:
-            activities = activity_data.get('activities', [])
-            
-            # Group by target and find best affinity
-            target_affinities = {}
-            for activity in activities:
-                target_id = activity.get('target_chembl_id')
-                if not target_id:
-                    continue
-                
-                # Convert activity values to comparable format (lower is better for IC50/Ki)
-                standard_value = activity.get('standard_value')
-                standard_type = activity.get('standard_type', '').lower()
-                pchembl_value = activity.get('pchembl_value')
-                
-                if not standard_value and not pchembl_value:
-                    continue
-                
-                # Use pChEMBL value if available (higher is better), otherwise convert standard value
-                if pchembl_value:
-                    affinity_score = float(pchembl_value)
-                elif standard_value:
-                    try:
-                        value = float(standard_value)
-                        # Convert to pValue (higher is better)
-                        if value > 0:
-                            import math
-                            if standard_type.startswith('p'):
-                                affinity_score = value  # Already a p-value
-                            else:
-                                # Convert to -log10(value in M)
-                                # Assume nM if no units specified
-                                value_in_m = value / 1e9 if value > 1 else value / 1e6
-                                affinity_score = -math.log10(value_in_m)
-                        else:
-                            continue
-                    except (ValueError, TypeError):
-                        continue
-                else:
-                    continue
-                
-                # Keep the best affinity for each target
-                if target_id not in target_affinities or affinity_score > target_affinities[target_id]['affinity']:
-                    target_affinities[target_id] = {
-                        'affinity': affinity_score,
-                        'target_pref_name': activity.get('target_pref_name', ''),
-                        'standard_type': standard_type,
-                        'standard_value': standard_value,
-                        'pchembl_value': pchembl_value,
-                        'assay_description': activity.get('assay_description', '')
-                    }
-            
-            # Add high-affinity targets as mechanisms (affinity > 6.0 pValue = < 1μM)
-            for target_id, data in target_affinities.items():
-                if data['affinity'] >= 6.0:  # High affinity threshold
-                    # Skip if we already have this target from explicit mechanisms
-                    existing_targets = [m.get('target_chembl_id') for m in mechanisms]
-                    if target_id not in existing_targets:
-                        mechanisms.append({
-                            'target_chembl_id': target_id,
-                            'mechanism_of_action': f"High affinity binding (pActivity: {data['affinity']:.1f})",
-                            'source': 'activity',
-                            'priority': 2,  # Activity-derived mechanisms have lower priority
-                            'affinity_score': data['affinity'],
-                            'target_pref_name': data['target_pref_name'],
-                            'assay_info': data['assay_description'][:100] if data['assay_description'] else ''
-                        })
+        # Sort by mechanism relevance (more specific mechanisms first)
+        def mechanism_priority(mech):
+            action = mech.get('mechanism_of_action', '').lower()
+            # Prioritize specific mechanisms over generic ones
+            if any(specific in action for specific in ['agonist', 'antagonist', 'inhibitor', 'activator']):
+                return 1
+            elif any(mod in action for mod in ['modulator', 'blocker', 'opener']):
+                return 2  
+            else:
+                return 3
         
-        # Sort by priority (explicit mechanisms first) then by affinity
-        mechanisms.sort(key=lambda x: (
-            x.get('priority', 3),
-            -x.get('affinity_score', 0)
-        ))
+        mechanisms.sort(key=mechanism_priority)
         
-        return mechanisms[:15]  # Return top 15 most relevant mechanisms
+        return mechanisms  # Return all drug mechanisms (no arbitrary limit)
     
     def get_compound_activities(self, chembl_id: str) -> List[Dict]:
         """Fetch activity data for affinity level calculation."""
@@ -1702,21 +1647,21 @@ class Command(BaseCommand):
         return clean_indication
     
     def _add_compound_mechanisms(self, compound: Compound, chembl_id: str, importer: ChEMBLImporter, slow_mode: bool = False):
-        """Add mechanisms of action from ChEMBL mechanism and activity data."""
+        """Add drug mechanisms of action from ChEMBL mechanism data only."""
         from compounds.models import CompoundMechanismOfAction
         
         try:
-            # Get comprehensive mechanism data (explicit + high-affinity targets)
+            # Get only explicit drug mechanisms from ChEMBL
             mechanisms = importer.get_compound_mechanisms(chembl_id)
             
             if not mechanisms:
-                self.stdout.write(f"[!] No mechanisms found for {chembl_id}")
+                self.stdout.write(f"[!] No drug mechanisms found for {chembl_id}")
                 return
             
             if slow_mode:
                 time.sleep(1)
             
-            self.stdout.write(f"    [→] Found {len(mechanisms)} potential mechanisms")
+            self.stdout.write(f"    [→] Found {len(mechanisms)} drug mechanisms")
             
             added_count = 0
             for i, mechanism_data in enumerate(mechanisms):
@@ -1729,23 +1674,13 @@ class Command(BaseCommand):
                 if not target:
                     continue
                 
-                # Get mechanism details
+                # Get mechanism details (only from drug mechanism data now)
                 mechanism_raw = mechanism_data.get('mechanism_of_action', '')
-                source = mechanism_data.get('source', 'unknown')
-                priority = mechanism_data.get('priority', 3)
-                affinity_score = mechanism_data.get('affinity_score', 0)
+                source = mechanism_data.get('source', 'mechanism')  # Always 'mechanism' now
                 
-                # For activity-derived mechanisms, create more descriptive mechanism text
-                if source == 'activity' and affinity_score > 0:
-                    if affinity_score >= 8.0:
-                        potency_desc = "very high affinity"
-                    elif affinity_score >= 7.0:
-                        potency_desc = "high affinity"
-                    elif affinity_score >= 6.0:
-                        potency_desc = "moderate affinity"
-                    else:
-                        potency_desc = "low affinity"
-                    mechanism_raw = f"{potency_desc} target interaction"
+                # Skip empty or meaningless mechanisms
+                if not mechanism_raw or mechanism_raw.lower() in ['unknown', '', 'binding']:
+                    continue
                 
                 # Normalize mechanism terms
                 mechanism_normalized = importer.normalize_mechanism(mechanism_raw)
@@ -1753,13 +1688,8 @@ class Command(BaseCommand):
                 # Map to interaction types
                 interaction_type = self._map_mechanism_to_interaction_type(mechanism_normalized)
                 
-                # Create detailed description
-                if source == 'mechanism':
-                    description = f"{mechanism_raw} (ChEMBL mechanism data)"
-                elif source == 'activity':
-                    description = f"{mechanism_raw} (pActivity: {affinity_score:.1f}, from ChEMBL activity data)"
-                else:
-                    description = mechanism_raw
+                # Create description (only drug mechanism data)
+                description = f"{mechanism_raw} (ChEMBL drug mechanism)"
                 
                 # Create mechanism of action
                 moa, created = CompoundMechanismOfAction.objects.get_or_create(
@@ -1775,17 +1705,14 @@ class Command(BaseCommand):
                 compound.mechanism_of_action.add(moa)
                 added_count += 1
                 
-                # Show priority and source info
-                priority_emoji = "🎯" if priority == 1 else "📊" if priority == 2 else "📋"
-                affinity_text = f" (pAct: {affinity_score:.1f})" if affinity_score > 0 else ""
-                
+                # Show mechanism info
                 action = "Created" if created else "Added existing"
-                self.stdout.write(f"    {priority_emoji} {action} mechanism: {target.name} ({interaction_type}){affinity_text}")
+                self.stdout.write(f"    🎯 {action} drug mechanism: {target.name} ({interaction_type})")
                 
                 if slow_mode and created:
                     time.sleep(0.5)
             
-            self.stdout.write(f"    [✓] Added {added_count} mechanisms to {compound.name}")
+            self.stdout.write(f"    [✓] Added {added_count} drug mechanisms to {compound.name}")
                     
         except Exception as e:
             self.stdout.write(f"    [!] Error adding mechanisms: {e}")
@@ -2044,35 +1971,72 @@ class Command(BaseCommand):
         return True
     
     def infer_interaction_type(self, mechanism1: str, mechanism2: str) -> str:
-        """Infer interaction type based on mechanisms."""
-        # Both agonists
-        if mechanism1 == 'agonist' and mechanism2 == 'agonist':
-            return 'synergistic'
+        """
+        Infer interaction type based on mechanisms using pharmacologically accurate classifications.
         
-        # Agonist + Antagonist
-        if (mechanism1 == 'agonist' and mechanism2 == 'antagonist') or \
-           (mechanism1 == 'antagonist' and mechanism2 == 'agonist'):
+        Rules:
+        - SYNERGISTIC: Different mechanisms with same functional outcome (e.g., PAM + Agonist)
+        - ADDITIVE: Same mechanisms (e.g., inhibitor + inhibitor) 
+        - ANTAGONISTIC: Opposing mechanisms/outcomes (e.g., agonist + antagonist)
+        - COMPETITIVE: Same binding site/mechanism type but different compounds
+        """
+        
+        # Define mechanism functional outcomes
+        activating_mechanisms = {'agonist', 'activator', 'opener', 'inducer', 'pam'}
+        inhibiting_mechanisms = {'antagonist', 'inhibitor', 'blocker', 'nam'}
+        modulatory_mechanisms = {'modulator'}  # Could be either direction
+        metabolic_mechanisms = {'substrate'}
+        binding_mechanisms = {'binder'}
+        
+        # Both mechanisms are exactly the same - ADDITIVE
+        if mechanism1 == mechanism2:
+            if mechanism1 in activating_mechanisms or mechanism1 in inhibiting_mechanisms:
+                return 'additive'
+            elif mechanism1 in modulatory_mechanisms:
+                return 'additive'  # Same type modulators are additive
+            elif mechanism1 in metabolic_mechanisms:
+                return 'competitive_metabolism'
+            elif mechanism1 in binding_mechanisms:
+                return 'competitive'
+            else:
+                return 'additive'
+        
+        # Different mechanisms with SAME functional outcome - SYNERGISTIC
+        mech1_activating = mechanism1 in activating_mechanisms
+        mech2_activating = mechanism2 in activating_mechanisms
+        mech1_inhibiting = mechanism1 in inhibiting_mechanisms
+        mech2_inhibiting = mechanism2 in inhibiting_mechanisms
+        
+        if (mech1_activating and mech2_activating) or (mech1_inhibiting and mech2_inhibiting):
+            # Different mechanisms but same outcome - synergistic
+            if mechanism1 != mechanism2:
+                return 'synergistic'
+        
+        # Opposing mechanisms - ANTAGONISTIC
+        if (mech1_activating and mech2_inhibiting) or (mech1_inhibiting and mech2_activating):
             return 'antagonistic'
         
-        # Both inhibitors
-        if mechanism1 == 'inhibitor' and mechanism2 == 'inhibitor':
-            return 'synergistic'
-        
-        # Substrate + Inhibitor
-        if (mechanism1 == 'substrate' and mechanism2 == 'inhibitor') or \
-           (mechanism1 == 'inhibitor' and mechanism2 == 'substrate'):
+        # Substrate + Inhibitor interactions - special case
+        if (mechanism1 == 'substrate' and mechanism2 in inhibiting_mechanisms) or \
+           (mechanism2 == 'substrate' and mechanism1 in inhibiting_mechanisms):
             return 'enzyme_inhibition'
         
-        # Both modulators
-        if mechanism1 == 'modulator' and mechanism2 == 'modulator':
-            return 'synergistic'
+        # Both substrates - metabolic competition
+        if mechanism1 == 'substrate' and mechanism2 == 'substrate':
+            return 'competitive_metabolism'
         
-        # Both blockers
-        if mechanism1 == 'blocker' and mechanism2 == 'blocker':
-            return 'synergistic'
+        # One is modulator, other has clear direction
+        if mechanism1 in modulatory_mechanisms or mechanism2 in modulatory_mechanisms:
+            non_mod = mechanism2 if mechanism1 in modulatory_mechanisms else mechanism1
+            if non_mod in activating_mechanisms or non_mod in inhibiting_mechanisms:
+                return 'synergistic'  # Modulators typically enhance other mechanisms
         
-        # Different mechanisms - competitive
-        if mechanism1 != mechanism2 and mechanism1 != 'unknown' and mechanism2 != 'unknown':
+        # Both are binding without clear functional effect
+        if mechanism1 in binding_mechanisms or mechanism2 in binding_mechanisms:
+            return 'competitive'
+        
+        # Default for unclear combinations
+        if mechanism1 != 'unknown' and mechanism2 != 'unknown':
             return 'competitive'
         
         return 'unknown'

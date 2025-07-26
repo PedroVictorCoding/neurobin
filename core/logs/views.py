@@ -1,10 +1,21 @@
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from .models import IntakeLog
 from .forms import IntakeLogForm
+from compounds.models import Compound
 
 @login_required
 def log_intake(request):
+    # Check if a compound ID was passed in the URL
+    compound_id = request.GET.get('compound')
+    initial_compound = None
+    
+    if compound_id:
+        try:
+            initial_compound = get_object_or_404(Compound, id=compound_id)
+        except (ValueError, Compound.DoesNotExist):
+            initial_compound = None
+    
     if request.method == "POST":
         form = IntakeLogForm(request.POST)
         if form.is_valid():
@@ -13,8 +24,20 @@ def log_intake(request):
             intake.save()
             return redirect('analytics_dashboard')
     else:
-        form = IntakeLogForm()
-    return render(request, "logs/log_intake.html", {"form": form})
+        # Pre-populate form with initial compound if provided
+        initial_data = {}
+        if initial_compound:
+            initial_data = {
+                'compound': initial_compound.id,
+                'compound_search': initial_compound.name
+            }
+        form = IntakeLogForm(initial=initial_data)
+    
+    context = {
+        'form': form,
+        'initial_compound': initial_compound
+    }
+    return render(request, "logs/log_intake.html", context)
 
 @login_required
 def analytics_dashboard(request):

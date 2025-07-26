@@ -232,3 +232,5 @@ class CompoundToCompoundTargetInteractionSerializer(serializers.ModelSerializer)
             raise serializers.ValidationError("A compound cannot interact with itself")
             
         return data
+
+

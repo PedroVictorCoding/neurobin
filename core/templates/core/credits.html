@@ -1,0 +1,499 @@
+{% extends "base.html" %}
+
+{% block title %}Credits & Acknowledgments - Neurobin{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row">
+        <div class="col-12">
+            <!-- Header -->
+            <div class="text-center mb-5">
+                <h1 class="display-4 mb-3">🙏 Credits & Acknowledgments</h1>
+                <p class="lead text-muted">
+                    Neurobin stands on the shoulders of giants. We extend our heartfelt gratitude to all the organizations, 
+                    developers, and researchers who have made their data, tools, and software freely available.
+                </p>
+            </div>
+
+            <!-- Scientific Databases & APIs -->
+            <div class="row mb-5">
+                <div class="col-12">
+                    <div class="card bg-dark border-secondary">
+                        <div class="card-header">
+                            <h2 class="h4 mb-0">🧬 Scientific Databases & APIs</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <!-- ChEMBL -->
+                                <div class="col-md-6 mb-4">
+                                    <div class="border-start border-primary ps-3">
+                                        <h5 class="text-primary">ChEMBL Database</h5>
+                                        <p class="small text-muted mb-2">
+                                            <strong>European Bioinformatics Institute (EMBL-EBI)</strong>
+                                        </p>
+                                        <p class="mb-2">
+                                            A large-scale bioactivity database containing binding, functional and ADMET information 
+                                            for a large number of drug-like bioactive compounds.
+                                        </p>
+                                        <p class="mb-2">
+                                            <strong>Used for:</strong> Compound data, target information, bioactivity data, mechanisms of action
+                                        </p>
+                                        <p class="mb-1">
+                                            <strong>License:</strong> <span class="badge bg-success">CC BY-SA 3.0</span>
+                                        </p>
+                                        <p class="mb-0">
+                                            <a href="https://www.ebi.ac.uk/chembl/" target="_blank" class="btn btn-sm btn-outline-primary">
+                                                <i class="fas fa-external-link-alt"></i> Visit ChEMBL
+                                            </a>
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <!-- Reactome -->
+                                <div class="col-md-6 mb-4">
+                                    <div class="border-start border-success ps-3">
+                                        <h5 class="text-success">Reactome Pathway Database</h5>
+                                        <p class="small text-muted mb-2">
+                                            <strong>Reactome Consortium</strong>
+                                        </p>
+                                        <p class="mb-2">
+                                            A free, open-source, curated and peer-reviewed pathway database providing 
+                                            intuitive bioinformatics tools for the visualization and analysis of pathway data.
+                                        </p>
+                                        <p class="mb-2">
+                                            <strong>Used for:</strong> Biological pathways, protein interactions, molecular mechanisms
+                                        </p>
+                                        <p class="mb-1">
+                                            <strong>License:</strong> <span class="badge bg-success">CC BY 4.0</span>
+                                        </p>
+                                        <p class="mb-0">
+                                            <a href="https://reactome.org/" target="_blank" class="btn btn-sm btn-outline-success">
+                                                <i class="fas fa-external-link-alt"></i> Visit Reactome
+                                            </a>
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <!-- PubChem -->
+                                <div class="col-md-6 mb-4">
+                                    <div class="border-start border-info ps-3">
+                                        <h5 class="text-info">PubChem</h5>
+                                        <p class="small text-muted mb-2">
+                                            <strong>National Center for Biotechnology Information (NCBI)</strong>
+                                        </p>
+                                        <p class="mb-2">
+                                            A database of chemical molecules and their activities against biological assays, 
+                                            maintained by the National Institutes of Health.
+                                        </p>
+                                        <p class="mb-2">
+                                            <strong>Used for:</strong> Chemical structures, molecular properties, compound validation
+                                        </p>
+                                        <p class="mb-1">
+                                            <strong>License:</strong> <span class="badge bg-success">Public Domain</span>
+                                        </p>
+                                        <p class="mb-0">
+                                            <a href="https://pubchem.ncbi.nlm.nih.gov/" target="_blank" class="btn btn-sm btn-outline-info">
+                                                <i class="fas fa-external-link-alt"></i> Visit PubChem
+                                            </a>
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <!-- UniProt -->
+                                <div class="col-md-6 mb-4">
+                                    <div class="border-start border-warning ps-3">
+                                        <h5 class="text-warning">UniProt</h5>
+                                        <p class="small text-muted mb-2">
+                                            <strong>UniProt Consortium (EBI, SIB, PIR)</strong>
+                                        </p>
+                                        <p class="mb-2">
+                                            A comprehensive, high-quality and freely accessible database of protein sequence 
+                                            and functional information.
+                                        </p>
+                                        <p class="mb-2">
+                                            <strong>Used for:</strong> Protein information, gene names, functional annotations
+                                        </p>
+                                        <p class="mb-1">
+                                            <strong>License:</strong> <span class="badge bg-success">CC BY 4.0</span>
+                                        </p>
+                                        <p class="mb-0">
+                                            <a href="https://www.uniprot.org/" target="_blank" class="btn btn-sm btn-outline-warning">
+                                                <i class="fas fa-external-link-alt"></i> Visit UniProt
+                                            </a>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Core Technologies -->
+            <div class="row mb-5">
+                <div class="col-12">
+                    <div class="card bg-dark border-secondary">
+                        <div class="card-header">
+                            <h2 class="h4 mb-0">⚙️ Core Technologies</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <!-- Django -->
+                                <div class="col-md-4 mb-4">
+                                    <div class="text-center">
+                                        <div class="bg-success rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
+                                            <i class="fab fa-python fa-2x text-white"></i>
+                                        </div>
+                                        <h5>Django Framework</h5>
+                                        <p class="small text-muted">The web framework for perfectionists with deadlines</p>
+                                        <p class="mb-2"><strong>Version:</strong> 4.2+</p>
+                                        <p class="mb-1"><strong>License:</strong> <span class="badge bg-success">BSD</span></p>
+                                        <a href="https://www.djangoproject.com/" target="_blank" class="btn btn-sm btn-outline-success">
+                                            <i class="fas fa-external-link-alt"></i> Django
+                                        </a>
+                                    </div>
+                                </div>
+
+                                <!-- Python -->
+                                <div class="col-md-4 mb-4">
+                                    <div class="text-center">
+                                        <div class="bg-primary rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
+                                            <i class="fab fa-python fa-2x text-white"></i>
+                                        </div>
+                                        <h5>Python</h5>
+                                        <p class="small text-muted">Programming language that lets you work quickly</p>
+                                        <p class="mb-2"><strong>Version:</strong> 3.12+</p>
+                                        <p class="mb-1"><strong>License:</strong> <span class="badge bg-success">PSF</span></p>
+                                        <a href="https://www.python.org/" target="_blank" class="btn btn-sm btn-outline-primary">
+                                            <i class="fas fa-external-link-alt"></i> Python
+                                        </a>
+                                    </div>
+                                </div>
+
+                                <!-- PostgreSQL -->
+                                <div class="col-md-4 mb-4">
+                                    <div class="text-center">
+                                        <div class="bg-info rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
+                                            <i class="fas fa-database fa-2x text-white"></i>
+                                        </div>
+                                        <h5>PostgreSQL</h5>
+                                        <p class="small text-muted">The world's most advanced open source database</p>
+                                        <p class="mb-2"><strong>Version:</strong> 15+</p>
+                                        <p class="mb-1"><strong>License:</strong> <span class="badge bg-success">PostgreSQL</span></p>
+                                        <a href="https://www.postgresql.org/" target="_blank" class="btn btn-sm btn-outline-info">
+                                            <i class="fas fa-external-link-alt"></i> PostgreSQL
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Frontend Technologies -->
+            <div class="row mb-5">
+                <div class="col-12">
+                    <div class="card bg-dark border-secondary">
+                        <div class="card-header">
+                            <h2 class="h4 mb-0">🎨 Frontend Technologies</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <!-- Bootstrap -->
+                                <div class="col-md-3 mb-4">
+                                    <div class="text-center">
+                                        <div class="bg-purple rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px; background-color: #7952b3;">
+                                            <i class="fab fa-bootstrap fa-lg text-white"></i>
+                                        </div>
+                                        <h6>Bootstrap 5</h6>
+                                        <p class="small text-muted mb-2">CSS framework</p>
+                                        <a href="https://getbootstrap.com/" target="_blank" class="btn btn-xs btn-outline-light">
+                                            <i class="fas fa-external-link-alt"></i>
+                                        </a>
+                                    </div>
+                                </div>
+
+                                <!-- D3.js -->
+                                <div class="col-md-3 mb-4">
+                                    <div class="text-center">
+                                        <div class="bg-warning rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                            <i class="fas fa-chart-network fa-lg text-dark"></i>
+                                        </div>
+                                        <h6>D3.js</h6>
+                                        <p class="small text-muted mb-2">Data visualization</p>
+                                        <a href="https://d3js.org/" target="_blank" class="btn btn-xs btn-outline-warning">
+                                            <i class="fas fa-external-link-alt"></i>
+                                        </a>
+                                    </div>
+                                </div>
+
+                                <!-- Font Awesome -->
+                                <div class="col-md-3 mb-4">
+                                    <div class="text-center">
+                                        <div class="bg-primary rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                            <i class="fab fa-font-awesome fa-lg text-white"></i>
+                                        </div>
+                                        <h6>Font Awesome</h6>
+                                        <p class="small text-muted mb-2">Icon library</p>
+                                        <a href="https://fontawesome.com/" target="_blank" class="btn btn-xs btn-outline-primary">
+                                            <i class="fas fa-external-link-alt"></i>
+                                        </a>
+                                    </div>
+                                </div>
+
+                                <!-- React/Vite -->
+                                <div class="col-md-3 mb-4">
+                                    <div class="text-center">
+                                        <div class="bg-info rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                            <i class="fab fa-react fa-lg text-white"></i>
+                                        </div>
+                                        <h6>React + Vite</h6>
+                                        <p class="small text-muted mb-2">Frontend framework</p>
+                                        <a href="https://react.dev/" target="_blank" class="btn btn-xs btn-outline-info">
+                                            <i class="fas fa-external-link-alt"></i>
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Python Libraries -->
+            <div class="row mb-5">
+                <div class="col-12">
+                    <div class="card bg-dark border-secondary">
+                        <div class="card-header">
+                            <h2 class="h4 mb-0">🐍 Python Libraries</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6 class="text-primary mb-3">Core Dependencies</h6>
+                                    <ul class="list-unstyled">
+                                        <li class="mb-2">
+                                            <strong>Requests</strong> - HTTP library for API calls
+                                            <span class="badge bg-secondary ms-2">Apache 2.0</span>
+                                        </li>
+                                        <li class="mb-2">
+                                            <strong>Pillow</strong> - Image processing
+                                            <span class="badge bg-secondary ms-2">PIL License</span>
+                                        </li>
+                                        <li class="mb-2">
+                                            <strong>Django REST Framework</strong> - API framework
+                                            <span class="badge bg-secondary ms-2">BSD</span>
+                                        </li>
+                                        <li class="mb-2">
+                                            <strong>django-extensions</strong> - Development utilities
+                                            <span class="badge bg-secondary ms-2">MIT</span>
+                                        </li>
+                                        <li class="mb-2">
+                                            <strong>python-dotenv</strong> - Environment variables
+                                            <span class="badge bg-secondary ms-2">BSD</span>
+                                        </li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6 class="text-success mb-3">Scientific Libraries</h6>
+                                    <ul class="list-unstyled">
+                                        <li class="mb-2">
+                                            <strong>NumPy</strong> - Numerical computing
+                                            <span class="badge bg-secondary ms-2">BSD</span>
+                                        </li>
+                                        <li class="mb-2">
+                                            <strong>Pandas</strong> - Data analysis
+                                            <span class="badge bg-secondary ms-2">BSD</span>
+                                        </li>
+                                        <li class="mb-2">
+                                            <strong>RDKit</strong> - Chemical informatics
+                                            <span class="badge bg-secondary ms-2">BSD</span>
+                                        </li>
+                                        <li class="mb-2">
+                                            <strong>BioPython</strong> - Bioinformatics tools
+                                            <span class="badge bg-secondary ms-2">BSD</span>
+                                        </li>
+                                        <li class="mb-2">
+                                            <strong>SciPy</strong> - Scientific computing
+                                            <span class="badge bg-secondary ms-2">BSD</span>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Development Tools -->
+            <div class="row mb-5">
+                <div class="col-12">
+                    <div class="card bg-dark border-secondary">
+                        <div class="card-header">
+                            <h2 class="h4 mb-0">🛠️ Development Tools</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <h6 class="text-info">Version Control</h6>
+                                    <ul class="list-unstyled small">
+                                        <li>• Git</li>
+                                        <li>• GitHub</li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <h6 class="text-warning">Code Quality</h6>
+                                    <ul class="list-unstyled small">
+                                        <li>• Black (code formatter)</li>
+                                        <li>• Flake8 (linting)</li>
+                                        <li>• isort (import sorting)</li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <h6 class="text-success">Testing</h6>
+                                    <ul class="list-unstyled small">
+                                        <li>• pytest</li>
+                                        <li>• Django TestCase</li>
+                                        <li>• coverage.py</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Special Thanks -->
+            <div class="row mb-5">
+                <div class="col-12">
+                    <div class="card bg-dark border-secondary">
+                        <div class="card-header">
+                            <h2 class="h4 mb-0">💖 Special Thanks</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6 mb-4">
+                                    <h5 class="text-primary">Open Science Community</h5>
+                                    <p class="mb-3">
+                                        To all researchers, scientists, and developers who believe in open access to scientific data 
+                                        and contribute to making knowledge freely available to everyone.
+                                    </p>
+                                    <ul class="list-unstyled small">
+                                        <li>• ChEMBL team at EMBL-EBI</li>
+                                        <li>• Reactome development team</li>
+                                        <li>• NCBI PubChem maintainers</li>
+                                        <li>• UniProt consortium</li>
+                                        <li>• Open source contributors worldwide</li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6 mb-4">
+                                    <h5 class="text-success">Academic Institutions</h5>
+                                    <p class="mb-3">
+                                        To the universities, research institutes, and funding agencies that support 
+                                        open science initiatives and database maintenance.
+                                    </p>
+                                    <ul class="list-unstyled small">
+                                        <li>• European Bioinformatics Institute (EMBL-EBI)</li>
+                                        <li>• National Institutes of Health (NIH)</li>
+                                        <li>• Wellcome Trust</li>
+                                        <li>• European Commission</li>
+                                        <li>• National Science Foundation</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Licensing Information -->
+            <div class="row mb-5">
+                <div class="col-12">
+                    <div class="card bg-dark border-secondary">
+                        <div class="card-header">
+                            <h2 class="h4 mb-0">📜 Licensing & Compliance</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-info">
+                                <h6><i class="fas fa-info-circle"></i> Data Usage Compliance</h6>
+                                <p class="mb-2">
+                                    Neurobin respects all licensing terms and usage policies of the data sources we integrate. 
+                                    All data is used in accordance with the respective licenses:
+                                </p>
+                                <ul class="mb-2">
+                                    <li><strong>ChEMBL:</strong> CC BY-SA 3.0 - Attribution required</li>
+                                    <li><strong>Reactome:</strong> CC BY 4.0 - Attribution required</li>
+                                    <li><strong>PubChem:</strong> Public Domain - No restrictions</li>
+                                    <li><strong>UniProt:</strong> CC BY 4.0 - Attribution required</li>
+                                </ul>
+                                <p class="mb-0">
+                                    When using Neurobin data derived from these sources, please ensure proper attribution 
+                                    to the original databases.
+                                </p>
+                            </div>
+                            
+                            <div class="alert alert-warning">
+                                <h6><i class="fas fa-exclamation-triangle"></i> Research Use</h6>
+                                <p class="mb-0">
+                                    Neurobin is designed for educational and research purposes. Please consult with qualified 
+                                    professionals for any medical, therapeutic, or commercial applications.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="text-center">
+                <div class="card bg-gradient-primary text-white">
+                    <div class="card-body py-4">
+                        <h4 class="mb-3">🌟 Thank You!</h4>
+                        <p class="mb-3">
+                            Neurobin exists because of the incredible work and generosity of the global scientific community.
+                            Together, we're advancing human knowledge and making research more accessible to everyone.
+                        </p>
+                        <p class="mb-0">
+                            <em>"If I have seen further, it is by standing on the shoulders of giants."</em> - Sir Isaac Newton
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.bg-gradient-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.card-header h2 {
+    color: #fff;
+}
+
+.btn-xs {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+}
+
+.border-start {
+    border-width: 3px !important;
+}
+
+.alert {
+    border: none;
+    border-radius: 10px;
+}
+
+.card {
+    border-radius: 15px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.card-header {
+    border-radius: 15px 15px 0 0 !important;
+}
+</style>
+{% endblock %}

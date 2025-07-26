@@ -4,6 +4,14 @@
 <div class="d-flex flex-column align-items-center justify-content-center" style="min-height: 70vh;">
   <div class="text-center">
     <h2 class="fw-bold mb-4" style="color:#FFF;">Log Compound Intake</h2>
+    
+    {% if initial_compound %}
+    <div class="alert alert-info bg-dark border-info text-light mb-4" style="max-width: 400px; margin: 0 auto;">
+      <i class="fas fa-info-circle me-2"></i>
+      Pre-selected compound: <strong>{{ initial_compound.name }}</strong>
+    </div>
+    {% endif %}
+    
     <form method="post" class="card bg-neurobin-card p-4 shadow" style="max-width: 400px; margin: 0 auto;">
       {% csrf_token %}
       

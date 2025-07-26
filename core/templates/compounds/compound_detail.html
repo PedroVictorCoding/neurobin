@@ -156,6 +156,38 @@
       padding: 0.15rem 0.3rem;
     }
   }
+  
+  /* Scrollable interactions table styles */
+  .table-responsive {
+    background: #1a1a1a;
+  }
+  
+  .table-responsive::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  .table-responsive::-webkit-scrollbar-track {
+    background: #343a40;
+    border-radius: 4px;
+  }
+  
+  .table-responsive::-webkit-scrollbar-thumb {
+    background: #6c757d;
+    border-radius: 4px;
+  }
+  
+  .table-responsive::-webkit-scrollbar-thumb:hover {
+    background: #adb5bd;
+  }
+  
+  /* Sticky header for interactions table */
+  .interactions-table thead th {
+    background: #212529 !important;
+    border-bottom: 2px solid #495057;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
 </style>
 
 <!-- Admin Control Panel -->
@@ -245,6 +277,27 @@
           </div>
         </div>
       {% endif %}
+<!-- Action Buttons for Authenticated Users -->
+  {% if user.is_authenticated %}
+  <div class="text-center mb-3 card-body>
+    <div class="d-flex gap-2 justify-content-center flex-wrap">
+      <!-- Log Intake Button -->
+      <a href="{% url 'log_intake' %}?compound={{ compound.id }}" 
+         class="btn btn-sm btn-outline-success p-2 mt-2" 
+         style="width: 100%;"
+         title="Log intake of {{ compound.name }}">
+        <i class="fas fa-plus-circle"></i> Log {{ compound.name }}
+      </a>
+      
+      <!-- Request Changes Button (Hidden for now) -->
+      <!--
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="requestChangesBtn" data-compound-id="{{ compound.id }}">
+        <i class="fas fa-edit"></i> Request Changes
+      </button>
+      -->
+    </div>
+  </div>
+  {% endif %}
     </div>
   </div>
   <!-- Change Request Button for Authenticated Users -->
@@ -255,6 +308,8 @@
   </button>
 </div>
 {% endif %}-->
+
+  
 </div>
 
 
@@ -289,9 +344,9 @@
     </div>
     
     <div id="interactionsTable" style="display: none;">
-      <div class="table-responsive">
+      <div class="table-responsive" style="height: 400px; overflow-y: auto; border: 1px solid #495057; border-radius: 8px;">
         <table class="table table-dark table-striped table-hover interactions-table" id="interactionsTableElement">
-          <thead>
+          <thead class="sticky-top">
             <tr>
               <th scope="col">Compound</th>
               <th scope="col">Target</th>

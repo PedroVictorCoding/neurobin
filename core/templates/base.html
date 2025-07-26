@@ -869,6 +869,18 @@
               </a></li>
               {% endif %}
 
+              {% if user.is_authenticated %}
+              <!-- Logs Section -->
+              <li><hr class="dropdown-divider"></li>
+              <li><h6 class="dropdown-header text-white fw-bold">Logs</h6></li>
+              <li><a class="dropdown-item ps-4" href="{% url 'log_intake' %}">
+                <i class="fas fa-plus-circle me-2"></i>Log Intake
+              </a></li>
+              <li><a class="dropdown-item ps-4" href="{% url 'analytics_dashboard' %}">
+                <i class="fas fa-chart-bar me-2"></i>Logs Dashboard
+              </a></li>
+              {% endif %}
+
               {% if user.is_staff %}
                 <!-- Admin Section -->
                 <li><hr class="dropdown-divider"></li>
@@ -913,9 +925,7 @@
     {% block content %}{% endblock %}
   </main>
 
-  <!--<footer class="text-center text-secondary py-4 small">
-    © {{ now|date:"Y" }} Neurobin
-  </footer>-->
+  
 </body>
 
 

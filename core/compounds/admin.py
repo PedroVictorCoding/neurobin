@@ -9,7 +9,9 @@ from .models import (
     CompoundSafetyScreening,
     EffectWindow,
     CompoundTargetInteraction,
-    CompoundToCompoundTargetInteraction
+    CompoundToCompoundTargetInteraction,
+    ActionType,
+    TargetType
 )
 
 
@@ -120,3 +122,19 @@ class CompoundToCompoundTargetInteractionAdmin(admin.ModelAdmin):
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('compound_a', 'compound_b', 'target')
+
+
+@admin.register(ActionType)
+class ActionTypeAdmin(admin.ModelAdmin):
+    list_display = ('name', 'display_name', 'category', 'description')
+    search_fields = ('name', 'display_name', 'description', 'category')
+    list_filter = ('category',)
+    ordering = ('name',)
+
+
+@admin.register(TargetType)
+class TargetTypeAdmin(admin.ModelAdmin):
+    list_display = ('name', 'display_name', 'category', 'description')
+    search_fields = ('name', 'display_name', 'description', 'category')
+    list_filter = ('category',)
+    ordering = ('name',)
