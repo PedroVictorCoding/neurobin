@@ -2,7 +2,7 @@
 {% load static %}
 {% block title %}Neurobin — Research, Track, Stay Safe{% endblock %}
 {% block content %}
-<div class="d-flex flex-column align-items-center justify-content-center" style="min-height: 60vh;">
+<div class="d-flex flex-column align-items-center justify-content-center mt-5" style="min-height: 60vh;">
   <div class="text-center">
     <h1 class="fw-bold mb-3" style="color: #FFF;">Research, Track<br>Stay Safe</h1>
     <p class="lead text-secondary mb-4" style="max-width: 400px; margin: 0 auto;">
@@ -15,8 +15,113 @@
       {% endif %}
     </div>
   </div>
+  
+  <!-- Data Statistics Section -->
+  <div class="mt-5 pt-4 border-top" style="border-color: rgba(255, 255, 255, 0.2) !important;">
+    <div class="row text-center">
+      <div class="col-md-4 mb-3">
+        <div class="p-3 h-100 d-flex flex-column justify-content-center">
+          <div class="display-4 fw-bold text-primary mb-1 counter" data-target="{{ compound_count }}">0</div>
+          <div class="text-muted text-uppercase small letter-spacing">Compounds</div>
+          <div class="mt-1">
+            <i class="fas fa-flask text-primary opacity-50"></i>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4 mb-3">
+        <div class="p-3 h-100 d-flex flex-column justify-content-center">
+          <div class="display-4 fw-bold text-success mb-1 counter" data-target="{{ mechanism_count }}">0</div>
+          <div class="text-muted text-uppercase small letter-spacing">Mechanisms</div>
+          <div class="mt-1">
+            <i class="fas fa-cogs text-success opacity-50"></i>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4 mb-3">
+        <div class="p-3 h-100 d-flex flex-column justify-content-center">
+          <div class="display-4 fw-bold text-warning mb-1 counter" data-target="{{ target_count }}">0</div>
+          <div class="text-muted text-uppercase small letter-spacing">Targets</div>
+          <div class="mt-1">
+            <i class="fas fa-bullseye text-warning opacity-50"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
   <!--<div class="mt-5">
     <img src="{% static 'img/brain-wireframe.png' %}" alt="Brain wireframe" style="width: 320px; opacity: 0.15;">
   </div>-->
 </div>
+
+<footer>
+      <div class="text-center mt-4">
+      <small class="text-muted">
+        <i class="fas fa-database me-1"></i>
+        Curated from ChEMBL and scientific databases
+      </small>
+    </div>
+</footer>
+
+<style>
+.letter-spacing {
+  letter-spacing: 1px;
+}
+
+.counter {
+  transition: all 0.3s ease;
+}
+
+.opacity-50 {
+  opacity: 0.5;
+}
+
+/* Hover effects for stat cards */
+.col-md-4:hover .counter {
+  transform: scale(1.05);
+}
+
+.col-md-4:hover i {
+  opacity: 0.8 !important;
+  transform: scale(1.1);
+  transition: all 0.2s ease;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Animate counters
+  const counters = document.querySelectorAll('.counter');
+  
+  const animateCounter = (counter) => {
+    const target = parseInt(counter.getAttribute('data-target'));
+    const duration = 2000; // 2 seconds
+    const increment = target / (duration / 16); // 60fps
+    let current = 0;
+    
+    const timer = setInterval(() => {
+      current += increment;
+      if (current >= target) {
+        current = target;
+        clearInterval(timer);
+      }
+      counter.textContent = Math.floor(current).toLocaleString();
+    }, 16);
+  };
+  
+  // Intersection Observer for triggering animation when visible
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        animateCounter(entry.target);
+        observer.unobserve(entry.target);
+      }
+    });
+  });
+  
+  counters.forEach(counter => {
+    observer.observe(counter);
+  });
+});
+</script>
 {% endblock %}
