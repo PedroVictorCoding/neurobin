@@ -796,6 +796,7 @@
                 <!-- Primary Links Section -->
                 <li><h6 class="dropdown-header text-white fw-bold">Quick Links</h6></li>
                 <li><a class="dropdown-item ps-4" href="{% url 'compound_list' %}">Browse Compounds</a></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'compound_ranker:rankings_list' %}">🧠 Compound Rankings</a></li>
                 <li><a class="dropdown-item ps-4" href="{% url 'research:snippet_list' %}">Browse Research</a></li>
                 {% if user.is_autheticated %}
                 <li><a class="dropdown-item ps-4" href="">Add Research</a></li>
@@ -815,6 +816,8 @@
                   <li><a class="dropdown-item ps-4" href="{% url 'add_compound' %}">Add Compounds</a></li>
                   <li><a class="dropdown-item ps-4" href="{% url 'add_mechanism' %}">Add Mechanisms</a></li>
                 <li><a class="dropdown-item ps-4" href="{% url 'research:snippet_list' %}">Research Review</a></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'compound_ranker:training_status' %}">🎯 Training Status</a></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'admin:compound_ranker_scoringcategory_changelist' %}">⚙️ Manage Categories</a></li>
                 {% endif %}
                 
                 <!-- Profile Section -->
@@ -859,6 +862,9 @@
               <li><h6 class="dropdown-header text-white fw-bold">Quick Links</h6></li>
               <li><a class="dropdown-item ps-4" href="{% url 'compound_list' %}">
                 <i class="fas fa-pills me-2"></i>Browse Compounds
+              </a></li>
+              <li><a class="dropdown-item ps-4" href="{% url 'compound_ranker:rankings_list' %}">
+                <i class="fas fa-brain me-2"></i>Compound Rankings
               </a></li>
               <li><a class="dropdown-item ps-4" href="{% url 'research:snippet_list' %}">
                 <i class="fas fa-flask me-2"></i>Browse Research

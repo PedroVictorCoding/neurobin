@@ -36,6 +36,7 @@ urlpatterns = [
     path('intake/', include('logs.urls')),
     path('research/', include('research.urls')),
     path('change-requests/', include('change_requests.urls')),
+    path('rankings/', include('compound_ranker.urls')),
     
     # API Root
     path('api/', api_root, name='api_root'),
@@ -45,6 +46,7 @@ urlpatterns = [
     path('api/accounts/', include('accounts.api_urls')),
     path('api/logs/', include('logs.api_urls')),
     path('api/research/', include('research.api_urls')),
+    path('api/rankings/', include('compound_ranker.api.urls')),
     
     # JWT Authentication
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),

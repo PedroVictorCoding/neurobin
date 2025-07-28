@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'accounts',
     'research',
     'change_requests',
+    'compound_ranker',
 ]
 
 MIDDLEWARE = [
