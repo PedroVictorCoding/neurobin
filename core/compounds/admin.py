@@ -45,12 +45,14 @@ class CompoundRatingAdmin(admin.ModelAdmin):
     list_display = ('compound', 'user', 'score', 'created_at')
     list_filter = ('score',)
     search_fields = ('compound__name', 'user__username')
+    autocomplete_fields = ['compound']
 
 @admin.register(CompoundSafetyScreening)
 class CompoundSafetyScreeningAdmin(admin.ModelAdmin):
     list_display = ('compound', 'created_by', 'confidence_score', 'created_at')
     list_filter = ('confidence_score',)
     search_fields = ('compound__name', 'user__username')
+    autocomplete_fields = ['compound']
 
 
 @admin.register(EffectWindow)
@@ -59,7 +61,7 @@ class EffectWindowAdmin(admin.ModelAdmin):
     list_filter = ('effect_shape', 'created_by')
     search_fields = ('compound__name', 'notes')
     readonly_fields = ('created_at',)
-    
+    autocomplete_fields = ['compound']
     fieldsets = (
         ('Basic Information', {
             'fields': ('compound', 'effect_shape', 'notes')
@@ -102,6 +104,7 @@ class CompoundToCompoundTargetInteractionAdmin(admin.ModelAdmin):
     search_fields = ('compound_a__name', 'compound_b__name', 'target__name', 'description')
     autocomplete_fields = ('compound_a', 'compound_b', 'target')
     readonly_fields = ('created_at',)
+    autocomplete_fields = ['compound_a', 'compound_b', 'target']
     
     fieldsets = (
         ('Compounds and Target', {

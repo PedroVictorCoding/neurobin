@@ -15,6 +15,186 @@ from compounds.models import (
 from compound_ranker.models import ScoringCategory, CompoundScore, UserCompoundAnnotation
 
 
+class AdvancedCompoundFeatureExtractor:
+    """Advanced feature extraction with chemical descriptors and embeddings"""
+    
+    def __init__(self):
+        self.mechanism_encoder = None
+        self.target_encoder = None
+        self.action_encoder = None
+        self.scaler = StandardScaler()
+        self.tfidf_vectorizer = TfidfVectorizer(max_features=50, stop_words='english')
+        self.feature_names = []
+        self.is_fitted = False
+        
+        # Chemical feature extractors (would require RDKit in full implementation)
+        self.chemical_features = [
+            'molecular_weight', 'logp', 'hbd', 'hba', 'tpsa', 'rotatable_bonds',
+            'aromatic_rings', 'heavy_atoms', 'formal_charge', 'complexity_score'
+        ]
+    
+    def extract_chemical_features(self, compounds: QuerySet) -> pd.DataFrame:
+        """Extract chemical descriptors from SMILES (simplified version)"""
+        features = []
+        
+        for compound in compounds:
+            # Simplified chemical features based on available data
+            feature_dict = {
+                'compound_id': compound.id,
+                'has_smiles': bool(compound.smiles),
+                'smiles_length': len(compound.smiles) if compound.smiles else 0,
+                'name_complexity': len(compound.name.split()) + len(compound.name),
+                'has_chembl': bool(compound.chembl_id),
+                'description_complexity': len(compound.description.split()) if compound.description else 0,
+            }
+            
+            # Estimate chemical properties from name/description (heuristic)
+            name_lower = compound.name.lower()
+            desc_lower = (compound.description or '').lower()
+            
+            # Heuristic feature extraction
+            feature_dict.update({
+                'is_acid': 'acid' in name_lower or 'carbox' in name_lower,
+                'is_amine': 'amine' in name_lower or 'amino' in name_lower,
+                'is_steroid': 'steroid' in name_lower or 'sterone' in name_lower,
+                'is_peptide': 'peptide' in name_lower or 'protein' in name_lower,
+                'is_alkaloid': 'alkaloid' in name_lower or any(x in name_lower for x in ['ine', 'ide']),
+                'has_phenol': 'phenol' in name_lower or 'hydroxy' in name_lower,
+                'has_ketone': 'ketone' in name_lower or 'one' in name_lower,
+                'molecular_complexity': len(set(name_lower)) * len(name_lower.split()),
+            })
+            
+            features.append(feature_dict)
+        
+        return pd.DataFrame(features)
+    
+    def extract_mechanism_embeddings(self, compounds: QuerySet) -> pd.DataFrame:
+        """Create embeddings from mechanism descriptions"""
+        mechanism_texts = []
+        compound_ids = []
+        
+        for compound in compounds:
+            mechanisms = compound.mechanism_of_action.all()
+            mechanism_text = []
+            
+            for mechanism in mechanisms:
+                text_parts = []
+                if mechanism.target_name:
+                    text_parts.append(str(mechanism.target_name))
+                if mechanism.target_interaction:
+                    text_parts.append(mechanism.target_interaction)
+                if mechanism.description:
+                    text_parts.append(mechanism.description)
+                
+                if text_parts:
+                    mechanism_text.append(' '.join(text_parts))
+            
+            # Combine all mechanism texts for this compound
+            combined_text = ' '.join(mechanism_text) if mechanism_text else 'unknown mechanism'
+            mechanism_texts.append(combined_text)
+            compound_ids.append(compound.id)
+        
+        # Create TF-IDF features
+        if not self.is_fitted:
+            tfidf_features = self.tfidf_vectorizer.fit_transform(mechanism_texts)
+        else:
+            tfidf_features = self.tfidf_vectorizer.transform(mechanism_texts)
+        
+        # Convert to DataFrame
+        feature_names = [f'mechanism_tfidf_{i}' for i in range(tfidf_features.shape[1])]
+        tfidf_df = pd.DataFrame(
+            tfidf_features.toarray(),
+            columns=feature_names
+        )
+        tfidf_df['compound_id'] = compound_ids
+        
+        return tfidf_df
+    
+    def extract_pathway_features(self, compounds: QuerySet) -> pd.DataFrame:
+        """Extract pathway and biological process features"""
+        features = []
+        
+        # Define pathway keywords for different biological processes
+        pathway_keywords = {
+            'neurotransmission': ['dopamine', 'serotonin', 'acetylcholine', 'gaba', 'glutamate', 'norepinephrine'],
+            'metabolism': ['glucose', 'lipid', 'fatty acid', 'glycolysis', 'krebs', 'oxidative'],
+            'inflammation': ['cytokine', 'interleukin', 'tnf', 'cox', 'nf-kb', 'inflammatory'],
+            'cell_cycle': ['apoptosis', 'proliferation', 'cell cycle', 'p53', 'mitosis'],
+            'signaling': ['kinase', 'phosphatase', 'receptor', 'ligand', 'cascade', 'pathway'],
+            'oxidative_stress': ['antioxidant', 'reactive oxygen', 'superoxide', 'catalase', 'glutathione'],
+            'protein_synthesis': ['ribosome', 'translation', 'mrna', 'protein synthesis', 'elongation'],
+            'dna_repair': ['dna repair', 'mutagenesis', 'damage', 'excision', 'recombination']
+        }
+        
+        for compound in compounds:
+            feature_dict = {'compound_id': compound.id}
+            
+            # Get all text associated with compound
+            all_text = []
+            all_text.append(compound.name.lower())
+            if compound.description:
+                all_text.append(compound.description.lower())
+            
+            # Add mechanism text
+            for mechanism in compound.mechanism_of_action.all():
+                if mechanism.target_name:
+                    all_text.append(str(mechanism.target_name).lower())
+                if mechanism.target_interaction:
+                    all_text.append(mechanism.target_interaction.lower())
+                if mechanism.description:
+                    all_text.append(mechanism.description.lower())
+            
+            combined_text = ' '.join(all_text)
+            
+            # Score for each pathway
+            for pathway, keywords in pathway_keywords.items():
+                score = sum(1 for keyword in keywords if keyword in combined_text)
+                feature_dict[f'pathway_{pathway}'] = score / len(keywords)  # Normalize
+            
+            features.append(feature_dict)
+        
+        return pd.DataFrame(features)
+    
+    def fit_transform(self, compounds: QuerySet) -> Tuple[np.ndarray, List[int]]:
+        """Fit extractors and transform compounds to feature matrix"""
+        compound_ids = list(compounds.values_list('id', flat=True))
+        
+        # Extract different feature types
+        chemical_features = self.extract_chemical_features(compounds)
+        mechanism_features = self.extract_mechanism_embeddings(compounds)
+        pathway_features = self.extract_pathway_features(compounds)
+        
+        # Merge all features
+        combined_features = chemical_features.merge(
+            mechanism_features, on='compound_id', how='left'
+        ).merge(
+            pathway_features, on='compound_id', how='left'
+        )
+        
+        # Fill NaN values
+        combined_features = combined_features.fillna(0)
+        
+        # Remove compound_id for feature matrix
+        feature_matrix = combined_features.drop('compound_id', axis=1)
+        
+        # Scale features
+        if not self.is_fitted:
+            scaled_features = self.scaler.fit_transform(feature_matrix)
+            self.feature_names = list(feature_matrix.columns)
+            self.is_fitted = True
+        else:
+            scaled_features = self.scaler.transform(feature_matrix)
+        
+        return scaled_features, compound_ids
+    
+    def transform(self, compounds: QuerySet) -> Tuple[np.ndarray, List[int]]:
+        """Transform compounds using fitted extractors"""
+        if not self.is_fitted:
+            raise ValueError("Feature extractor must be fitted before transform")
+        
+        return self.fit_transform(compounds)
+
+
 class CompoundFeatureExtractor:
     """Extract features from compounds for ML training"""
     
@@ -49,39 +229,37 @@ class CompoundFeatureExtractor:
     
     def extract_interaction_features(self, compounds: QuerySet) -> pd.DataFrame:
         """Extract target interaction features"""
-        from django.db.models import Count, Avg
-        
         features = []
-        
         for compound in compounds:
             # Get interactions for this compound
-            interactions = CompoundTargetInteraction.objects.filter(
-                compoundtocompoundtargetinteraction__compound_a=compound
-            ) | CompoundTargetInteraction.objects.filter(
-                compoundtocompoundtargetinteraction__compound_b=compound
-            )
-            
+            interactions = CompoundTargetInteraction.objects.filter(compound=compound)
             # Aggregate interaction features
             feature_dict = {
                 'compound_id': compound.id,
                 'total_interactions': interactions.count(),
                 'unique_targets': interactions.values('target').distinct().count(),
-                'avg_affinity': interactions.aggregate(Avg('affinity'))['affinity__avg'] or 0,
-                'max_affinity': interactions.aggregate(max_aff=Max('affinity'))['max_aff'] or 0,
             }
-            
+            # Affinity level counts (categorical encoding)
+            affinity_levels = ['very_high', 'high', 'medium', 'low', 'very_low', 'unknown']
+            affinity_counts = dict.fromkeys(affinity_levels, 0)
+            for level in interactions.values_list('affinity_level', flat=True):
+                if level in affinity_counts:
+                    affinity_counts[level] += 1
+            for level in affinity_levels:
+                feature_dict[f'affinity_count_{level}'] = affinity_counts[level]
             # Target type distribution
-            target_types = interactions.values_list('target__type__name', flat=True)
-            for target_type in TargetType.objects.all():
-                feature_dict[f'target_type_{target_type.name}'] = list(target_types).count(target_type.name)
-            
-            # Action type distribution
-            action_types = interactions.values_list('action_type__name', flat=True)
+            target_types = interactions.values_list('target__target_type', flat=True)
+            for target_type, _ in Target.TARGET_TYPES:
+                feature_dict[f'target_type_{target_type}'] = list(target_types).count(target_type)
+            # Action type distribution (use structured_action_type__name)
+            action_types = interactions.values_list('structured_action_type__name', flat=True)
             for action_type in ActionType.objects.all():
                 feature_dict[f'action_type_{action_type.name}'] = list(action_types).count(action_type.name)
-            
+            # Mechanism distribution (mechanism is a CharField, not FK)
+            mechanisms = interactions.values_list('mechanism', flat=True)
+            for mech_value, _ in CompoundTargetInteraction.MECHANISM_CHOICES:
+                feature_dict[f'mechanism_{mech_value}'] = list(mechanisms).count(mech_value)
             features.append(feature_dict)
-        
         return pd.DataFrame(features).fillna(0)
     
     def extract_mechanism_features(self, compounds: QuerySet) -> pd.DataFrame:

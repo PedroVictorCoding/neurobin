@@ -28,7 +28,7 @@ class ResearchSnippetAdmin(admin.ModelAdmin):
         'compound__name'
     )
     readonly_fields = ('view_count', 'created_at', 'updated_at', 'net_score_display', 'confidence_level_display')
-    
+    autocomplete_fields = ['compound']
     fieldsets = (
         ('Basic Information', {
             'fields': ('title', 'content', 'compound', 'snippet_type')

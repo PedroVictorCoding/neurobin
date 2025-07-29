@@ -6,6 +6,7 @@ import io
 from typing import List, Dict, Optional
 from django.http import HttpResponse
 from django.db.models import Avg, Count, Q
+from django.utils import timezone
 
 from compounds.models import Compound
 from .models import ScoringCategory, CompoundScore, UserCompoundAnnotation
@@ -301,7 +302,7 @@ def get_trending_compounds(category: ScoringCategory = None, days: int = 7) -> L
     """Get compounds that are trending (recently added or updated with high scores)"""
     from datetime import datetime, timedelta
     
-    cutoff_date = datetime.now() - timedelta(days=days)
+    cutoff_date = timezone.now() - timedelta(days=days)
     
     if category:
         recent_scores = CompoundScore.objects.filter(
@@ -334,7 +335,7 @@ def cleanup_old_scores(days_old: int = 90, dry_run: bool = True) -> Dict:
     """Clean up old compound scores that may be outdated"""
     from datetime import datetime, timedelta
     
-    cutoff_date = datetime.now() - timedelta(days=days_old)
+    cutoff_date = timezone.now() - timedelta(days=days_old)
     
     old_scores = CompoundScore.objects.filter(
         timestamp__lt=cutoff_date

@@ -21,6 +21,174 @@ from .data_loader import CompoundFeatureExtractor
 logger = logging.getLogger(__name__)
 
 
+class EnhancedCompoundPredictor:
+    """Enhanced predictor with uncertainty quantification and ensemble methods"""
+    
+    def __init__(self):
+        self.model_dir = os.path.join(settings.BASE_DIR, 'ml_models', 'compound_ranker')
+        self.loaded_models = {}  # Cache for loaded models
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.ensemble_size = 3  # Number of models for ensemble predictions
+    
+    def load_ensemble_models(self, category_slug: str) -> List[CompoundTrainer]:
+        """Load multiple models for ensemble prediction"""
+        if not os.path.exists(self.model_dir):
+            return []
+        
+        # Find all model files for this category
+        model_files = [
+            f for f in os.listdir(self.model_dir)
+            if f.startswith(f"{category_slug}_") and f.endswith('.pth')
+        ]
+        
+        if not model_files:
+            return []
+        
+        # Sort by modification time and take most recent models
+        model_files.sort(key=lambda f: os.path.getmtime(os.path.join(self.model_dir, f)), reverse=True)
+        selected_files = model_files[:self.ensemble_size]
+        
+        ensemble_models = []
+        for model_file in selected_files:
+            try:
+                model_path = os.path.join(self.model_dir, model_file)
+                extractor_file = model_file.replace('.pth', '_extractor.pkl')
+                extractor_path = os.path.join(self.model_dir, extractor_file)
+                
+                if os.path.exists(extractor_path):
+                    category = ScoringCategory.objects.get(slug=category_slug, is_active=True)
+                    trainer = CompoundTrainer(category)
+                    trainer.load_model(model_path, extractor_path)
+                    ensemble_models.append(trainer)
+                    
+            except Exception as e:
+                logger.warning(f"Failed to load model {model_file}: {str(e)}")
+                continue
+        
+        return ensemble_models
+    
+    def predict_with_ensemble(self, compound: Compound, category: ScoringCategory) -> Optional[CompoundScore]:
+        """Make ensemble prediction with uncertainty quantification"""
+        ensemble_models = self.load_ensemble_models(category.slug)
+        
+        if not ensemble_models:
+            # Fallback to single model
+            return self.predict_compound_score(compound, category)
+        
+        predictions = []
+        confidences = []
+        uncertainties = []
+        
+        try:
+            for trainer in ensemble_models:
+                if not trainer.model or not trainer.feature_extractor:
+                    continue
+                
+                # Extract features
+                X, compound_ids = trainer.feature_extractor.transform(
+                    Compound.objects.filter(id=compound.id)
+                )
+                
+                if len(X) == 0:
+                    continue
+                
+                # Make prediction
+                trainer.model.eval()
+                with torch.no_grad():
+                    X_tensor = torch.FloatTensor(X).to(trainer.device)
+                    outputs = trainer.model(X_tensor)
+                    
+                    if outputs.shape[1] >= 2:
+                        score = float(outputs[0, 0].cpu().numpy())
+                        confidence = float(outputs[0, 1].cpu().numpy())
+                        predictions.append(score)
+                        confidences.append(confidence)
+                        
+                        # If uncertainty is available
+                        if outputs.shape[1] >= 3:
+                            uncertainty = float(outputs[0, 2].cpu().numpy())
+                            uncertainties.append(uncertainty)
+            
+            if not predictions:
+                return None
+            
+            # Ensemble aggregation
+            ensemble_score = np.mean(predictions)
+            ensemble_confidence = np.mean(confidences)
+            
+            # Calculate prediction uncertainty from ensemble variance
+            prediction_variance = np.var(predictions) if len(predictions) > 1 else 0.0
+            model_uncertainty = np.mean(uncertainties) if uncertainties else 0.1
+            
+            # Combined uncertainty (aleatoric + epistemic)
+            total_uncertainty = np.sqrt(prediction_variance + model_uncertainty**2)
+            
+            # Adjust confidence based on ensemble agreement
+            ensemble_agreement = 1.0 - (np.std(predictions) / max(np.mean(predictions), 0.1))
+            adjusted_confidence = ensemble_confidence * max(0.5, ensemble_agreement)
+            
+            # Ensure valid ranges
+            ensemble_score = max(0.0, min(1.0, ensemble_score))
+            adjusted_confidence = max(0.0, min(1.0, adjusted_confidence))
+            
+            # Create or update CompoundScore
+            compound_score, created = CompoundScore.objects.update_or_create(
+                compound=compound,
+                category=category,
+                defaults={
+                    'score': ensemble_score,
+                    'confidence': adjusted_confidence,
+                    'model_version': f'ensemble_v{len(predictions)}',
+                    'features_used': {
+                        'ensemble_size': len(predictions),
+                        'prediction_variance': float(prediction_variance),
+                        'total_uncertainty': float(total_uncertainty),
+                        'individual_predictions': predictions,
+                        'prediction_timestamp': __import__('django.utils.timezone').utils.timezone.now().isoformat()
+                    }
+                }
+            )
+            
+            logger.info(
+                f"Ensemble prediction for {compound.name} in {category.name}: "
+                f"{ensemble_score:.3f} (confidence: {adjusted_confidence:.3f}, "
+                f"uncertainty: {total_uncertainty:.3f})"
+            )
+            
+            return compound_score
+            
+        except Exception as e:
+            logger.error(f"Ensemble prediction failed for {compound.name} in {category.name}: {str(e)}")
+            return None
+    
+    def predict_top_compounds(self, category: ScoringCategory, limit: int = 10) -> List[CompoundScore]:
+        """Predict scores for all compounds and return top performers"""
+        from compounds.models import Compound
+        
+        compounds = Compound.objects.all()
+        all_scores = []
+        
+        for compound in compounds:
+            score_obj = self.predict_with_ensemble(compound, category)
+            if score_obj:
+                all_scores.append(score_obj)
+        
+        # Sort by weighted score (score * confidence) and return top compounds
+        all_scores.sort(key=lambda x: x.score * x.confidence, reverse=True)
+        return all_scores[:limit]
+    
+    def batch_predict_enhanced(self, compounds: List[Compound], category: ScoringCategory) -> List[CompoundScore]:
+        """Enhanced batch prediction with ensemble methods"""
+        results = []
+        
+        for compound in compounds:
+            score_obj = self.predict_with_ensemble(compound, category)
+            if score_obj:
+                results.append(score_obj)
+        
+        return results
+
+
 class CompoundPredictor:
     """Predictor for compound scores using trained models"""
     
@@ -125,7 +293,7 @@ class CompoundPredictor:
                     'model_version': trainer.model_version,
                     'features_used': {
                         'feature_count': X.shape[1],
-                        'prediction_timestamp': datetime.now().isoformat()
+                        'prediction_timestamp': __import__('django.utils.timezone').utils.timezone.now().isoformat()
                     }
                 }
             )
@@ -198,7 +366,7 @@ class CompoundPredictor:
                                 'features_used': {
                                     'feature_count': X.shape[1],
                                     'batch_prediction': True,
-                                    'prediction_timestamp': datetime.now().isoformat()
+                                    'prediction_timestamp': __import__('django.utils.timezone').utils.timezone.now().isoformat()
                                 }
                             }
                         )

@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('public_submissions_enabled', models.BooleanField(default=True, help_text='Allow users to submit public research snippets')),
-                ('require_review_flair', models.BooleanField(default=True, help_text="Show 'Needs Review' badges on unverified snippets")),
+                ('require_review_flair', models.BooleanField(default=True, help_text="Show 'Needs Reviews' badges on unverified snippets")),
                 ('higher_confirmation_rate', models.BooleanField(default=False, help_text='Require more votes for popular/trending snippets')),
                 ('ai_summaries_enabled', models.BooleanField(default=True, help_text='Enable AI-powered summarization features')),
                 ('min_votes_for_flair', models.IntegerField(default=1, help_text='Minimum votes before showing review flair')),
@@ -59,7 +59,7 @@ class Migration(migrations.Migration):
                 ('content', models.TextField(help_text='The main research content or findings')),
                 ('snippet_type', models.CharField(choices=[('general', 'General Research'), ('mechanism', 'Mechanism of Action'), ('pharmacology', 'Pharmacology'), ('safety', 'Safety Data'), ('clinical', 'Clinical Studies'), ('dosage', 'Dosage Information'), ('interaction', 'Drug Interactions'), ('experience', 'User Experience'), ('other', 'Other')], default='general', help_text='Category of research', max_length=50)),
                 ('visibility', models.CharField(choices=[('private', 'Private'), ('public', 'Public'), ('public_review', 'Public + Review Required')], default='private', help_text='Who can see this snippet', max_length=20)),
-                ('status', models.CharField(choices=[('draft', 'Draft'), ('submitted', 'Submitted'), ('needs_review', 'Needs Review'), ('verified', 'Verified'), ('flagged', 'Flagged'), ('rejected', 'Rejected')], default='draft', help_text='Review status of the snippet', max_length=20)),
+                ('status', models.CharField(choices=[('draft', 'Draft'), ('submitted', 'Submitted'), ('needs_review', 'Needs Reviews'), ('verified', 'Verified'), ('flagged', 'Flagged'), ('rejected', 'Rejected')], default='draft', help_text='Review status of the snippet', max_length=20)),
                 ('source_title', models.CharField(blank=True, help_text='Title of the research paper, study, or source', max_length=500)),
                 ('source_url', models.URLField(blank=True, help_text='Link to the original source (PubMed, journal, etc.)')),
                 ('doi', models.CharField(blank=True, help_text='Digital Object Identifier (DOI) if available', max_length=100)),

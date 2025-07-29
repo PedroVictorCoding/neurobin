@@ -8,6 +8,7 @@ class IntakeLogAdmin(admin.ModelAdmin):
     search_fields = ['user__username', 'compound__name', 'notes']
     date_hierarchy = 'taken_at'
     ordering = ['-taken_at']
+    autocomplete_fields = ['compound']
     
     # Custom fields for the form
     fields = ['user', 'compound', 'amount', 'unit', 'taken_at', 'notes']

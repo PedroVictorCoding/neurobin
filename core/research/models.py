@@ -18,7 +18,7 @@ class ResearchSnippet(models.Model):
     STATUS_CHOICES = [
         ('draft', 'Draft'),
         ('submitted', 'Submitted'),
-        ('needs_review', 'Needs Review'),
+        ('needs_review', 'Needs Reviews'),
         ('verified', 'Verified'),
         ('flagged', 'Flagged'),
         ('rejected', 'Rejected'),
@@ -327,7 +327,7 @@ class ResearchSettings(models.Model):
     )
     require_review_flair = models.BooleanField(
         default=True,
-        help_text="Show 'Needs Review' badges on unverified snippets"
+        help_text="Show 'Needs Reviews' badges on unverified snippets"
     )
     higher_confirmation_rate = models.BooleanField(
         default=False,
