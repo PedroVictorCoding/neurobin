@@ -55,7 +55,7 @@
           <div class="d-flex align-items-center">
             {% if compound.smiles %}
               <div class="bg-dark rounded me-3 d-flex align-items-center justify-content-center" style="width: 120px; height: 120px; border: 2px solid #7c7c7c;">
-                <svg class="molecule-viewer" data-smiles="{{ compound.smiles }}" width="116" height="116" style="border-radius: 10px;"></svg>
+                <svg class="molecule-viewer" data-smiles="{{ compound.smiles }}" width="116" height="116" style="border-radius: 10px; transform: scaleY(-1);"></svg>
               </div>
             {% else %}
               <div class="bg-dark rounded me-3 d-flex align-items-center justify-content-center" style="width: 120px; height: 120px;">
@@ -145,7 +145,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (compound.smiles) {
             structureHtml = `
                 <div class="bg-dark rounded me-3 d-flex align-items-center justify-content-center" style="width: 120px; height: 120px; border: 2px solid #7c7c7c;">
-                    <svg class="molecule-viewer" data-smiles="${compound.smiles}" width="116" height="116" style="border-radius: 10px;"></svg>
+                    <svg class="molecule-viewer" data-smiles="${compound.smiles}" width="116" height="116" style="border-radius: 10px;transform: scaleY(-1);"></svg>
                 </div>
             `;
         } else {

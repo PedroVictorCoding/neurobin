@@ -4,6 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Neurobin{% endblock %}</title>
+  <meta name="description" content="{% block meta_description1 %}Neurobin: Explore compounds, mechanisms, and research.{% endblock %}">
+  <!-- Open Graph / Discord / Facebook -->
+  <meta property="og:title" content="{% block og_title %}{% block title_name %}Neurobin{% endblock title_name %}{% endblock %}">
+  <meta property="og:description" content="{% block og_description %}{% block meta_description2 %}Neurobin: Explore compounds, mechanisms, and research.{% endblock %}{% endblock %}">
+  <meta property="og:image" content="{% block og_image %}{{ STATIC_URL }}img/neurobin-og.png{% endblock %}">
+  <meta property="og:url" content="{{ request.build_absolute_uri|default:'' }}">
+  <meta property="og:type" content="website">
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{% block twitter_title %}{% block title_tt %}Neurobin{% endblock title_tt %}{% endblock %}">
+  <meta name="twitter:description" content="{% block twitter_description %}{% block meta_description3 %}Neurobin: Explore compounds, mechanisms, and research.{% endblock meta_description3 %}{% endblock %}">
+  <meta name="twitter:image" content="{% block twitter_image %}{{ STATIC_URL }}img/neurobin-og.png{% endblock %}">
   
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -760,6 +772,8 @@
       background-size: 16px 12px;
     }
   </style>
+  <!-- Select2 for searchable dropdowns -->
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 </head>
 
 <body id="body" class="text-light" style="background-color: var(--bg-primary);"">
@@ -796,10 +810,10 @@
                 <!-- Primary Links Section -->
                 <li><h6 class="dropdown-header text-white fw-bold">Quick Links</h6></li>
                 <li><a class="dropdown-item ps-4" href="{% url 'compound_list' %}">Browse Compounds</a></li>
-                <!--<li><a class="dropdown-item ps-4" href="{% url 'compound_ranker:rankings_list' %}">🧠 Compound Rankings</a></li>-->
                 <li><a class="dropdown-item ps-4" href="{% url 'research:snippet_list' %}">Browse Research</a></li>
                 {% if user.is_autheticated %}
                 <li><a class="dropdown-item ps-4" href="">Add Research</a></li>
+                <li><h6 class="dropdown-header"></h6></li>
                 {% endif %}
 
                 {% if user.is_authenticated %}
@@ -815,9 +829,6 @@
                   <li><h6 class="dropdown-header text-white fw-bold">Admin</h6></li>
                   <li><a class="dropdown-item ps-4" href="{% url 'add_compound' %}">Add Compounds</a></li>
                   <li><a class="dropdown-item ps-4" href="{% url 'add_mechanism' %}">Add Mechanisms</a></li>
-                <li><a class="dropdown-item ps-4" href="{% url 'research:snippet_list' %}">Research Review</a></li>
-                <li><a class="dropdown-item ps-4" href="{% url 'compound_ranker:training_status' %}">🎯 Training Status</a></li>
-                <li><a class="dropdown-item ps-4" href="{% url 'admin:compound_ranker_scoringcategory_changelist' %}">⚙️ Manage Categories</a></li>
                 {% endif %}
                 
                 <!-- Profile Section -->
@@ -862,9 +873,6 @@
               <li><h6 class="dropdown-header text-white fw-bold">Quick Links</h6></li>
               <li><a class="dropdown-item ps-4" href="{% url 'compound_list' %}">
                 <i class="fas fa-pills me-2"></i>Browse Compounds
-              </a></li>
-              <li><a class="dropdown-item ps-4" href="{% url 'compound_ranker:rankings_list' %}">
-                <i class="fas fa-brain me-2"></i>Compound Rankings
               </a></li>
               <li><a class="dropdown-item ps-4" href="{% url 'research:snippet_list' %}">
                 <i class="fas fa-flask me-2"></i>Browse Research
@@ -932,6 +940,36 @@
   </main>
 
   
+  <!-- jQuery and Select2 JS for AJAX-powered selects -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      if (window.jQuery && jQuery.fn.select2) {
+        jQuery('.searchable').select2({
+          width: 'resolve',
+          ajax: {
+            url: '{% url "compound-search-api" %}',
+            dataType: 'json',
+            delay: 250,
+            data: function(params) {
+              return { q: params.term, limit: 20 };
+            },
+            processResults: function(data) {
+              return {
+                results: data.compounds.map(function(c) {
+                  return { id: c.id, text: c.name };
+                })
+              };
+            },
+            cache: true
+          },
+          placeholder: 'Search for a compound',
+          minimumInputLength: 1,
+        });
+      }
+    });
+  </script>
 </body>
 
 

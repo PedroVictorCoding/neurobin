@@ -1,5 +1,20 @@
 {% extends "base.html" %}
 {% block title %}{{ snippet.title }} — Research — Neurobin{% endblock %}
+
+<meta name="description" content="{% block meta_description1 %}Neurobin: Explore compounds, mechanisms, and research.{% endblock %}">
+<!-- Open Graph / Discord / Facebook -->
+<meta property="og:title" content="{% block og_title %}{% block title_name %}{{ snippet.title }} - Neurobin{% endblock title_name %}{% endblock %}">
+<meta property="og:description" content="{% block og_description %}{% block meta_description2 %}{{ snippet.description|default:'Explore compounds, mechanisms, and research.' }}{% endblock %}{% endblock %}">
+<meta property="og:image" content="{% block og_image %}{{ STATIC_URL }}img/neurobin-og.png{% endblock %}">
+<meta property="og:url" content="{{ request.build_absolute_uri|default:'' }}">
+<meta property="og:type" content="website">
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{% block twitter_title %}{% block title_tt %}{{ snippet.title }} - Neurobin{% endblock title_tt %}{% endblock %}">
+<meta name="twitter:description" content="{% block twitter_description %}{% block meta_description3 %}{{ snippet.description|default:'Explore compounds, mechanisms, and research.' }}{% endblock meta_description3 %}{% endblock %}">
+<meta name="twitter:image" content="{% block twitter_image %}{{ STATIC_URL }}img/neurobin-og.png{% endblock %}">
+  
+
 {% block content %}
 <div class="container-fluid">
   <!-- Breadcrumb -->
