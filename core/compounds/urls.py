@@ -4,6 +4,8 @@ from django.urls import path, include
 from .views import (
     compound_detail,
     compound_details,
+    compound_admet_ai_refresh,
+    compound_molprop_refresh,
     add_compound,
     submit_rating,
     compound_search,
@@ -37,5 +39,7 @@ urlpatterns = [
     path('<slug:slug>/details/', compound_details, name='compound_details'),
     path('<slug:slug>/', compound_detail, name='compound_detail'),
     path('<slug:slug>/rate/', submit_rating, name='submit_rating'),
+    path('<slug:slug>/admet-ai/refresh/', compound_admet_ai_refresh, name='compound_admet_ai_refresh'),
+    path('<slug:slug>/molprop/refresh/', compound_molprop_refresh, name='compound_molprop_refresh'),
     path('<slug:slug>/snippet/<int:snippet_id>/review/', review_snippet, name='review_snippet'),
 ]

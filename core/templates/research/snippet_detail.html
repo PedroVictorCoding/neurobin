@@ -125,16 +125,6 @@
             <div class="text-white" style="line-height: 1.8; white-space: pre-wrap; margin-left: 10px;">{{ snippet.content }}</div>
           </div>
 
-          <!-- AI Summary -->
-          {% if snippet.ai_summary %}
-            <div class="alert alert-info border-0">
-              <h6 class="text-white fw-bold">
-                <i class="fas fa-robot text-primary"></i> AI Summary
-              </h6>
-              <p class="mb-0 text-dark">{{ snippet.ai_summary }}</p>
-            </div>
-          {% endif %}
-
           <!-- Source Information -->
           {% if snippet.source_title or snippet.source_url or snippet.doi or snippet.pubmed_id %}
             <div class="border-top pt-3">

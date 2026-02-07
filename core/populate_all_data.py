@@ -18,6 +18,7 @@ Usage:
 import os
 import sys
 import django
+from django.db.models import Count
 import requests
 import json
 import time
@@ -30,6 +31,8 @@ from typing import Dict, List, Optional, Tuple, Any
 import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import xml.etree.ElementTree as ET
+from django.utils import timezone
+from itertools import combinations
 
 # Setup Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
@@ -38,18 +41,14 @@ django.setup()
 from django.contrib.auth.models import User
 from compounds.models import (
     ActionType, TargetType, CompoundCategories, Target, 
-    CompoundMechanismOfAction, Compound, CompoundRating,
-    CompoundSafetyScreening, EffectWindow, CompoundTargetInteraction,
-    CompoundToCompoundTargetInteraction, TargetPathwayInteraction,
-    CompoundPathwayEffect
+    CompoundMechanismOfAction, Compound, EffectWindow, CompoundTargetInteraction,
+    CompoundToCompoundTargetInteraction
 )
 from research.models import (
-    ResearchSnippet, SnippetReview, SnippetTag, SnippetTagging,
+    ResearchSnippet, SnippetTag, SnippetTagging,
     SnippetComment, UserRole, ResearchSettings
 )
 from accounts.models import UserProfile
-from logs.models import IntakeLog
-from change_requests.models import ChangeRequest, ChangeRequestComment, AppliedChange
 
 # Setup logging
 logging.basicConfig(
@@ -169,6 +168,13 @@ class ChEMBLAPI(APIClient):
         }
         return self.get('mechanism', params=params)
 
+    def get_molecule_details(self, chembl_id: str) -> Optional[Dict]:
+        """Fetch molecule details for a specific ChEMBL ID"""
+        if not chembl_id:
+            return None
+
+        return self.get('molecule', params={'molecule_chembl_id': chembl_id, 'format': 'json'})
+
 class PubChemAPI(APIClient):
     """PubChem REST API client"""
     
@@ -201,15 +207,82 @@ class UniProtAPI(APIClient):
         data = self.get('uniprotkb/search', params=params)
         return data.get('results', []) if data else []
 
+class PubMedAPI(APIClient):
+    """PubMed API client using NCBI E-utilities"""
+
+    def __init__(self, api_key: Optional[str] = None, email: str = 'neurobin@neurobin.com'):
+        super().__init__('https://eutils.ncbi.nlm.nih.gov/entrez/eutils/', rate_limit=0.25)
+        self.default_params = {'email': email}
+        if api_key:
+            self.default_params['api_key'] = api_key
+
+    def search(self, term: str, retmax: int = 5) -> Dict:
+        """Search PubMed for a given term"""
+        params = {
+            **self.default_params,
+            'db': 'pubmed',
+            'term': term,
+            'retmode': 'json',
+            'retmax': min(retmax, 20)
+        }
+        return self.get('esearch.fcgi', params=params) or {}
+
+    def fetch_summaries(self, ids: List[str]) -> List[Dict]:
+        """Fetch summaries for a list of PubMed IDs"""
+        if not ids:
+            return []
+
+        params = {
+            **self.default_params,
+            'db': 'pubmed',
+            'id': ','.join(ids),
+            'retmode': 'json'
+        }
+
+        data = self.get('esummary.fcgi', params=params)
+
+        if not data:
+            return []
+
+        result = data.get('result', {})
+        summaries = []
+        for uid in result.get('uids', []):
+            entry = result.get(uid, {})
+            summaries.append({
+                'uid': uid,
+                'title': entry.get('title', '').strip(),
+                'summary': entry.get('summary', entry.get('title', 'Publication summary unavailable')),
+                'doi': entry.get('elocationid', '').strip(),
+                'pubdate': entry.get('pubdate', ''),
+                'source': entry.get('source', ''),
+            })
+
+        return summaries
+
 class DataPopulator:
     """Main data population class"""
+
+    ACTIVATING_MECHANISMS = {
+        'agonist', 'partial_agonist', 'inverse_agonist', 'activator',
+        'inducer', 'substrate', 'opener', 'pam', 'upregulator'
+    }
+
+    INHIBITING_MECHANISMS = {
+        'antagonist', 'inhibitor', 'blocker', 'nam', 'downregulator'
+    }
+
+    MODULATING_MECHANISMS = {
+        'modulator', 'binder'
+    }
     
-    def __init__(self, no_limits: bool = False):
+    def __init__(self, no_limits: bool = False, allow_dummy_research: bool = False):
         self.no_limits = no_limits
+        self.allow_dummy_research = allow_dummy_research
         self.reactome = ReactomeAPI()
         self.chembl = ChEMBLAPI()
         self.pubchem = PubChemAPI()
         self.uniprot = UniProtAPI()
+        self.pubmed = PubMedAPI()
         
         # Ensure superuser exists
         self.admin_user = self.get_or_create_admin_user()
@@ -510,13 +583,6 @@ class DataPopulator:
                         if gene_name:
                             gene_name = gene_name[:50]  # Ensure it fits the field length
                     
-                    # Extract UniProt ID safely
-                    uniprot_id = None
-                    if target_components and len(target_components) > 0:
-                        uniprot_id = target_components[0].get('accession')
-                        if uniprot_id:
-                            uniprot_id = uniprot_id[:20]  # Ensure it fits the field length
-                    
                     # Extract description safely
                     description = ''
                     if target_components and len(target_components) > 0:
@@ -535,7 +601,6 @@ class DataPopulator:
                                 'structured_target_type': structured_type,
                                 'description': description,
                                 'organism': target_data.get('organism', 'Homo sapiens'),
-                                'uniprot_id': uniprot_id,
                                 'gene_name': gene_name,
                             }
                         )
@@ -552,9 +617,8 @@ class DataPopulator:
                                         'type': mapped_type,
                                         'structured_target_type': structured_type,
                                         'description': description,
-                                        'organism': target_data.get('organism', 'Homo sapiens'),
-                                        'uniprot_id': uniprot_id,
-                                        'gene_name': gene_name,
+                                'organism': target_data.get('organism', 'Homo sapiens'),
+                                'gene_name': gene_name,
                                     }
                                 )
                             except Exception as e2:
@@ -569,9 +633,8 @@ class DataPopulator:
                                         'type': mapped_type,
                                         'structured_target_type': structured_type,
                                         'description': description,
-                                        'organism': target_data.get('organism', 'Homo sapiens'),
-                                        'uniprot_id': uniprot_id,
-                                        'gene_name': gene_name,
+                                'organism': target_data.get('organism', 'Homo sapiens'),
+                                'gene_name': gene_name,
                                     }
                                 )
                         else:
@@ -630,11 +693,27 @@ class DataPopulator:
             if not molecules:
                 break
             
+            chembl_ids = [
+                mol_data.get('molecule_chembl_id')
+                for mol_data in molecules
+                if mol_data.get('molecule_chembl_id')
+            ]
+            existing_ids = set(
+                Compound.objects.filter(chembl_id__in=chembl_ids)
+                .values_list('chembl_id', flat=True)
+            )
+            
             for mol_data in molecules:
                 try:
                     # Skip if no SMILES
                     smiles = mol_data.get('molecule_structures', {}).get('canonical_smiles') if mol_data.get('molecule_structures') else None
                     if not smiles:
+                        continue
+                    
+                    props = mol_data.get('molecule_properties') or {}
+                    
+                    chembl_id = mol_data.get('molecule_chembl_id')
+                    if not chembl_id or chembl_id in existing_ids:
                         continue
                     
                     # Create compound
@@ -644,13 +723,13 @@ class DataPopulator:
                             'name': mol_data.get('pref_name', mol_data.get('molecule_chembl_id', 'Unknown'))[:255],
                             'description': self._create_compound_description(mol_data),
                             'smiles': smiles[:500],
-                            'molecular_weight': mol_data.get('molecule_properties', {}).get('mw_freebase'),
-                            'molecular_formula': mol_data.get('molecule_properties', {}).get('molecular_formula', ''),
-                            'logp': mol_data.get('molecule_properties', {}).get('alogp'),
-                            'tpsa': mol_data.get('molecule_properties', {}).get('psa'),
-                            'hbd': mol_data.get('molecule_properties', {}).get('hbd'),
-                            'hba': mol_data.get('molecule_properties', {}).get('hba'),
-                            'rotatable_bonds': mol_data.get('molecule_properties', {}).get('rtb'),
+                            'molecular_weight': props.get('mw_freebase'),
+                            'molecular_formula': props.get('molecular_formula', ''),
+                            'logp': props.get('alogp'),
+                            'tpsa': props.get('psa'),
+                            'hbd': props.get('hbd'),
+                            'hba': props.get('hba'),
+                            'rotatable_bonds': props.get('rtb'),
                             'aliases': ', '.join(mol_data.get('molecule_synonyms', [])[:5])[:500],
                         }
                     )
@@ -689,9 +768,15 @@ class DataPopulator:
             }
             parts.append(f"Development phase: {phases.get(mol_data['max_phase'], 'Unknown')}")
         
-        props = mol_data.get('molecule_properties', {})
-        if props.get('mw_freebase'):
-            parts.append(f"Molecular weight: {props['mw_freebase']:.2f} Da")
+        props = mol_data.get('molecule_properties') or {}
+        mw_value = props.get('mw_freebase')
+        if mw_value is not None:
+            try:
+                mw_float = float(mw_value)
+            except (TypeError, ValueError):
+                mw_float = None
+            if mw_float is not None:
+                parts.append(f"Molecular weight: {mw_float:.2f} Da")
         
         if props.get('molecular_formula'):
             parts.append(f"Formula: {props['molecular_formula']}")
@@ -789,202 +874,14 @@ class DataPopulator:
         logger.info(f"Created {total_created} mechanisms from ChEMBL")
     
     def populate_pathway_interactions_from_reactome(self, limit: int = None):
-        """Populate pathway interactions from Reactome"""
-        logger.info("Populating pathway interactions from Reactome...")
-        print("🧬 Starting pathway interaction population from Reactome database...")
-        
-        # Get all pathways for Homo sapiens
-        print("🌐 Fetching pathway list from Reactome API for Homo sapiens...")
-        pathways = self.reactome.get_all_pathways("9606")
-        if not pathways:
-            print("❌ Could not fetch pathways from Reactome")
-            logger.warning("Could not fetch pathways from Reactome")
-            return
-        
-        print(f"📋 Found {len(pathways)} pathways from Reactome")
-        
-        total_created = 0
-        max_pathways = 50 if not self.no_limits else len(pathways)
-        
-        print(f"📊 Will process {max_pathways} pathways (limit: {'50 (demo mode)' if not self.no_limits else 'unlimited'})")
-        
-        print("🎯 Fetching targets with UniProt IDs for pathway mapping...")
-        targets = list(Target.objects.filter(uniprot_id__isnull=False)[:1000])
-        print(f"🎯 Found {len(targets)} targets with UniProt IDs")
-        
-        if not targets:
-            print("⚠️  No targets with UniProt IDs found, skipping pathway interactions")
-            return
-        
-        for i, pathway in enumerate(pathways[:max_pathways]):
-            try:
-                pathway_id = pathway.get('stId')
-                pathway_name = pathway.get('displayName', 'Unknown Pathway')
-                
-                if not pathway_id:
-                    continue
-                
-                print(f"🔄 Processing pathway {i+1}/{max_pathways}: {pathway_name} (ID: {pathway_id})")
-                
-                # Get pathway participants
-                print(f"  🌐 Fetching participants for pathway {pathway_id}...")
-                participants = self.reactome.get_pathway_participants(pathway_id)
-                if not participants:
-                    print(f"  ⚠️  No participants found for pathway {pathway_id}")
-                    continue
-                
-                print(f"  📋 Found {len(participants) if isinstance(participants, list) else 'some'} participants")
-                
-                # For each target with UniProt ID, create pathway interaction
-                sample_targets = random.sample(targets, min(10, len(targets)))
-                print(f"  🎯 Testing {len(sample_targets)} random targets for pathway inclusion...")
-                
-                created_for_pathway = 0
-                for target in sample_targets:
-                    if not target.uniprot_id:
-                        continue
-                    
-                    # Check if this protein is in this pathway (simplified)
-                    if random.random() < 0.1:  # 10% chance for demo purposes
-                        interaction, created = TargetPathwayInteraction.objects.get_or_create(
-                            target=target,
-                            reactome_id=pathway_id,
-                            defaults={
-                                'pathway_name': pathway_name[:512],
-                                'pathway_type': self._categorize_pathway(pathway_name),
-                                'description': f"Pathway: {pathway_name}",
-                                'evidence': 'Reactome database',
-                                'confidence': random.choice(['high', 'medium', 'low']),
-                                'species': 'Homo sapiens'
-                            }
-                        )
-                        
-                        if created:
-                            total_created += 1
-                            created_for_pathway += 1
-                
-                print(f"  ✅ Pathway {i+1} completed: created {created_for_pathway} new interactions")
-                
-                if (i + 1) % 10 == 0:
-                    print(f"🎉 Milestone: Processed {i+1} pathways, total interactions created: {total_created}")
-                
-                if limit and total_created >= limit:
-                    print(f"🎯 Reached limit of {limit} pathway interactions, stopping...")
-                    break
-                    
-            except Exception as e:
-                print(f"❌ Error processing pathway {pathway.get('stId', 'unknown')}: {e}")
-                logger.error(f"Error processing pathway {pathway.get('stId', 'unknown')}: {e}")
-                continue
-        
-        print(f"🎉 Pathway interaction population completed! Created {total_created} pathway interactions")
-        logger.info(f"Created {total_created} pathway interactions")
-    
-    def _categorize_pathway(self, pathway_name: str) -> str:
-        """Categorize pathway based on name"""
-        name_lower = pathway_name.lower()
-        
-        if any(term in name_lower for term in ['signal', 'signaling', 'signalling']):
-            return 'Cell signaling'
-        elif any(term in name_lower for term in ['metabol', 'biosynthesis', 'catabolism']):
-            return 'Metabolism'
-        elif any(term in name_lower for term in ['immune', 'inflammation', 'cytokine']):
-            return 'Immune response'
-        elif any(term in name_lower for term in ['development', 'differentiation', 'morphogenesis']):
-            return 'Development'
-        elif any(term in name_lower for term in ['transport', 'trafficking', 'localization']):
-            return 'Transport'
-        elif any(term in name_lower for term in ['dna', 'rna', 'transcription', 'translation']):
-            return 'Gene expression'
-        elif any(term in name_lower for term in ['cell cycle', 'mitosis', 'meiosis']):
-            return 'Cell cycle'
-        elif any(term in name_lower for term in ['apoptosis', 'death', 'autophagy']):
-            return 'Cell death'
-        else:
-            return 'Other'
+        """Reactome stage is disabled because pathway models are not present."""
+        logger.info("Reactome pathway interaction staging skipped (models have been removed)")
+        print("⚠️  Reactome pathway population skipped because TargetPathwayInteraction was removed from the schema.")
     
     def populate_compound_pathway_effects(self, limit: int = None):
-        """Populate compound pathway effects based on existing data"""
-        logger.info("Populating compound pathway effects...")
-        print("🔗 Starting compound pathway effect population...")
-        
-        # Get compounds with target interactions
-        print("🔍 Fetching compound-target interactions...")
-        compound_interactions = CompoundTargetInteraction.objects.select_related(
-            'compound', 'target'
-        ).prefetch_related('target__pathway_interactions')[:1000]
-        
-        print(f"📊 Found {len(compound_interactions)} compound-target interactions")
-        
-        if not compound_interactions:
-            print("⚠️  No compound-target interactions found, skipping pathway effects")
-            return
-        
-        total_created = 0
-        max_effects = 500 if not self.no_limits else 5000
-        
-        print(f"🎯 Will create up to {max_effects} pathway effects")
-        
-        processed_interactions = 0
-        for interaction in compound_interactions:
-            if total_created >= max_effects:
-                print(f"🎯 Reached maximum effects limit ({max_effects}), stopping...")
-                break
-                
-            compound = interaction.compound
-            target = interaction.target
-            
-            # Get pathway interactions for this target
-            pathway_interactions = target.pathway_interactions.all()[:5]
-            
-            if not pathway_interactions:
-                continue
-            
-            processed_interactions += 1
-            if processed_interactions % 50 == 0:
-                print(f"  🔄 Processed {processed_interactions} interactions, created {total_created} effects...")
-            
-            created_for_compound = 0
-            for pathway_interaction in pathway_interactions:
-                try:
-                    # Determine effect type based on mechanism
-                    mechanism = interaction.mechanism.lower()
-                    if any(term in mechanism for term in ['agonist', 'activator', 'inducer']):
-                        effect_type = 'activating'
-                    elif any(term in mechanism for term in ['antagonist', 'inhibitor', 'blocker']):
-                        effect_type = 'inhibiting'
-                    elif 'modulator' in mechanism:
-                        effect_type = 'modulating'
-                    else:
-                        effect_type = 'unknown'
-                    
-                    # Create pathway effect
-                    effect, created = CompoundPathwayEffect.objects.get_or_create(
-                        compound=compound,
-                        pathway=pathway_interaction,
-                        inferred_from=target,
-                        defaults={
-                            'mechanism': interaction.mechanism[:50],
-                            'effect_type': effect_type,
-                            'confidence': random.choice(['high', 'medium', 'low']),
-                            'strength': random.uniform(0.3, 0.9)
-                        }
-                    )
-                    
-                    if created:
-                        total_created += 1
-                        created_for_compound += 1
-                        
-                except Exception as e:
-                    logger.error(f"Error creating pathway effect: {e}")
-                    continue
-            
-            if created_for_compound > 0 and processed_interactions % 20 == 0:
-                print(f"  ✅ Created {created_for_compound} effects for compound {compound.name}")
-        
-        print(f"🎉 Compound pathway effect population completed!")
-        print(f"📊 Final stats: processed {processed_interactions} interactions, created {total_created} pathway effects")
-        logger.info(f"Created {total_created} compound pathway effects")
+        """Pathway effects stage is deferred because pathway models were removed."""
+        logger.info("Compound pathway effect population skipped (models have been removed)")
+        print("⚠️  Compound pathway effects cannot be computed because CompoundPathwayEffect was removed from the schema.")
     
     def populate_research_data(self):
         """Populate research-related data"""
@@ -1074,7 +971,7 @@ class DataPopulator:
         # Create research snippets
         print("📝 Creating research snippets...")
         compounds = list(Compound.objects.all()[:50])
-        snippet_types = ['experience_report', 'research_paper', 'clinical_data', 'mechanism_study']
+        snippet_types = ['research_paper', 'clinical_data', 'mechanism_study']
         
         if not compounds:
             print("⚠️  No compounds found for research snippets")
@@ -1082,6 +979,15 @@ class DataPopulator:
         
         print(f"📊 Found {len(compounds)} compounds for snippet creation")
         
+        imported_pubmed = self.populate_pubmed_snippets(compounds, created_tags, limit_per_compound=2)
+        if imported_pubmed:
+            print(f"📰 Imported {imported_pubmed} PubMed-based snippets")
+
+        if not self.allow_dummy_research:
+            print("🚫 Dummy research snippet generation is disabled. Skipping synthetic snippets.")
+            logger.info("Dummy research snippet generation skipped (allow_dummy_research=False)")
+            return
+
         created_snippets = 0
         max_snippets = 100 if not self.no_limits else 1000
         
@@ -1094,14 +1000,18 @@ class DataPopulator:
             compound = random.choice(compounds)
             snippet_type = random.choice(snippet_types)
             
+            abstract_override = None
+            if snippet_type == 'research_paper':
+                abstract_override = self._fetch_pubmed_abstract(compound)
+
             snippet = ResearchSnippet.objects.create(
                 title=f"{snippet_type.replace('_', ' ').title()} for {compound.name}",
-                content=self._generate_snippet_content(compound, snippet_type),
+                content=self._generate_snippet_content(compound, snippet_type, abstract_override),
                 compound=compound,
                 snippet_type=snippet_type,
                 status=random.choice(['draft', 'published', 'under_review']),
                 visibility=random.choice(['public', 'registered_only', 'private']),
-                created_by=random.choice(users) if users else self.admin_user,
+                created_by=self.admin_user,
                 ai_generated=random.choice([True, False]),
                 ai_summary=f"AI-generated summary for {compound.name} {snippet_type}",
                 source_title=f"Research on {compound.name}",
@@ -1113,15 +1023,6 @@ class DataPopulator:
                 snippet.tags.add(*random.sample(created_tags, random.randint(1, 3)))
             
             # Add reviews
-            for _ in range(random.randint(0, 5)):
-                reviewer = random.choice(users) if users else self.admin_user
-                if reviewer != snippet.created_by:
-                    SnippetReview.objects.create(
-                        snippet=snippet,
-                        reviewer=reviewer,
-                        vote_type=random.choice(['positive', 'negative']),
-                        comment=f"Review comment for {snippet.title}"
-                    )
             
             created_snippets += 1
             if created_snippets % 25 == 0:
@@ -1130,68 +1031,136 @@ class DataPopulator:
         print(f"🎉 Research data population completed! Created {created_snippets} research snippets")
         logger.info(f"Created {created_snippets} research snippets")
     
-    def _generate_snippet_content(self, compound: Compound, snippet_type: str) -> str:
-        """Generate realistic snippet content"""
-        if snippet_type == 'experience_report':
-            return f"""
-Personal experience with {compound.name}:
+    def _generate_snippet_content(
+        self,
+        compound: Compound,
+        snippet_type: str,
+        abstract_override: Optional[str] = None
+    ) -> str:
+        """Generate detailed research snippet content (papers/clinical/mechanisms only)"""
+        base_intro = (
+            f"Title: Investigating {compound.name} in contemporary research.\n"
+            f"Compound: {compound.name} (ChEMBL: {compound.chembl_id or 'unknown'})\n\n"
+        )
 
-Dosage: 10-20mg
-Route: Oral
-Duration: 4-6 hours
+        if snippet_type == 'research_paper':
+            abstract_text = abstract_override or (
+                "Abstract:\n"
+                "  This work consolidates recent in vitro and in vivo findings, "
+                "focusing on receptor binding profiles and downstream signaling.\n"
+                "Methods:\n"
+                "  - High-throughput binding assays across GPCR and kinase panels\n"
+                "  - Dose-response behavioral experiments in rodent models\n"
+                "  - RNA-seq for transcriptional footprinting\n"
+                "Results:\n"
+                f"  {compound.name} shows sub-100 nM potency on multiple neurotransmitter receptors "
+                "with consistent activation across species. Transcriptomics highlight cAMP, calcium, "
+                "and oxidative stress pathways.\n"
+                "Conclusion:\n"
+                "  Evidence supports further translational research; safety margins remain to be clarified.\n"
+            )
 
-Effects observed:
-- Enhanced focus and concentration
-- Mild mood elevation
-- Increased sociability
+            return base_intro + abstract_text
 
-Side effects:
-- Mild headache during comedown
-- Slight nausea at onset
+        if snippet_type == 'clinical_data':
+            return (
+                base_intro
+                + "Clinical Study Summary:\n"
+                "  Randomized, double-blind Phase II trial (N=98) examining safety and target engagement.\n"
+                "Endpoints:\n"
+                "  - Primary: tolerability and steady-state plasma levels\n"
+                "  - Secondary: symptom reduction indices and biomarker shifts\n"
+                "Findings:\n"
+                "  - Well tolerated up to 60mg/day, no serious adverse events\n"
+                "  - PK/PD modeling suggests linear exposure with consistent metabolite ratios\n"
+                f"Implications:\n"
+                f"  {compound.name} is a candidate for larger efficacy studies with enriched biomarker sampling.\n"
+            )
 
-Overall rating: Positive experience with manageable side effects.
-"""
-        elif snippet_type == 'research_paper':
-            return f"""
-Abstract: This study investigates the pharmacological properties of {compound.name} 
-and its effects on neurotransmitter systems. Methods included in vitro binding assays 
-and behavioral studies in animal models.
+        # mechanism_study fallback
+        return (
+            base_intro
+            + "Mechanistic Insight:\n"
+            "  Functional assays dissect how the compound alters target structure and signaling cascades.\n"
+            "Observations:\n"
+            "  - High selectivity ratio for the primary receptor, confirmed via mutagenesis\n"
+            "  - Partial agonism modulates downstream phosphorylation of ERK1/2 and Akt\n"
+            "  - Integrative pathway analysis connects the target to synaptic plasticity and neuroinflammation modules\n"
+            "Recommendations:\n"
+            "  Leverage these mechanistic insights to guide next-stage translational validation.\n"
+        )
 
-Results show that {compound.name} exhibits high affinity for multiple receptor targets 
-with potential therapeutic applications. Further research is needed to establish 
-safety profile and optimal dosing regimens.
+    def _fetch_pubmed_abstract(self, compound: Compound) -> Optional[str]:
+        """Fetch a PubMed abstract for a compound to reuse as research content"""
+        papers = self._search_pubmed_papers(compound.name, limit=1)
+        if not papers:
+            return None
 
-Keywords: {compound.name}, pharmacology, neurotransmitters, receptor binding
-"""
-        elif snippet_type == 'clinical_data':
-            return f"""
-Clinical Trial Data for {compound.name}:
+        abstract = papers[0].get('summary') or papers[0].get('title')
+        if abstract:
+            return f"Abstract sourced from PubMed:\n  {abstract.strip()}\n"
 
-Phase II clinical trial (n=120 participants)
-Primary endpoint: Safety and tolerability
-Secondary endpoints: Efficacy measures
+        return None
 
-Results:
-- Well tolerated at doses up to 50mg
-- No serious adverse events related to study drug
-- Statistically significant improvement in primary efficacy measure
+    def _search_pubmed_papers(self, compound_name: str, limit: int = 2) -> List[Dict]:
+        """Search PubMed for papers that mention a specific compound"""
+        query = f"{compound_name} AND (pharmacology OR mechanism OR neurotransmitter)"
+        search_results = self.pubmed.search(query, retmax=limit if not self.no_limits else limit * 2)
 
-Conclusion: {compound.name} shows promise for further development.
-"""
-        else:  # mechanism_study
-            return f"""
-Mechanism of Action Study: {compound.name}
+        id_list = search_results.get('esearchresult', {}).get('idlist', [])
+        return self.pubmed.fetch_summaries(id_list)
 
-Binding affinity studies reveal high selectivity for target receptors.
-Functional assays demonstrate agonist activity with EC50 of 10nM.
+    def populate_pubmed_snippets(
+        self,
+        compounds: List[Compound],
+        tags: List[SnippetTag],
+        limit_per_compound: int = 2
+    ) -> int:
+        """Import vetted PubMed results as research snippets"""
+        if not compounds:
+            return 0
 
-Pathway analysis shows involvement in:
-- cAMP signaling cascade
-- Calcium mobilization
-- Gene expression changes
+        max_compounds = 20 if self.no_limits else 10
+        imported = 0
 
-These findings support the proposed mechanism of action for {compound.name}.
-"""
+        for compound in compounds[:max_compounds]:
+            papers = self._search_pubmed_papers(compound.name, limit=limit_per_compound)
+            if not papers:
+                continue
+
+            for paper in papers:
+                uid = paper.get('uid')
+                if not uid:
+                    continue
+
+                source_url = f"https://pubmed.ncbi.nlm.nih.gov/{uid}/"
+                summary = paper.get('summary') or paper.get('title') or f"PubMed summary for {compound.name}"
+
+                snippet, created = ResearchSnippet.objects.get_or_create(
+                    compound=compound,
+                    source_url=source_url,
+                    defaults={
+                        'title': paper.get('title') or f"PubMed research for {compound.name}",
+                        'content': summary,
+                        'snippet_type': 'pharmacology',
+                        'visibility': 'public',
+                        'status': 'verified',
+                        'created_by': self.admin_user,
+                        'ai_generated': False,
+                        'ai_summary': f"Imported from PubMed ({paper.get('pubdate', 'unknown date')})",
+                        'source_title': paper.get('title'),
+                        'doi': paper.get('doi', ''),
+                    }
+                )
+
+                if created:
+                    imported += 1
+
+                    if tags:
+                        snippet.tags.add(*random.sample(tags, min(2, len(tags))))
+
+        logger.info(f"Imported {imported} PubMed research snippets")
+        return imported
     
     def populate_user_data(self):
         """Populate user-related data"""
@@ -1244,233 +1213,198 @@ These findings support the proposed mechanism of action for {compound.name}.
         print(f"🎉 User data population completed! Created {profile_count} user profiles")
         logger.info(f"Created user profiles for all users")
     
-    def populate_intake_logs(self):
-        """Populate intake logs"""
-        logger.info("Populating intake logs...")
-        
-        users = list(User.objects.all())
-        compounds = list(Compound.objects.all()[:20])
-        
-        if not users or not compounds:
-            logger.warning("No users or compounds found for intake logs")
-            return
-        
-        units = ['mg', 'ml', 'mcg', 'drops', 'caps']
-        created_logs = 0
-        max_logs = 200 if not self.no_limits else 2000
-        
-        # Create logs over the past year
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=365)
-        
-        for _ in range(max_logs):
-            user = random.choice(users)
-            compound = random.choice(compounds)
-            
-            # Random date in the past year
-            random_days = random.randint(0, 365)
-            taken_at = start_date + timedelta(days=random_days)
-            
-            # Random amount based on compound type
-            amount = random.uniform(0.5, 100.0)
-            unit = random.choice(units)
-            
-            log = IntakeLog.objects.create(
-                user=user,
-                compound=compound,
-                amount=amount,
-                unit=unit,
-                taken_at=taken_at,
-                notes=f"Intake log for {compound.name} - {amount}{unit}"
-            )
-            created_logs += 1
-        
-        logger.info(f"Created {created_logs} intake logs")
     
-    def populate_ratings_and_safety(self):
-        """Populate compound ratings and safety screenings"""
-        logger.info("Populating ratings and safety data...")
-        
-        users = list(User.objects.all())
-        compounds = list(Compound.objects.all()[:100])
-        
-        if not users or not compounds:
-            logger.warning("No users or compounds found")
-            return
-        
-        created_ratings = 0
-        created_safety = 0
-        
-        for compound in compounds:
-            # Create 1-5 ratings per compound
-            num_ratings = random.randint(1, 5)
-            for _ in range(num_ratings):
-                user = random.choice(users)
-                rating, created = CompoundRating.objects.get_or_create(
-                    compound=compound,
-                    user=user,
-                    defaults={
-                        'score': random.randint(1, 5),
-                        'review': f"Review of {compound.name} by {user.username}"
-                    }
-                )
-                if created:
-                    created_ratings += 1
-            
-            # Create safety screening
-            safety, created = CompoundSafetyScreening.objects.get_or_create(
-                compound=compound,
-                defaults={
-                    'created_by': random.choice(users),
-                    'confidence_score': random.uniform(0.1, 1.0),
-                    'safety_notes': f"Safety assessment for {compound.name}",
-                    'risk_level': random.choice(['low', 'medium', 'high', 'unknown']),
-                    'contraindications': f"Contraindications for {compound.name}",
-                    'side_effects': f"Potential side effects of {compound.name}",
-                    'drug_interactions': f"Drug interactions for {compound.name}",
-                    'dosage_guidelines': f"Dosage guidelines for {compound.name}",
-                }
-            )
-            if created:
-                created_safety += 1
-        
-        logger.info(f"Created {created_ratings} ratings and {created_safety} safety screenings")
     
     def populate_effect_windows(self):
-        """Populate effect windows for compounds"""
-        logger.info("Populating effect windows...")
-        
-        compounds = list(Compound.objects.all()[:50])
-        users = list(User.objects.all())
-        
-        if not compounds or not users:
-            logger.warning("No compounds or users found")
+        """Build effect windows based on ChEMBL-derived properties"""
+        logger.info("Populating effect windows from ChEMBL metadata...")
+
+        compounds = Compound.objects.filter(chembl_id__isnull=False)[:50]
+        if not compounds:
+            logger.warning("No compounds with ChEMBL IDs found for effect windows")
             return
-        
-        effect_shapes = ['linear', 'exponential', 'logarithmic', 'bell_curve', 'plateau']
+
         created_windows = 0
-        
+
         for compound in compounds:
-            # Create 1-3 effect windows per compound
-            num_windows = random.randint(1, 3)
-            for _ in range(num_windows):
-                onset = random.randint(15, 120)  # 15-120 minutes
-                peak_min = onset + random.randint(30, 180)
-                peak_max = peak_min + random.randint(30, 120)
-                duration = peak_max + random.randint(120, 480)  # Total duration
-                half_life = random.randint(60, 300)
-                
-                window = EffectWindow.objects.create(
-                    compound=compound,
-                    effect_shape=random.choice(effect_shapes),
-                    onset_minutes=onset,
-                    peak_min_minutes=peak_min,
-                    peak_max_minutes=peak_max,
-                    duration_minutes=duration,
-                    half_life_minutes=half_life,
-                    notes=f"Effect profile for {compound.name}",
-                    created_by=random.choice(users)
-                )
-                created_windows += 1
-        
-        logger.info(f"Created {created_windows} effect windows")
-    
-    def populate_compound_interactions(self):
-        """Populate compound-to-compound target interactions"""
-        logger.info("Populating compound interactions...")
-        
-        compounds = list(Compound.objects.all()[:100])
-        targets = list(Target.objects.all()[:50])
-        users = list(User.objects.all())
-        
-        if len(compounds) < 2 or not targets or not users:
-            logger.warning("Insufficient data for compound interactions")
-            return
-        
-        interaction_types = [
-            'synergistic', 'antagonistic', 'additive', 'competitive',
-            'non_competitive', 'allosteric', 'potentiation', 'inhibition'
-        ]
-        
-        created_interactions = 0
-        max_interactions = 100 if not self.no_limits else 1000
-        
-        for _ in range(max_interactions):
-            compound_a, compound_b = random.sample(compounds, 2)
-            target = random.choice(targets)
-            
-            interaction, created = CompoundToCompoundTargetInteraction.objects.get_or_create(
-                compound_a=compound_a,
-                compound_b=compound_b,
-                target=target,
+            chembl_data = self.chembl.get_molecule_details(compound.chembl_id)
+            if not chembl_data or not chembl_data.get('molecules'):
+                continue
+
+            molecule = chembl_data['molecules'][0]
+            props = molecule.get('molecule_properties') or {}
+
+            logp = self._safe_float(props.get('alogp') or props.get('logp'))
+            psa = self._safe_float(props.get('psa'))
+            hbd = self._safe_float(props.get('hbd'))
+            hba = self._safe_float(props.get('hba'))
+            rtb = self._safe_float(props.get('rtb'))
+            mw = self._safe_float(props.get('mw_freebase'), default=200)
+
+            onset = max(5, min(90, int(120 - (logp or 0) * 5)))
+            peak_min = onset + max(20, int(psa / 3) + 10)
+            peak_max = peak_min + max(25, int(hbd * 8) + 10)
+            duration = peak_max + max(90, int((hba + rtb) * 10) + 30)
+            half_life = max(30, int(mw / 2))
+
+            effect_shape = 'flat-top' if logp and logp > 3 else 'bell'
+
+            window, created = EffectWindow.objects.update_or_create(
+                compound=compound,
+                effect_shape=effect_shape,
                 defaults={
-                    'interaction_type': random.choice(interaction_types),
-                    'description': f"Interaction between {compound_a.name} and {compound_b.name} at {target.name}",
-                    'confidence': random.choice(['high', 'medium', 'low']),
-                    'source': 'Generated data',
-                    'created_by': random.choice(users)
+                    'onset_minutes': onset,
+                    'peak_min_minutes': peak_min,
+                    'peak_max_minutes': peak_max,
+                    'duration_minutes': duration,
+                    'half_life_minutes': half_life,
+                    'notes': f"Effect profile derived from ChEMBL properties: logP={logp}, PSA={psa}",
+                    'created_by': self.admin_user
                 }
             )
-            
+
             if created:
-                created_interactions += 1
-        
+                created_windows += 1
+
+        logger.info(f"Created/updated {created_windows} effect windows from ChEMBL")
+    
+    def _categorize_mechanism(self, mechanism: Optional[str]) -> str:
+        """Convert mechanism string to a broad category"""
+        mech = (mechanism or '').lower()
+        if not mech:
+            return 'unknown'
+
+        if mech in self.ACTIVATING_MECHANISMS:
+            return 'activating'
+        if mech in self.INHIBITING_MECHANISMS:
+            return 'inhibiting'
+        if mech in self.MODULATING_MECHANISMS:
+            return 'modulating'
+
+        return 'unknown'
+
+    def _safe_float(self, value: Any, default: float = 0.0) -> float:
+        """Convert values to float safely"""
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _determine_interaction_type(self, mechanism_a: Optional[str], mechanism_b: Optional[str]) -> str:
+        """Derive compound-compound interaction type from the two mechanisms"""
+        mech_a = (mechanism_a or '').lower()
+        mech_b = (mechanism_b or '').lower()
+        cat_a = self._categorize_mechanism(mech_a)
+        cat_b = self._categorize_mechanism(mech_b)
+
+        receptor_mechanisms = {'agonist', 'antagonist', 'partial_agonist', 'inverse_agonist'}
+
+        if mech_a in receptor_mechanisms and mech_b in receptor_mechanisms:
+            if cat_a == 'activating' and cat_b == 'activating':
+                return 'synergistic'
+            if cat_a == 'inhibiting' and cat_b == 'inhibiting':
+                return 'competitive'
+            return 'receptor_competition'
+
+        if 'substrate' in {mech_a, mech_b}:
+            return 'competitive_metabolism'
+
+        if 'inducer' in {mech_a, mech_b} or 'upregulator' in {mech_a, mech_b}:
+            return 'enzyme_induction'
+
+        inhibitor_terms = {'inhibitor', 'blocker', 'antagonist', 'nam'}
+        if inhibitor_terms.intersection({mech_a, mech_b}):
+            if cat_a == 'inhibiting' and cat_b == 'inhibiting':
+                return 'enzyme_inhibition'
+            return 'antagonistic'
+
+        if 'modulating' in {cat_a, cat_b}:
+            if 'activating' in {cat_a, cat_b}:
+                return 'potentiation'
+            return 'additive'
+
+        if cat_a == 'activating' and cat_b == 'activating':
+            return 'synergistic'
+
+        if 'activating' in {cat_a, cat_b} and 'inhibiting' in {cat_a, cat_b}:
+            return 'antagonistic'
+
+        if cat_a == 'inhibiting' and cat_b == 'inhibiting':
+            return 'antagonistic'
+
+        return 'unknown'
+
+    def populate_compound_interactions(self):
+        """Populate compound-to-compound target interactions using real mechanisms"""
+        logger.info("Populating compound interactions from target mechanisms...")
+
+        max_targets = 20 if not self.no_limits else 100
+        targets = list(
+            Target.objects.annotate(num_interactions=Count('compound_interactions'))
+            .filter(num_interactions__gt=1)
+            .order_by('-num_interactions')[:max_targets]
+        )
+        users = list(User.objects.all())
+
+        if not targets or not users:
+            logger.warning("Insufficient data for compound interactions")
+            return
+
+        created_interactions = 0
+        max_interactions = 100 if not self.no_limits else 1000
+        pair_limit = 3 if not self.no_limits else 12
+
+        for target in targets:
+            if created_interactions >= max_interactions:
+                break
+
+            interactions = list(target.compound_interactions.select_related('compound'))
+            if len(interactions) < 2:
+                continue
+
+            pairs = list(combinations(interactions, 2))
+            random.shuffle(pairs)
+
+            for interaction_a, interaction_b in pairs[:pair_limit]:
+                if created_interactions >= max_interactions:
+                    break
+
+                if interaction_a.compound == interaction_b.compound:
+                    continue
+
+                interaction_type = self._determine_interaction_type(
+                    interaction_a.mechanism,
+                    interaction_b.mechanism
+                )
+
+                compound_pair = sorted(
+                    [interaction_a.compound, interaction_b.compound],
+                    key=lambda c: c.pk
+                )
+
+                description = (
+                    f"{interaction_a.compound.name} ({interaction_a.mechanism}) vs "
+                    f"{interaction_b.compound.name} ({interaction_b.mechanism}) @ {target.name}"
+                )
+
+                interaction, created = CompoundToCompoundTargetInteraction.objects.get_or_create(
+                    compound_a=compound_pair[0],
+                    compound_b=compound_pair[1],
+                    target=target,
+                    defaults={
+                        'interaction_type': interaction_type,
+                        'description': description,
+                        'confidence': random.choice(['high', 'medium', 'low']),
+                        'source': 'ChEMBL-derived',
+                        'created_by': random.choice(users)
+                    }
+                )
+
+                if created:
+                    created_interactions += 1
+
         logger.info(f"Created {created_interactions} compound interactions")
     
-    def populate_change_requests(self):
-        """Populate change request system"""
-        logger.info("Populating change requests...")
-        
-        users = list(User.objects.all())
-        compounds = list(Compound.objects.all()[:20])
-        
-        if not users or not compounds:
-            logger.warning("No users or compounds found")
-            return
-        
-        request_types = [
-            'update_compound_info',
-            'add_interaction_data',
-            'correct_mechanism',
-            'update_safety_info',
-            'add_research_data'
-        ]
-        
-        created_requests = 0
-        max_requests = 50 if not self.no_limits else 500
-        
-        for _ in range(max_requests):
-            compound = random.choice(compounds)
-            user = random.choice(users)
-            request_type = random.choice(request_types)
-            
-            request = ChangeRequest.objects.create(
-                title=f"Update {request_type.replace('_', ' ')} for {compound.name}",
-                description=f"Proposed changes to {compound.name} {request_type}",
-                requested_by=user,
-                content_object=compound,
-                changes_data={
-                    'field': request_type,
-                    'old_value': 'current value',
-                    'new_value': 'proposed value',
-                    'reason': 'Data improvement'
-                },
-                status=random.choice(['pending', 'approved', 'rejected', 'in_review'])
-            )
-            
-            # Add comments
-            num_comments = random.randint(0, 3)
-            for _ in range(num_comments):
-                commenter = random.choice(users)
-                ChangeRequestComment.objects.create(
-                    change_request=request,
-                    user=commenter,
-                    comment=f"Comment on change request for {compound.name}"
-                )
-            
-            created_requests += 1
-        
-        logger.info(f"Created {created_requests} change requests")
     
     def run_full_population(self):
         """Run complete data population"""
@@ -1495,12 +1429,9 @@ These findings support the proposed mechanism of action for {compound.name}.
             self.populate_user_data()
             self.populate_research_data()
             
-            # User-generated content
-            self.populate_intake_logs()
-            self.populate_ratings_and_safety()
+            # Derived content
             self.populate_effect_windows()
             self.populate_compound_interactions()
-            self.populate_change_requests()
             
             logger.info("Data population completed successfully!")
             
@@ -1518,10 +1449,18 @@ def main():
     parser.add_argument('--targets-only', action='store_true', help='Only populate targets')
     parser.add_argument('--compounds-only', action='store_true', help='Only populate compounds')
     parser.add_argument('--research-only', action='store_true', help='Only populate research data')
+    parser.add_argument(
+        '--allow-dummy-research',
+        action='store_true',
+        help='Allow synthetic research snippets (placeholder content) to be created'
+    )
     
     args = parser.parse_args()
     
-    populator = DataPopulator(no_limits=args.no_limits)
+    populator = DataPopulator(
+        no_limits=args.no_limits,
+        allow_dummy_research=args.allow_dummy_research,
+    )
     
     if args.full:
         populator.run_full_population()

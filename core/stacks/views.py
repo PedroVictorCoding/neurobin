@@ -1,12 +1,285 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 
 from django.views.generic import TemplateView
-from django.shortcuts import redirect
+from django.http import Http404
+from django.shortcuts import get_object_or_404, redirect
+from django.contrib.auth.decorators import login_required
+from django.urls import reverse
+from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
+from collections import defaultdict
+from datetime import date, datetime, timedelta
+from django.db.models import Count
+from dateutil.relativedelta import relativedelta
+import hashlib
+from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 from .models import Stack
+from django.views.decorators.http import require_POST
 
 from .forms import StackForm
 from .forms_add_compound import AddCompoundForm
 from .models import StackItem
+from .models import StackRiskAssessment
+from logs.models import IntakeLog
+from .services import (
+    annotate_occurrences_taken,
+    get_schedule_window,
+    iter_upcoming_occurrences,
+    merge_taken_logs_into_occurrences,
+    take_stack_item,
+    untake_stack_item_occurrence,
+)
+from .risk import get_or_compute_stack_risk
+
+
+def _build_stack_embed_description(stack, items) -> str:
+    if not items:
+        return f"{stack.name} by {stack.user.username}. No compounds listed yet."
+
+    parts = []
+    for item in items[:6]:
+        dose = ""
+        if item.dosage_amount:
+            dose = f" {item.dosage_amount}{item.dosage_unit}"
+        cadence = f" / q{item.recurrence_interval}{item.recurrence_unit[:1]}"
+        parts.append(f"{item.compound.name}{dose}{cadence}")
+    compounds_part = " • ".join(parts)
+    extra = "" if len(items) <= 6 else f" • +{len(items) - 6} more"
+    return f"{stack.name} ({len(items)} compounds) by {stack.user.username}: {compounds_part}{extra}"
+
+
+def _get_shareable_stack_or_404(request, stack_id: int) -> Stack:
+    stack = (
+        Stack.objects.filter(id=stack_id)
+        .select_related('user')
+        .prefetch_related('items__compound')
+        .first()
+    )
+    if not stack:
+        stack = get_object_or_404(Stack, id=stack_id)
+    if stack.visibility == 'private':
+        if not request.user.is_authenticated or request.user.id != stack.user_id:
+            raise Http404("Stack not found.")
+    return stack
+
+
+def _safe_get_risk_assessment(stack: Stack):
+    try:
+        return stack.risk_assessment
+    except StackRiskAssessment.DoesNotExist:
+        return None
+
+
+def _append_query_params(url: str, params: dict) -> str:
+    parsed = urlparse(url)
+    existing = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    existing.update({k: v for k, v in params.items() if v is not None})
+    new_query = urlencode(existing)
+    return urlunparse(parsed._replace(query=new_query))
+
+
+@login_required
+@require_POST
+def stack_risk_refresh(request, stack_id: int):
+    stack = (
+        Stack.objects.filter(id=stack_id, user=request.user)
+        .prefetch_related('items__compound')
+        .first()
+    )
+    if not stack:
+        return redirect('my_stacks')
+
+    next_url = request.POST.get('next') or reverse('stack_detail', kwargs={'stack_id': stack.id})
+    if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        next_url = reverse('stack_detail', kwargs={'stack_id': stack.id})
+
+    from compounds.models import CompoundADMETPrediction, CompoundMolPropPrediction
+    from compounds.admet_ai import is_admet_ai_available, get_admet_ai_version, predict_admet
+    from compounds.molprop import is_molprop_available, get_molprop_version, predict_molprop
+
+    admet_available = is_admet_ai_available()
+    molprop_available = is_molprop_available()
+    if not admet_available and not molprop_available:
+        return redirect(_append_query_params(next_url, {'risk': 'unavailable'}))
+
+    items = list(stack.items.all().select_related('compound'))
+    compounds = {i.compound_id: i.compound for i in items}
+
+    admet_preds = CompoundADMETPrediction.objects.filter(compound_id__in=list(compounds.keys()))
+    admet_map = {p.compound_id: p for p in admet_preds}
+    molprop_preds = CompoundMolPropPrediction.objects.filter(compound_id__in=list(compounds.keys()))
+    molprop_map = {p.compound_id: p for p in molprop_preds}
+
+    admet_computed = 0
+    molprop_computed = 0
+    skipped = 0
+    for compound_id, compound in compounds.items():
+        smiles = (compound.smiles or '').strip()
+        if not smiles:
+            skipped += 1
+            continue
+        smiles_hash = hashlib.sha256(smiles.encode('utf-8')).hexdigest()
+        if admet_available:
+            existing_admet = admet_map.get(compound_id)
+            admet_fresh = bool(
+                existing_admet
+                and existing_admet.smiles_sha256 == smiles_hash
+                and isinstance(existing_admet.predictions, dict)
+                and existing_admet.predictions
+                and not (existing_admet.error or '').strip()
+            )
+            if not admet_fresh:
+                try:
+                    predictions = predict_admet(smiles)
+                    CompoundADMETPrediction.objects.update_or_create(
+                        compound_id=compound_id,
+                        defaults={
+                            'smiles': smiles,
+                            'smiles_sha256': smiles_hash,
+                            'model_version': get_admet_ai_version(),
+                            'predictions': predictions,
+                            'error': '',
+                        },
+                    )
+                except Exception as exc:
+                    CompoundADMETPrediction.objects.update_or_create(
+                        compound_id=compound_id,
+                        defaults={
+                            'smiles': smiles,
+                            'smiles_sha256': smiles_hash,
+                            'model_version': get_admet_ai_version(),
+                            'predictions': {},
+                            'error': str(exc),
+                        },
+                    )
+                admet_computed += 1
+
+        if molprop_available:
+            existing_molprop = molprop_map.get(compound_id)
+            molprop_fresh = bool(
+                existing_molprop
+                and existing_molprop.smiles_sha256 == smiles_hash
+                and isinstance(existing_molprop.predictions, dict)
+                and existing_molprop.predictions
+                and not (existing_molprop.error or '').strip()
+            )
+            if not molprop_fresh:
+                try:
+                    predictions, uncertainty = predict_molprop(smiles)
+                    CompoundMolPropPrediction.objects.update_or_create(
+                        compound_id=compound_id,
+                        defaults={
+                            'smiles': smiles,
+                            'smiles_sha256': smiles_hash,
+                            'model_version': get_molprop_version(),
+                            'predictions': predictions,
+                            'uncertainty': uncertainty,
+                            'error': '',
+                        },
+                    )
+                except Exception as exc:
+                    CompoundMolPropPrediction.objects.update_or_create(
+                        compound_id=compound_id,
+                        defaults={
+                            'smiles': smiles,
+                            'smiles_sha256': smiles_hash,
+                            'model_version': get_molprop_version(),
+                            'predictions': {},
+                            'uncertainty': {},
+                            'error': str(exc),
+                        },
+                    )
+                molprop_computed += 1
+
+    get_or_compute_stack_risk(stack, items=items)
+    return redirect(
+        _append_query_params(
+            next_url,
+            {
+                'risk': 'ok',
+                'computed_admet': str(admet_computed),
+                'computed_molprop': str(molprop_computed),
+                'skipped': str(skipped),
+            },
+        )
+    )
+
+
+def _build_calendar_context(
+    *,
+    occurrences,
+    period: str,
+    window_start: datetime,
+    window_end: datetime,
+    now: datetime,
+):
+    tz = timezone.get_current_timezone()
+    by_day = defaultdict(list)
+    for o in occurrences:
+        by_day[timezone.localtime(o.scheduled_for, tz).date()].append(o)
+
+    local_window_start = timezone.localtime(window_start, tz).date()
+    local_window_end = timezone.localtime(window_end, tz).date()
+    local_today = timezone.localtime(now, tz).date()
+
+    if period == 'month':
+        month_start = local_window_start.replace(day=1)
+        month_end = local_window_end
+        grid_start = month_start - timedelta(days=month_start.weekday())
+        last_in_month = month_end - timedelta(days=1)
+        grid_end = last_in_month + timedelta(days=(6 - last_in_month.weekday()) + 1)  # exclusive
+        columns = 7
+        title = month_start.strftime('%B %Y')
+        current_month = month_start.month
+    elif period == 'week':
+        grid_start = local_window_start
+        grid_end = local_window_end
+        columns = 7
+        title = f"Week of {grid_start.strftime('%b %d, %Y')}"
+        current_month = None
+    elif period == 'day':
+        grid_start = local_window_start
+        grid_end = grid_start + timedelta(days=1)
+        columns = 1
+        title = grid_start.strftime('%b %d, %Y')
+        current_month = None
+    else:
+        grid_start = local_window_start
+        grid_end = local_window_end
+        columns = 7
+        title = "Schedule"
+        current_month = None
+
+    cells = []
+    d: date = grid_start
+    while d < grid_end:
+        day_occurrences = by_day.get(d, [])
+        count = len(day_occurrences)
+        level = min(count, 4)
+        bar_height = min(100, count * 20)
+        cells.append(
+            {
+                'date': d,
+                'occurrences': day_occurrences,
+                'count': count,
+                'level': level,
+                'bar_height': bar_height,
+                'is_today': d == local_today,
+                'is_outside_month': (current_month is not None) and (d.month != current_month),
+            }
+        )
+        d = d + timedelta(days=1)
+
+    if columns == 7:
+        weeks = [cells[i : i + 7] for i in range(0, len(cells), 7)]
+    else:
+        weeks = [cells]
+
+    return {
+        'title': title,
+        'columns': columns,
+        'weeks': weeks,
+    }
 
 
 class MyStacksView(LoginRequiredMixin, TemplateView):
@@ -17,9 +290,6 @@ class MyStacksView(LoginRequiredMixin, TemplateView):
         context = self.get_context_data(**kwargs)
         # Main form for creating stacks
         context['form'] = StackForm()
-        # Attach an AddCompoundForm to each stack
-        for stack in context['stacks']:
-            stack.add_form = AddCompoundForm()
         return self.render_to_response(context)
 
     def post(self, request, *args, **kwargs):
@@ -32,30 +302,474 @@ class MyStacksView(LoginRequiredMixin, TemplateView):
                 return redirect('my_stacks')
             context = self.get_context_data(**kwargs)
             context['form'] = form
-            for stack in context['stacks']:
-                stack.add_form = AddCompoundForm()
             return self.render_to_response(context)
-        elif 'add_compound_to_stack' in request.POST:
+        elif 'delete_stack' in request.POST:
             stack_id = request.POST.get('stack_id')
             stack = Stack.objects.filter(id=stack_id, user=request.user).first()
-            if not stack:
-                return redirect('my_stacks')
-            form = AddCompoundForm(request.POST)
-            if form.is_valid():
-                item = form.save(commit=False)
-                item.stack = stack
-                item.save()
-                return redirect('my_stacks')
-            # Rebuild context with forms
-            context = self.get_context_data(**kwargs)
-            context['form'] = StackForm()
-            for s in context['stacks']:
-                s.add_form = form if s.id == stack.id else AddCompoundForm()
-            return self.render_to_response(context)
+            if stack:
+                stack.delete()
+            return redirect('my_stacks')
+        elif 'toggle_stack_active' in request.POST:
+            stack_id = request.POST.get('stack_id')
+            stack = Stack.objects.filter(id=stack_id, user=request.user).first()
+            if stack:
+                stack.is_active = not stack.is_active
+                stack.save(update_fields=['is_active'])
+            return redirect('my_stacks')
+        elif 'set_stack_visibility' in request.POST:
+            stack_id = request.POST.get('stack_id')
+            visibility = request.POST.get('visibility')
+            stack = Stack.objects.filter(id=stack_id, user=request.user).first()
+            if stack and visibility in dict(Stack.VISIBILITY_CHOICES):
+                stack.visibility = visibility
+                stack.save(update_fields=['visibility'])
+            return redirect('my_stacks')
         else:
             return redirect('my_stacks')
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['stacks'] = Stack.objects.filter(user=self.request.user).prefetch_related('items__compound')
+        context['stacks'] = (
+            Stack.objects.filter(user=self.request.user)
+            .annotate(item_count=Count('items'))
+            .select_related('risk_assessment')
+            .order_by('-created')
+        )
+        for s in context['stacks']:
+            s.risk = _safe_get_risk_assessment(s)
+        return context
+
+
+class StackDetailView(LoginRequiredMixin, TemplateView):
+    template_name = 'stacks/stack_detail.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.stack = Stack.objects.filter(id=kwargs.get('stack_id'), user=request.user).first()
+        if not self.stack:
+            return redirect('my_stacks')
+        return super().dispatch(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        if 'add_compound_to_stack' in request.POST:
+            form = AddCompoundForm(request.POST)
+            if form.is_valid():
+                item = form.save(commit=False)
+                item.stack = self.stack
+                item.save()
+                return redirect('stack_detail', stack_id=self.stack.id)
+            context = self.get_context_data(**kwargs)
+            context['add_form'] = form
+            return self.render_to_response(context)
+
+        if 'update_stack_item' in request.POST:
+            item_id = request.POST.get('item_id')
+            item = StackItem.objects.filter(id=item_id, stack=self.stack).select_related('compound').first()
+            if not item:
+                return redirect('stack_detail', stack_id=self.stack.id)
+
+            form = AddCompoundForm(request.POST, instance=item)
+            if form.is_valid():
+                updated = form.save(commit=False)
+                updated.stack = self.stack
+                updated.save()
+                return redirect('stack_detail', stack_id=self.stack.id)
+
+            context = self.get_context_data(**kwargs)
+            context['edit_item_id'] = item.id
+            context['edit_form'] = form
+            return self.render_to_response(context)
+
+        if 'delete_stack_item' in request.POST:
+            item_id = request.POST.get('item_id')
+            item = StackItem.objects.filter(id=item_id, stack=self.stack).first()
+            if item:
+                item.delete()
+            return redirect('stack_detail', stack_id=self.stack.id)
+
+        if 'toggle_stack_active' in request.POST:
+            self.stack.is_active = not self.stack.is_active
+            self.stack.save(update_fields=['is_active'])
+            return redirect('stack_detail', stack_id=self.stack.id)
+
+        if 'set_stack_visibility' in request.POST:
+            visibility = request.POST.get('visibility')
+            if visibility in dict(Stack.VISIBILITY_CHOICES):
+                self.stack.visibility = visibility
+                self.stack.save(update_fields=['visibility'])
+            return redirect('stack_detail', stack_id=self.stack.id)
+
+        if 'delete_stack' in request.POST:
+            self.stack.delete()
+            return redirect('my_stacks')
+
+        return redirect('stack_detail', stack_id=self.stack.id)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['stack'] = self.stack
+        context['items'] = (
+            StackItem.objects.filter(stack=self.stack)
+            .select_related('compound')
+            .order_by('order', 'added')
+        )
+        risk_result = get_or_compute_stack_risk(self.stack, items=list(context['items']))
+        context['stack_risk'] = risk_result.assessment
+        context['stack_risk_status'] = (self.request.GET.get('risk') or '').strip()
+        context['stack_risk_refresh_url'] = reverse('stack_risk_refresh', kwargs={'stack_id': self.stack.id})
+
+        # Auto-refresh uncached compound predictions for this stack to improve coverage.
+        try:
+            from compounds.admet_ai import is_admet_ai_available
+            from compounds.molprop import is_molprop_available
+
+            admet_available = is_admet_ai_available()
+            molprop_available = is_molprop_available()
+        except Exception:
+            admet_available = False
+            molprop_available = False
+
+        needs_prediction = False
+        if admet_available or molprop_available:
+            from compounds.models import CompoundADMETPrediction, CompoundMolPropPrediction
+
+            compounds = {i.compound_id: i.compound for i in context['items']}
+            admet_qs = CompoundADMETPrediction.objects.filter(compound_id__in=list(compounds.keys()))
+            admet_map = {p.compound_id: p for p in admet_qs}
+            molprop_qs = CompoundMolPropPrediction.objects.filter(compound_id__in=list(compounds.keys()))
+            molprop_map = {p.compound_id: p for p in molprop_qs}
+            for compound_id, compound in compounds.items():
+                smiles = (compound.smiles or '').strip()
+                if not smiles:
+                    continue
+                smiles_hash = hashlib.sha256(smiles.encode('utf-8')).hexdigest()
+
+                if admet_available:
+                    pred = admet_map.get(compound_id)
+                    if (
+                        not pred
+                        or pred.smiles_sha256 != smiles_hash
+                        or not isinstance(pred.predictions, dict)
+                        or not pred.predictions
+                        or (pred.error or '').strip()
+                    ):
+                        needs_prediction = True
+                        break
+
+                if molprop_available:
+                    mol = molprop_map.get(compound_id)
+                    if (
+                        not mol
+                        or mol.smiles_sha256 != smiles_hash
+                        or not isinstance(mol.predictions, dict)
+                        or not mol.predictions
+                        or (mol.error or '').strip()
+                    ):
+                        needs_prediction = True
+                        break
+
+        context['stack_risk_autoload'] = bool(needs_prediction)
+
+        context['add_form'] = AddCompoundForm()
+        edit_raw = (self.request.GET.get('edit') or '').strip()
+        edit_item_id = None
+        try:
+            if edit_raw:
+                edit_item_id = int(edit_raw)
+        except ValueError:
+            edit_item_id = None
+        context['edit_item_id'] = edit_item_id
+        context['edit_form'] = None
+        if edit_item_id:
+            item = StackItem.objects.filter(id=edit_item_id, stack=self.stack).select_related('compound').first()
+            if item:
+                context['edit_form'] = AddCompoundForm(instance=item)
+        return context
+
+
+class StackScheduleView(LoginRequiredMixin, TemplateView):
+    template_name = 'stacks/schedule.html'
+
+    def post(self, request, *args, **kwargs):
+        period = 'day'
+        scheduled_for_raw = (request.POST.get('scheduled_for') or '').strip()
+        scheduled_for = None
+        if scheduled_for_raw:
+            try:
+                scheduled_for_str = scheduled_for_raw.replace('Z', '+00:00')
+                scheduled_for = datetime.fromisoformat(scheduled_for_str)
+                if timezone.is_naive(scheduled_for):
+                    scheduled_for = timezone.make_aware(scheduled_for, timezone.get_current_timezone())
+            except ValueError:
+                scheduled_for = None
+
+        if 'take_stack_item' in request.POST:
+            item_id = request.POST.get('stack_item_id')
+            item = StackItem.objects.filter(id=item_id, stack__user=request.user).select_related('stack', 'compound').first()
+            if item:
+                take_stack_item(
+                    item,
+                    user=request.user,
+                    taken_at=timezone.now(),
+                    scheduled_for=scheduled_for,
+                )
+        elif 'untake_stack_item' in request.POST:
+            item_id = request.POST.get('stack_item_id')
+            item = StackItem.objects.filter(id=item_id, stack__user=request.user).select_related('stack', 'compound').first()
+            if item and scheduled_for:
+                untake_stack_item_occurrence(item, user=request.user, scheduled_for=scheduled_for)
+        return redirect('stack_schedule')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        now = timezone.now()
+        period = 'day'
+        window_start, until = get_schedule_window(now=now, period=period)
+        items = (
+            StackItem.objects.filter(stack__user=self.request.user, stack__is_active=True)
+            .select_related('stack', 'compound')
+        )
+        context['now'] = now
+        context['period'] = period
+        occurrences = iter_upcoming_occurrences(items, now=now, until=until, window_start=window_start)
+        occurrences = annotate_occurrences_taken(
+            occurrences,
+            user=self.request.user,
+            window_start=window_start,
+            window_end=until,
+        )
+        occurrences = merge_taken_logs_into_occurrences(
+            occurrences,
+            user=self.request.user,
+            window_start=window_start,
+            window_end=until,
+        )
+
+        schedule_entries = list(occurrences)
+        unstacked_logs = (
+            IntakeLog.objects.filter(
+                user=self.request.user,
+                stack_item__isnull=True,
+                taken_at__gte=window_start,
+                taken_at__lt=until,
+            )
+            .select_related('compound')
+            .only(
+                'compound_id',
+                'compound__name',
+                'compound__slug',
+                'taken_at',
+                'amount',
+                'unit',
+                'time_of_day',
+            )
+            .order_by('taken_at')
+        )
+
+        for log in unstacked_logs:
+            schedule_entries.append({
+                'stack_id': None,
+                'stack_name': 'Logged (no stack)',
+                'stack_item_id': None,
+                'compound_id': log.compound_id,
+                'compound_name': getattr(log.compound, 'name', ''),
+                'compound_slug': getattr(log.compound, 'slug', ''),
+                'scheduled_for': log.taken_at,
+                'dosage_amount': log.amount or None,
+                'dosage_unit': log.unit or '',
+                'time_of_day': log.time_of_day,
+                'is_taken': True,
+                'is_unstacked': True,
+            })
+
+        def _entry_time(entry):
+            if isinstance(entry, dict):
+                return entry.get('scheduled_for')
+            return getattr(entry, 'scheduled_for', None)
+
+        schedule_entries.sort(key=_entry_time)
+
+        context['occurrences'] = occurrences[:200]
+        context['schedule_entries'] = schedule_entries[:200]
+        context['calendar'] = _build_calendar_context(
+            occurrences=occurrences,
+            period=period,
+            window_start=window_start,
+            window_end=until,
+            now=now,
+        )
+        return context
+
+
+class StackCalendarView(LoginRequiredMixin, TemplateView):
+    template_name = 'stacks/calendar.html'
+
+    def post(self, request, *args, **kwargs):
+        period = (request.POST.get('period') or '').strip().lower()
+        scheduled_for_raw = (request.POST.get('scheduled_for') or '').strip()
+        scheduled_for = None
+        if scheduled_for_raw:
+            try:
+                scheduled_for_str = scheduled_for_raw.replace('Z', '+00:00')
+                scheduled_for = datetime.fromisoformat(scheduled_for_str)
+                if timezone.is_naive(scheduled_for):
+                    scheduled_for = timezone.make_aware(scheduled_for, timezone.get_current_timezone())
+            except ValueError:
+                scheduled_for = None
+
+        if 'take_stack_item' in request.POST:
+            item_id = request.POST.get('stack_item_id')
+            item = (
+                StackItem.objects.filter(id=item_id, stack__user=request.user)
+                .select_related('stack', 'compound')
+                .first()
+            )
+            if item:
+                take_stack_item(
+                    item,
+                    user=request.user,
+                    taken_at=timezone.now(),
+                    scheduled_for=scheduled_for,
+                )
+        elif 'untake_stack_item' in request.POST:
+            item_id = request.POST.get('stack_item_id')
+            item = (
+                StackItem.objects.filter(id=item_id, stack__user=request.user)
+                .select_related('stack', 'compound')
+                .first()
+            )
+            if item and scheduled_for:
+                untake_stack_item_occurrence(item, user=request.user, scheduled_for=scheduled_for)
+
+        if period in {'day', 'week', 'month'}:
+            return redirect(f"{reverse('stack_calendar')}?period={period}")
+        return redirect('stack_calendar')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        now = timezone.now()
+        period = (self.request.GET.get('period') or 'month').strip().lower()
+        try:
+            window_start, until = get_schedule_window(now=now, period=period)
+        except ValueError:
+            period = 'month'
+            window_start, until = get_schedule_window(now=now, period=period)
+
+        items = (
+            StackItem.objects.filter(stack__user=self.request.user, stack__is_active=True)
+            .select_related('stack', 'compound')
+        )
+        occurrences = iter_upcoming_occurrences(items, now=now, until=until, window_start=window_start)
+        occurrences = annotate_occurrences_taken(
+            occurrences,
+            user=self.request.user,
+            window_start=window_start,
+            window_end=until,
+        )
+        occurrences = merge_taken_logs_into_occurrences(
+            occurrences,
+            user=self.request.user,
+            window_start=window_start,
+            window_end=until,
+        )
+
+        context['now'] = now
+        context['period'] = period
+        context['calendar'] = _build_calendar_context(
+            occurrences=occurrences,
+            period=period,
+            window_start=window_start,
+            window_end=until,
+            now=now,
+        )
+        return context
+
+
+class StackShareView(TemplateView):
+    template_name = 'stacks/share.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        stack = _get_shareable_stack_or_404(self.request, kwargs.get('stack_id'))
+        items = list(stack.items.all().select_related('compound').order_by('order', 'added'))
+        risk_result = get_or_compute_stack_risk(stack, items=items)
+        context['stack'] = stack
+        context['items'] = items
+        context['stack_risk'] = risk_result.assessment
+        context['share_url'] = self.request.build_absolute_uri()
+        context['embed_url'] = self.request.build_absolute_uri(reverse('stack_share_embed', kwargs={'stack_id': stack.id}))
+        context['embed_description'] = _build_stack_embed_description(stack, items)
+        return context
+
+
+class StackShareEmbedView(TemplateView):
+    template_name = 'stacks/share_embed.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        stack = _get_shareable_stack_or_404(self.request, kwargs.get('stack_id'))
+        context['stack'] = stack
+        context['items'] = list(stack.items.all().select_related('compound').order_by('order', 'added'))[:30]
+        return context
+
+
+class ExploreStacksView(LoginRequiredMixin, TemplateView):
+    template_name = 'stacks/explore.html'
+
+    def post(self, request, *args, **kwargs):
+        if 'copy_stack' in request.POST:
+            stack_id = request.POST.get('stack_id')
+            source = (
+                Stack.objects.filter(id=stack_id, visibility='public')
+                .exclude(user=request.user)
+                .prefetch_related('items__compound')
+                .first()
+            )
+            if source:
+                new_stack = Stack.objects.create(
+                    user=request.user,
+                    name=source.name,
+                    description=source.description,
+                    visibility='private',
+                    is_active=False,
+                    copied_from=source,
+                    copied_at=timezone.now(),
+                )
+                items_to_create = []
+                for src_item in source.items.all():
+                    items_to_create.append(
+                        StackItem(
+                            stack=new_stack,
+                            compound=src_item.compound,
+                            dosage_amount=src_item.dosage_amount,
+                            dosage_unit=src_item.dosage_unit,
+                            time_of_day=src_item.time_of_day,
+                            intake_time=src_item.intake_time,
+                            recurrence_interval=src_item.recurrence_interval,
+                            recurrence_unit=src_item.recurrence_unit,
+                            order=src_item.order,
+                            notes=src_item.notes,
+                            completed=False,
+                        )
+                    )
+                if items_to_create:
+                    StackItem.objects.bulk_create(items_to_create)
+        return redirect('explore_stacks')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        q = (self.request.GET.get('q') or '').strip()
+        stacks = (
+            Stack.objects.filter(visibility='public')
+            .annotate(usage_count=Count('copies', distinct=True))
+            .select_related('user')
+            .select_related('risk_assessment')
+            .prefetch_related('items__compound')
+            .order_by('-usage_count', '-created')
+        )
+        if q:
+            stacks = stacks.filter(name__icontains=q)
+        context['q'] = q
+        context['public_stacks'] = list(stacks)
+        for s in context['public_stacks']:
+            s.risk = _safe_get_risk_assessment(s)
         return context

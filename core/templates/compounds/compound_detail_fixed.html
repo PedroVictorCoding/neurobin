@@ -133,6 +133,8 @@
         {% else %}
           <p class="text-muted"><em>No mechanisms of action recorded yet.</em></p>
         {% endif %}
+
+        {% include "compounds/_predicted_mechanisms.html" %}
       </div>
     </div>
 
@@ -200,6 +202,12 @@
         {% endif %}
       </div>
     </div>
+  </div>
+
+  <div class="col-12">
+    {% if admet_ai_available or admet_ai_prediction or molprop_available or molprop_prediction or user.is_staff %}
+      {% include 'compounds/_admet_ai_panel.html' %}
+    {% endif %}
   </div>
 
   <!-- Right Column - Additional Info -->

@@ -16,6 +16,12 @@ from datetime import datetime, timedelta
 from django.core.management.base import BaseCommand
 from django.db import transaction, IntegrityError
 from django.utils import timezone
+from compounds.interaction_engine import (
+    canonicalize_mechanism,
+    infer_interaction_type as infer_interaction_type_shared,
+    infer_interaction_type_multi,
+    rebuild_compound_pair_interactions,
+)
 from compounds.models import (
     Compound, Target, CompoundTargetInteraction, 
     CompoundToCompoundTargetInteraction
@@ -578,33 +584,6 @@ class Command(BaseCommand):
             mechanism_of_action = mechanism.get('mechanism_of_action', '').strip()
             action_type = mechanism.get('action_type', '').strip()
             
-            # Map mechanism_of_action to valid mechanism choices
-            mechanism_mapped = 'unknown'
-            if mechanism_of_action:
-                moa_lower = mechanism_of_action.lower()
-                if 'agonist' in moa_lower:
-                    mechanism_mapped = 'agonist'
-                elif 'antagonist' in moa_lower:
-                    mechanism_mapped = 'antagonist'
-                elif 'inhibitor' in moa_lower:
-                    mechanism_mapped = 'inhibitor'
-                elif 'activator' in moa_lower:
-                    mechanism_mapped = 'activator'
-                elif 'binder' in moa_lower:
-                    mechanism_mapped = 'binder'
-                elif 'blocker' in moa_lower:
-                    mechanism_mapped = 'blocker'
-            
-            # Map action_type to mechanism if available
-            if action_type:
-                action_lower = action_type.lower()
-                if 'agonist' in action_lower:
-                    mechanism_mapped = 'agonist'
-                elif 'antagonist' in action_lower:
-                    mechanism_mapped = 'antagonist'
-                elif 'inhibitor' in action_lower:
-                    mechanism_mapped = 'inhibitor'
-            
             # Create notes combining available information
             notes_parts = []
             if mechanism_of_action:
@@ -615,13 +594,18 @@ class Command(BaseCommand):
                 notes_parts.append(f"Comment: {mechanism.get('mechanism_comment')}")
             
             notes = "; ".join(notes_parts) if notes_parts else "ChEMBL mechanism data"
+            mechanism_mapped = canonicalize_mechanism(
+                action_type=action_type,
+                mechanism_of_action=mechanism_of_action,
+                notes=notes,
+            )
             
-            # Create or update interaction using correct fields
-            interaction, created = CompoundTargetInteraction.objects.update_or_create(
+            # Preserve multiple mechanisms per target.
+            interaction, created = CompoundTargetInteraction.objects.get_or_create(
                 compound=compound,
                 target=target,
+                mechanism=mechanism_mapped,
                 defaults={
-                    'mechanism': mechanism_mapped,
                     'source': 'chembl_mechanism',
                     'notes': notes
                 }
@@ -630,7 +614,17 @@ class Command(BaseCommand):
             if created:
                 self.stats['interactions_created'] += 1
             else:
-                self.stats['interactions_updated'] += 1
+                # Keep notes/source fresh on generated rows.
+                changed = False
+                if interaction.source != 'chembl_mechanism':
+                    interaction.source = 'chembl_mechanism'
+                    changed = True
+                if notes and interaction.notes != notes:
+                    interaction.notes = notes
+                    changed = True
+                if changed:
+                    interaction.save(update_fields=['source', 'notes'])
+                    self.stats['interactions_updated'] += 1
         
         except Exception as e:
             logger.error(f"Error processing mechanism: {e}")
@@ -689,73 +683,38 @@ class Command(BaseCommand):
         """Compute compound-compound interactions based on shared targets"""
         self.stdout.write("🔄 COMPUTING COMPOUND-COMPOUND INTERACTIONS")
         self.stdout.write("-" * 50)
-        
-        # Get all compounds with interactions
-        compounds_with_interactions = Compound.objects.filter(
-            compoundtargetinteraction__isnull=False
-        ).distinct()
-        
-        total_compounds = compounds_with_interactions.count()
-        self.stdout.write(f"  Processing {total_compounds} compounds for compound interactions...")
-        
-        processed_pairs = set()
-        
-        for i, compound_a in enumerate(compounds_with_interactions):
-            try:
-                # Get all targets for compound A
-                targets_a = set(compound_a.compoundtargetinteraction_set.values_list('target_id', flat=True))
-                
-                # Find compounds that share targets
-                shared_compounds = Compound.objects.filter(
-                    compoundtargetinteraction__target_id__in=targets_a
-                ).exclude(id=compound_a.id).distinct()
-                
-                for compound_b in shared_compounds:
-                    # Create ordered pair to avoid duplicates
-                    pair = tuple(sorted([compound_a.id, compound_b.id]))
-                    if pair in processed_pairs:
-                        continue
-                    processed_pairs.add(pair)
-                    
-                    # Get shared targets
-                    targets_b = set(compound_b.compoundtargetinteraction_set.values_list('target_id', flat=True))
-                    shared_targets = targets_a.intersection(targets_b)
-                    
-                    # Process each shared target
-                    for target_id in shared_targets:
-                        try:
-                            self.create_compound_interaction(compound_a, compound_b, target_id)
-                        except Exception as e:
-                            logger.error(f"Error creating compound interaction: {e}")
-                            self.stats['errors'] += 1
-                
-                if (i + 1) % 100 == 0:
-                    self.stdout.write(f"  Processed {i + 1}/{total_compounds} compounds...")
-            
-            except Exception as e:
-                logger.error(f"Error processing compound {compound_a.chembl_id}: {e}")
-                self.stats['errors'] += 1
-        
-        self.stdout.write(f"  ✅ Processed {len(processed_pairs)} compound pairs")
+        stats = rebuild_compound_pair_interactions(
+            source='computed_shared_target',
+            auto_sources=('ChEMBL', 'computed_shared_target'),
+            preserve_non_auto=True,
+            progress_every=2000,
+            progress=self.stdout.write,
+        )
+        self.stats['compound_interactions_created'] += stats['created']
+        self.stdout.write(
+            f"  ✅ Pair interactions: created={stats['created']}, updated={stats['updated']}, "
+            f"unchanged={stats['unchanged']}, skipped_curated={stats['skipped_curated']}"
+        )
     
     def create_compound_interaction(self, compound_a, compound_b, target_id):
         """Create compound-compound interaction"""
         try:
             target = Target.objects.get(id=target_id)
             
-            # Get mechanisms for both compounds
-            interaction_a = compound_a.compoundtargetinteraction_set.filter(target=target).first()
-            interaction_b = compound_b.compoundtargetinteraction_set.filter(target=target).first()
-            
-            if not interaction_a or not interaction_b:
+            mechanisms_a = list(
+                compound_a.target_interactions.filter(target=target).values_list('mechanism', flat=True)
+            )
+            mechanisms_b = list(
+                compound_b.target_interactions.filter(target=target).values_list('mechanism', flat=True)
+            )
+            if not mechanisms_a or not mechanisms_b:
                 return
             
-            # Determine interaction type based on mechanisms
-            mech_a = interaction_a.mechanism.lower() if interaction_a.mechanism else 'unknown'
-            mech_b = interaction_b.mechanism.lower() if interaction_b.mechanism else 'unknown'
-            
-            # Classification logic
-            interaction_type = self.classify_interaction(mech_a, mech_b)
+            interaction_type, confidence = infer_interaction_type_multi(mechanisms_a, mechanisms_b)
+            description = (
+                f"{compound_a.name}: {', '.join(sorted(set(mechanisms_a)))} | "
+                f"{compound_b.name}: {', '.join(sorted(set(mechanisms_b)))}"
+            )
             
             # Create interaction using correct fields
             interaction, created = CompoundToCompoundTargetInteraction.objects.update_or_create(
@@ -764,9 +723,9 @@ class Command(BaseCommand):
                 target=target,
                 defaults={
                     'interaction_type': interaction_type,
-                    'confidence': 'medium',
+                    'confidence': confidence,
                     'source': 'computed_shared_target',
-                    'description': f"Interaction inferred from shared target {target.name}"
+                    'description': description
                 }
             )
             
@@ -779,36 +738,7 @@ class Command(BaseCommand):
     
     def classify_interaction(self, mech_a, mech_b):
         """Classify interaction type based on mechanisms"""
-        # Normalize mechanisms
-        agonist_terms = ['agonist', 'activator', 'opener']
-        antagonist_terms = ['antagonist', 'inhibitor', 'blocker']
-        modulator_terms = ['modulator', 'pam', 'nam']
-        
-        def get_mechanism_type(mechanism):
-            mechanism = mechanism.lower()
-            if any(term in mechanism for term in agonist_terms):
-                return 'agonist'
-            elif any(term in mechanism for term in antagonist_terms):
-                return 'antagonist'
-            elif any(term in mechanism for term in modulator_terms):
-                return 'modulator'
-            else:
-                return 'unknown'
-        
-        type_a = get_mechanism_type(mech_a)
-        type_b = get_mechanism_type(mech_b)
-        
-        # Classification rules
-        if type_a == type_b and type_a in ['agonist', 'antagonist']:
-            return 'additive'
-        elif (type_a == 'agonist' and type_b in ['modulator', 'pam']) or \
-             (type_b == 'agonist' and type_a in ['modulator', 'pam']):
-            return 'synergistic'
-        elif (type_a == 'agonist' and type_b == 'antagonist') or \
-             (type_a == 'antagonist' and type_b == 'agonist'):
-            return 'antagonistic'
-        else:
-            return 'unknown'
+        return infer_interaction_type_shared(mech_a, mech_b)
     
     def make_api_call(self, url, params=None):
         """Make API call with error handling and rate limiting"""

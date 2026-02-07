@@ -28,6 +28,7 @@ from .api_views import api_root
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', views.home, name='home'),
+    path('about/', views.about, name='about'),
     path('demo/effect-curves/', views.effect_curves_demo, name='effect_curves_demo'),
     path('credits/', views.credits, name='credits'),
     path('compounds/', include('compounds.urls')),
@@ -46,6 +47,7 @@ urlpatterns = [
     path('api/accounts/', include('accounts.api_urls')),
     path('api/logs/', include('logs.api_urls')),
     path('api/research/', include('research.api_urls')),
+    path('api/stacks/', include('stacks.api_urls')),
     
     # JWT Authentication
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),

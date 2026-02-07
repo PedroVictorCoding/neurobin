@@ -228,6 +228,53 @@ class Compound(models.Model):
         ).select_related('compound_a', 'compound_b', 'target', 'created_by')
 
 
+class CompoundADMETPrediction(models.Model):
+    compound = models.OneToOneField(
+        'Compound',
+        on_delete=models.CASCADE,
+        related_name='admet_ai_prediction',
+    )
+    smiles = models.CharField(max_length=1000)
+    smiles_sha256 = models.CharField(max_length=64)
+    model_version = models.CharField(max_length=64, blank=True)
+    predictions = models.JSONField(default=dict, blank=True)
+    error = models.TextField(blank=True)
+    computed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-computed_at']
+        indexes = [
+            models.Index(fields=['computed_at'], name='comp_admet_computed_at_idx'),
+        ]
+
+    def __str__(self):
+        return f"ADMET-AI prediction for {self.compound.name}"
+
+
+class CompoundMolPropPrediction(models.Model):
+    compound = models.OneToOneField(
+        'Compound',
+        on_delete=models.CASCADE,
+        related_name='molprop_prediction',
+    )
+    smiles = models.CharField(max_length=1000)
+    smiles_sha256 = models.CharField(max_length=64)
+    model_version = models.CharField(max_length=64, blank=True)
+    predictions = models.JSONField(default=dict, blank=True)
+    uncertainty = models.JSONField(default=dict, blank=True)
+    error = models.TextField(blank=True)
+    computed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-computed_at']
+        indexes = [
+            models.Index(fields=['computed_at'], name='comp_molprop_comp_at_idx'),
+        ]
+
+    def __str__(self):
+        return f"MolProp prediction for {self.compound.name}"
+
+
 class CompoundRating(models.Model):
     compound = models.ForeignKey('Compound', on_delete=models.CASCADE, related_name='ratings')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
@@ -621,6 +668,152 @@ class CompoundTargetInteraction(models.Model):
         return f"{self.compound.name} → {self.target.name} ({self.mechanism})"
 
 
+class CompoundTargetInteractionEvidence(models.Model):
+    """Atomic source evidence rows for a compound-target mechanism with context."""
+    EVIDENCE_LEVEL_CHOICES = [
+        ('high', 'High'),
+        ('medium', 'Medium'),
+        ('low', 'Low'),
+        ('unknown', 'Unknown'),
+    ]
+
+    compound = models.ForeignKey(
+        'Compound',
+        on_delete=models.CASCADE,
+        related_name='target_interaction_evidence',
+    )
+    target = models.ForeignKey(
+        'Target',
+        on_delete=models.CASCADE,
+        related_name='compound_interaction_evidence',
+    )
+    source = models.CharField(
+        max_length=50,
+        help_text="Evidence source (e.g., IUPHAR, BindingDB, DrugBank, DGIdb, PharmGKB)",
+    )
+    source_record_id = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Source-native interaction identifier",
+    )
+    source_url = models.URLField(blank=True)
+    evidence_uid = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text="Deterministic hash used to deduplicate imported evidence rows",
+    )
+
+    raw_action_type = models.CharField(max_length=255, blank=True)
+    raw_mechanism = models.CharField(max_length=500, blank=True)
+    canonical_mechanism = models.CharField(
+        max_length=50,
+        choices=CompoundTargetInteraction.MECHANISM_CHOICES,
+        default='unknown',
+    )
+
+    species = models.CharField(max_length=255, blank=True)
+    tissue_or_cell_line = models.CharField(max_length=255, blank=True)
+    assay_type = models.CharField(max_length=255, blank=True)
+    dose_concentration = models.CharField(max_length=255, blank=True)
+    exposure_time = models.CharField(max_length=255, blank=True)
+    route = models.CharField(max_length=100, blank=True)
+    evidence_level = models.CharField(
+        max_length=20,
+        choices=EVIDENCE_LEVEL_CHOICES,
+        default='unknown',
+    )
+    evidence_weight = models.FloatField(default=0.5)
+
+    notes = models.TextField(blank=True)
+    imported_at = models.DateTimeField(auto_now_add=True)
+    context_key = models.CharField(
+        max_length=255,
+        db_index=True,
+        help_text="Deterministic context key: species+tissue+assay+dose+time+route",
+    )
+
+    class Meta:
+        verbose_name = "Compound-Target Interaction Evidence"
+        verbose_name_plural = "Compound-Target Interaction Evidence"
+        ordering = ['-imported_at']
+        indexes = [
+            models.Index(fields=['compound', 'target'], name='cti_ev_compound_target_idx'),
+            models.Index(fields=['source'], name='cti_ev_source_idx'),
+            models.Index(fields=['canonical_mechanism'], name='cti_ev_mechanism_idx'),
+            models.Index(fields=['evidence_level'], name='cti_ev_level_idx'),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.compound.name} → {self.target.name} [{self.source}] "
+            f"({self.canonical_mechanism}, {self.evidence_level})"
+        )
+
+
+class CompoundTargetContextConsensus(models.Model):
+    """Consensus mechanism per compound-target-context computed from evidence rows."""
+    CONFIDENCE_CHOICES = [
+        ('low', 'Low'),
+        ('medium', 'Medium'),
+        ('high', 'High'),
+    ]
+
+    compound = models.ForeignKey(
+        'Compound',
+        on_delete=models.CASCADE,
+        related_name='target_context_consensus',
+    )
+    target = models.ForeignKey(
+        'Target',
+        on_delete=models.CASCADE,
+        related_name='compound_context_consensus',
+    )
+    context_key = models.CharField(max_length=255, db_index=True)
+
+    species = models.CharField(max_length=255, blank=True)
+    tissue_or_cell_line = models.CharField(max_length=255, blank=True)
+    assay_type = models.CharField(max_length=255, blank=True)
+    dose_concentration = models.CharField(max_length=255, blank=True)
+    exposure_time = models.CharField(max_length=255, blank=True)
+    route = models.CharField(max_length=100, blank=True)
+
+    consensus_mechanism = models.CharField(
+        max_length=50,
+        choices=CompoundTargetInteraction.MECHANISM_CHOICES,
+        default='unknown',
+    )
+    consensus_confidence = models.CharField(
+        max_length=10,
+        choices=CONFIDENCE_CHOICES,
+        default='low',
+    )
+    has_conflict = models.BooleanField(default=False)
+    unresolved_reason = models.CharField(max_length=255, blank=True)
+
+    evidence_count = models.PositiveIntegerField(default=0)
+    total_weight = models.FloatField(default=0.0)
+    mechanism_weights = models.JSONField(default=dict, blank=True)
+    source_breakdown = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Compound-Target Context Consensus"
+        verbose_name_plural = "Compound-Target Context Consensus"
+        unique_together = ('compound', 'target', 'context_key')
+        indexes = [
+            models.Index(fields=['compound', 'target'], name='cti_ctx_compound_target_idx'),
+            models.Index(fields=['consensus_mechanism'], name='cti_ctx_mechanism_idx'),
+            models.Index(fields=['consensus_confidence'], name='cti_ctx_conf_idx'),
+            models.Index(fields=['has_conflict'], name='cti_ctx_conflict_idx'),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.compound.name} → {self.target.name} [{self.context_key}] "
+            f"{self.consensus_mechanism} ({self.consensus_confidence})"
+        )
+
+
 class CompoundToCompoundTargetInteraction(models.Model):
     """Represents an interaction between two compounds through a shared target"""
     INTERACTION_TYPE_CHOICES = [
@@ -708,22 +901,24 @@ class CompoundToCompoundTargetInteraction(models.Model):
     
     def get_compound_a_mechanism(self):
         """Get the mechanism of action for compound A on the shared target"""
-        try:
-            interaction = CompoundTargetInteraction.objects.get(
-                compound=self.compound_a, 
+        mechanisms = list(
+            CompoundTargetInteraction.objects.filter(
+                compound=self.compound_a,
                 target=self.target
-            )
-            return interaction.mechanism
-        except CompoundTargetInteraction.DoesNotExist:
+            ).order_by('mechanism').values_list('mechanism', flat=True).distinct()
+        )
+        if not mechanisms:
             return 'unknown'
+        return ', '.join(mechanisms)
     
     def get_compound_b_mechanism(self):
         """Get the mechanism of action for compound B on the shared target"""
-        try:
-            interaction = CompoundTargetInteraction.objects.get(
-                compound=self.compound_b, 
+        mechanisms = list(
+            CompoundTargetInteraction.objects.filter(
+                compound=self.compound_b,
                 target=self.target
-            )
-            return interaction.mechanism
-        except CompoundTargetInteraction.DoesNotExist:
+            ).order_by('mechanism').values_list('mechanism', flat=True).distinct()
+        )
+        if not mechanisms:
             return 'unknown'
+        return ', '.join(mechanisms)

@@ -1,0 +1,1187 @@
+<div class="card bg-neurobin-card text-light mb-3 shadow p-3"
+     style="max-width: 700px; width: 100%; border-radius: 10px;">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+      <div>
+        <h2 class="card-title mb-1 text-white fw-semibold">
+          <i class="fas fa-vials text-info"></i> ADMET-AI
+        </h2>
+        <div class="text-muted" style="font-size: 0.9rem;">
+          Predictive ADMET properties (research-only; not medical advice).
+        </div>
+      </div>
+
+      <div class="text-end">
+        {% if user.is_authenticated and compound.smiles %}
+          <form method="post" action="{{ admet_ai_refresh_url }}" class="d-inline" id="admetAiRefreshForm">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button type="submit"
+                    class="btn btn-sm btn-outline-info"
+                    {% if not admet_ai_available %}disabled{% endif %}
+                    title="{% if not admet_ai_available %}Install admet-ai to enable prediction{% else %}Compute / refresh predictions{% endif %}">
+              <i class="fas fa-rotate"></i> Refresh
+            </button>
+          </form>
+          <form method="post" action="{{ molprop_refresh_url }}" class="d-inline" id="molpropRefreshForm">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button type="submit"
+                    class="btn btn-sm btn-outline-secondary"
+                    {% if not molprop_available %}aria-disabled="true" style="opacity: 0.6;"{% endif %}
+                    title="{% if not molprop_available %}Install MolProp (or configure MOLPROP_PREDICT_CMD) to enable{% else %}Compute / refresh MolProp predictions{% endif %}">
+              <i class="fas fa-atom"></i> MolProp
+            </button>
+          </form>
+        {% elif not user.is_authenticated %}
+          <a class="btn btn-sm btn-outline-info" href="{% url 'login' %}?next={{ request.get_full_path|urlencode }}">
+            <i class="fas fa-sign-in-alt"></i> Login to run
+          </a>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if admet_ai_autoload %}
+      <div class="d-flex align-items-center gap-2 text-muted mb-3" style="font-size: 0.95rem;">
+        <div class="spinner-border spinner-border-sm text-info" role="status" aria-hidden="true"></div>
+        <div>Computing ADMET-AI predictions…</div>
+      </div>
+      <script>
+        document.addEventListener('DOMContentLoaded', function() {
+          const form = document.getElementById('admetAiRefreshForm');
+          if (form) form.submit();
+        });
+      </script>
+    {% endif %}
+    {% if molprop_autoload %}
+      <div class="d-flex align-items-center gap-2 text-muted mb-3" style="font-size: 0.95rem;">
+        <div class="spinner-border spinner-border-sm text-secondary" role="status" aria-hidden="true"></div>
+        <div>Computing MolProp predictions…</div>
+      </div>
+      <script>
+        document.addEventListener('DOMContentLoaded', function() {
+          const form = document.getElementById('molpropRefreshForm');
+          if (form) form.submit();
+        });
+      </script>
+    {% endif %}
+
+    {% if admet_ai_status == "ok" %}
+      <div class="alert alert-success py-2 mb-3">Predictions updated.</div>
+    {% elif admet_ai_status == "error" %}
+      <div class="alert alert-warning py-2 mb-3">
+        Failed to compute predictions.
+        {% if admet_ai_prediction and admet_ai_prediction.error %}
+          <div class="mt-1" style="font-size: 0.9rem;">
+            <code>{{ admet_ai_prediction.error }}</code>
+          </div>
+        {% endif %}
+      </div>
+    {% elif admet_ai_status == "missing_smiles" %}
+      <div class="alert alert-secondary py-2 mb-3">No SMILES on this compound yet.</div>
+    {% elif admet_ai_status == "unavailable" %}
+      <div class="alert alert-secondary py-2 mb-3">
+        ADMET-AI is not installed on the server. Add it to your ML requirements and redeploy.
+      </div>
+    {% endif %}
+    {% if molprop_status == "ok" %}
+      <div class="alert alert-success py-2 mb-3">MolProp predictions updated.</div>
+    {% elif molprop_status == "error" %}
+      <div class="alert alert-warning py-2 mb-3">
+        Failed to compute MolProp predictions.
+        {% if molprop_prediction and molprop_prediction.error %}
+          <div class="mt-1" style="font-size: 0.9rem;">
+            <code>{{ molprop_prediction.error }}</code>
+          </div>
+        {% endif %}
+      </div>
+    {% elif molprop_status == "missing_smiles" %}
+      <div class="alert alert-secondary py-2 mb-3">No SMILES on this compound yet.</div>
+    {% elif molprop_status == "unavailable" %}
+      <div class="alert alert-secondary py-2 mb-3">
+        {% if molprop_unavailable_reason %}
+          {{ molprop_unavailable_reason }}
+        {% else %}
+          MolProp is not installed/configured. Install MolProp or set <code>MOLPROP_PREDICT_CMD</code>.
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <div class="text-muted mb-2" style="font-size: 0.85rem;">
+      Models:
+      <span class="{% if admet_ai_available %}text-success{% else %}text-warning{% endif %}">ADMET-AI {% if admet_ai_available %}ready{% else %}unavailable{% endif %}</span>
+      •
+      <span class="{% if molprop_available %}text-success{% else %}text-warning{% endif %}">MolProp {% if molprop_available %}ready{% else %}unavailable{% endif %}</span>
+    </div>
+
+    {% if not compound.smiles %}
+      <div class="text-muted">Add a SMILES string to enable ADMET-AI predictions.</div>
+    {% elif admet_ai_prediction %}
+      <div class="d-flex flex-wrap gap-3 text-muted mb-3" style="font-size: 0.9rem;">
+        <div><strong class="text-light">Computed:</strong> {{ admet_ai_prediction.computed_at|date:"Y-m-d H:i" }}</div>
+        {% if admet_ai_prediction.model_version %}
+          <div><strong class="text-light">Model:</strong> {{ admet_ai_prediction.model_version }}</div>
+        {% endif %}
+        {% if admet_ai_prediction_is_stale %}
+          <div class="text-warning"><i class="fas fa-triangle-exclamation"></i> Stale (SMILES changed)</div>
+        {% endif %}
+        {% if molprop_prediction %}
+          <div><strong class="text-light">MolProp:</strong> {{ molprop_prediction.computed_at|date:"Y-m-d H:i" }}</div>
+        {% elif molprop_available %}
+          <div class="text-muted"><strong class="text-light">MolProp:</strong> not cached yet</div>
+        {% endif %}
+      </div>
+
+      {% if admet_ai_prediction.predictions %}
+        {{ admet_ai_prediction.predictions|json_script:"admetAiPredictions" }}
+
+        <style>
+          .admet-ai-chart-wrap {
+            height: 240px;
+          }
+          @media (max-width: 768px) {
+            .admet-ai-chart-wrap {
+              height: 220px;
+            }
+          }
+          details.admet-ai-dropdown > summary {
+            list-style: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
+          }
+          details.admet-ai-dropdown > summary::-webkit-details-marker {
+            display: none;
+          }
+          details.admet-ai-dropdown > summary::after {
+            content: "▾";
+            color: rgba(255,255,255,0.65);
+            font-size: 0.9rem;
+          }
+          details.admet-ai-dropdown[open] > summary::after {
+            content: "▴";
+          }
+          .admet-ai-table-card {
+            background: rgba(0,0,0,0.12);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px;
+            padding: 12px;
+          }
+          .admet-ai-table-card .table {
+            margin-bottom: 0;
+          }
+        </style>
+
+        <div id="admetAiGraphsWrap" class="mt-3">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="fw-semibold text-white">
+              <i class="fas fa-chart-line text-info"></i> Key Graphs
+            </div>
+          </div>
+          <div id="admetAiContext" class="text-muted mb-3" style="font-size: 0.95rem;"></div>
+          <div class="text-muted mb-2" style="font-size: 0.85rem;">
+            Tip: hover a bar for what the endpoint means.
+          </div>
+
+          <div class="row g-3">
+            <div class="col-12 col-lg-6" id="admetAiCardTox">
+              <div class="border border-secondary rounded p-3 h-100" style="background: rgba(0,0,0,0.15);">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <div class="fw-semibold text-white">Toxicology Signals</div>
+                  <div class="text-muted" style="font-size: 0.85rem;">0 → 1 (risk)</div>
+                </div>
+                <div class="admet-ai-chart-wrap">
+                  <canvas id="admetAiChartTox"></canvas>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12 col-lg-6" id="admetAiCardAbs">
+              <div class="border border-secondary rounded p-3 h-100" style="background: rgba(0,0,0,0.15);">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <div class="fw-semibold text-white">Absorption & Bioavailability</div>
+                  <div class="text-muted" style="font-size: 0.85rem;">0 → 1 (higher is better)</div>
+                </div>
+                <div class="admet-ai-chart-wrap">
+                  <canvas id="admetAiChartAbs"></canvas>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12" id="admetAiCardCyp">
+              <div class="border border-secondary rounded p-3" style="background: rgba(0,0,0,0.15);">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <div class="fw-semibold text-white">Metabolism (CYP interaction likelihood)</div>
+                  <div class="text-muted" style="font-size: 0.85rem;">0 → 1 (higher is stronger signal)</div>
+                </div>
+                <div class="admet-ai-chart-wrap" style="height: 280px;">
+                  <canvas id="admetAiChartCyp"></canvas>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12" id="admetAiCardOrgan">
+              <div class="border border-secondary rounded p-3" style="background: rgba(0,0,0,0.15);">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <div class="fw-semibold text-white">Organ/System Risk (proxy endpoints)</div>
+                  <div class="text-muted" style="font-size: 0.85rem;">0 → 1 (higher signal)</div>
+                </div>
+                <div class="admet-ai-chart-wrap" style="height: 300px;">
+                  <canvas id="admetAiChartOrgan"></canvas>
+                </div>
+                <div class="text-muted mt-2" style="font-size: 0.85rem;">
+                  Uses available ADMET-AI endpoints as proxies (not a clinical diagnosis).
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <details class="admet-ai-dropdown mt-3" id="admetAiTablesWrap" style="display: none;">
+            <summary>
+              <div class="fw-semibold text-white">
+                <i class="fas fa-table text-info"></i> ADMET Tables
+              </div>
+              <div class="text-muted" style="font-size: 0.85rem;">
+                Physicochemical, absorption, distribution, metabolism, excretion, toxicity
+              </div>
+            </summary>
+            <div class="mt-3">
+              <div class="text-muted mb-2" style="font-size: 0.85rem;">
+                Lower-accuracy and dataset metadata indicators appear when provided by ADMET-AI.
+              </div>
+              <div id="admetAiTablesContainer" class="d-grid gap-3"></div>
+            </div>
+          </details>
+
+          <div class="mt-3" id="admetAiKeyTableWrap" style="display: none;">
+            <div class="text-muted mb-2" style="font-size: 0.9rem;">All endpoints</div>
+            <div class="table-responsive"
+                 style="max-height: 260px; overflow-y: auto; border: 1px solid #495057; border-radius: 8px;">
+              <table class="table table-dark table-striped table-hover table-sm mb-0" style="font-size: 0.85rem;" id="admetAiKeyTable">
+                <thead class="sticky-top">
+                  <tr>
+                    <th scope="col" style="width: 55%;">Endpoint</th>
+                    <th scope="col">Prediction</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+        <script>
+          (function() {
+            if (window.__admetAiChartsInit) return;
+            window.__admetAiChartsInit = true;
+
+            function prettyLabel(key) {
+              return String(key).replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+            }
+
+            function toNumber(value) {
+              if (value === null || value === undefined) return null;
+              if (typeof value === 'number' && Number.isFinite(value)) return value;
+              if (typeof value === 'object' && value !== null) {
+                if (Object.prototype.hasOwnProperty.call(value, 'value')) return toNumber(value.value);
+                if (Object.prototype.hasOwnProperty.call(value, 'prediction')) return toNumber(value.prediction);
+                if (Object.prototype.hasOwnProperty.call(value, 'score')) return toNumber(value.score);
+              }
+              if (typeof value === 'string') {
+                const v = value.trim().toLowerCase();
+                if (v === 'yes' || v === 'true' || v === 'positive') return 1;
+                if (v === 'no' || v === 'false' || v === 'negative') return 0;
+                const n = Number(value);
+                if (Number.isFinite(n)) return n;
+              }
+              return null;
+            }
+
+            function pickEntries(predictions, matcher) {
+              const out = [];
+              for (const [k, raw] of Object.entries(predictions || {})) {
+                if (!matcher(String(k))) continue;
+                const num = toNumber(raw);
+                if (num === null) continue;
+                out.push({ key: String(k), value: num });
+              }
+              return out;
+            }
+
+            function endpointInfo(endpointKey) {
+              const k = String(endpointKey || '');
+              const info = { description: '' };
+
+              if (k === 'DILI') {
+                info.description = 'Drug-induced liver injury likelihood (higher = more risk).';
+              } else if (k === 'AMES') {
+                info.description = 'Ames mutagenicity (higher = more mutagenic signal).';
+              } else if (k === 'ClinTox') {
+                info.description = 'Clinical toxicity likelihood (higher = more toxic signal).';
+              } else if (k === 'Carcinogens_Lagunin') {
+                info.description = 'Carcinogenicity signal (higher = more likely carcinogen).';
+              } else if (k === 'Bioavailability_Ma') {
+                info.description = 'Oral bioavailability (higher = more likely orally bioavailable).';
+              } else if (k === 'HIA_Hou') {
+                info.description = 'Human intestinal absorption (higher = better absorption).';
+              } else if (k === 'BBB_Martins') {
+                info.description = 'Blood-brain barrier permeability (higher = more likely CNS exposure).';
+              } else if (/^CYP/i.test(k)) {
+                info.description = 'CYP-related interaction likelihood (substrate/inhibitor endpoint depending on the label; higher = stronger signal).';
+              } else if (/pgp|p-gp/i.test(k)) {
+                info.description = 'P-glycoprotein transporter interaction (higher = stronger signal).';
+              } else if (/caco2/i.test(k)) {
+                info.description = 'Caco-2 permeability-related signal (higher generally indicates better permeability; dataset-dependent).';
+              } else if (/bbb/i.test(k)) {
+                info.description = 'Blood-brain barrier related signal (higher = more likely BBB penetration).';
+              } else if (/tox|toxic/i.test(k)) {
+                info.description = 'Toxicology-related endpoint (higher = stronger signal).';
+              } else if (/bioavail|absorp|hia/i.test(k)) {
+                info.description = 'Absorption/bioavailability-related endpoint (higher generally indicates better absorption).';
+              } else {
+                info.description = 'Predicted endpoint score; interpretation depends on the dataset/label.';
+              }
+
+              return info;
+            }
+
+            function formatValue(value) {
+              if (value === null || value === undefined) return '—';
+              if (typeof value === 'object' && value !== null) {
+                if (Object.prototype.hasOwnProperty.call(value, 'value')) return formatValue(value.value);
+                if (Object.prototype.hasOwnProperty.call(value, 'prediction')) return formatValue(value.prediction);
+                if (Object.prototype.hasOwnProperty.call(value, 'score')) return formatValue(value.score);
+              }
+              if (typeof value === 'number' && Number.isFinite(value)) {
+                if (value >= 0 && value <= 1) return value.toFixed(3);
+                if (Number.isInteger(value)) return String(value);
+                if (Math.abs(value) >= 100) return value.toFixed(1);
+                return value.toFixed(2);
+              }
+              if (typeof value === 'string') return value;
+              if (typeof value === 'boolean') return value ? 'true' : 'false';
+              try {
+                const s = JSON.stringify(value);
+                return s.length > 120 ? (s.slice(0, 117) + '...') : s;
+              } catch (e) {
+                return String(value);
+              }
+            }
+
+            function categorizeEndpoint(key) {
+              const k = String(key || '');
+              const upper = k.toUpperCase();
+
+              const physchem = new Set([
+                'MOLECULAR_WEIGHT',
+                'LOGP',
+                'LOGS',
+                'TPSA',
+                'QED',
+                'LIPINSKI',
+                'HYDROGEN_BOND_ACCEPTORS',
+                'HYDROGEN_BOND_DONORS',
+                'STEREO_CENTERS',
+              ]);
+
+              if (upper.startsWith('NR-')) return { name: 'Nuclear Receptor', order: 60 };
+              if (upper.startsWith('SR-')) return { name: 'Stress Response', order: 70 };
+              if (upper.startsWith('CYP')) return { name: 'Metabolism (CYP)', order: 40 };
+              if (physchem.has(upper)) return { name: 'Physicochemical', order: 10 };
+
+              if (/(BIOAVAIL|HIA|CACO2|ABSORP)/i.test(k)) return { name: 'Absorption & Bioavailability', order: 20 };
+              if (/(BBB|VDSS|PPB|FU)/i.test(k)) return { name: 'Distribution', order: 30 };
+              if (/(PGP|P-GP|BCRP|OATP|OCT|OAT|MATE|MRP)/i.test(k)) return { name: 'Transporters', order: 35 };
+
+              if (/(DILI|AMES|CLINTOX|CARCIN|HERG|TOX)/i.test(k)) return { name: 'Toxicology', order: 50 };
+              return { name: 'Other', order: 80 };
+            }
+
+            function normalizeKey(key) {
+              return String(key || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            }
+
+            function buildKeyIndex(predictions) {
+              const map = new Map();
+              for (const k of Object.keys(predictions || {})) {
+                map.set(String(k).toLowerCase(), k);
+                map.set(normalizeKey(k), k);
+              }
+              return map;
+            }
+
+            function resolvePrediction(predictions, keyIndex, keys) {
+              for (const candidate of keys || []) {
+                if (Object.prototype.hasOwnProperty.call(predictions, candidate)) {
+                  return { key: candidate, raw: predictions[candidate] };
+                }
+                const lower = String(candidate).toLowerCase();
+                if (keyIndex.has(lower)) {
+                  const k = keyIndex.get(lower);
+                  return { key: k, raw: predictions[k] };
+                }
+                const norm = normalizeKey(candidate);
+                if (keyIndex.has(norm)) {
+                  const k = keyIndex.get(norm);
+                  return { key: k, raw: predictions[k] };
+                }
+              }
+              return { key: '', raw: null };
+            }
+
+            function extractMetaMap(predictions) {
+              const metaKeys = ['__meta__', '_meta', 'meta', 'metadata', 'meta_by_endpoint', 'metaByEndpoint', 'model_meta'];
+              for (const k of metaKeys) {
+                if (predictions && typeof predictions === 'object' && predictions[k] && typeof predictions[k] === 'object') {
+                  return predictions[k];
+                }
+              }
+              return null;
+            }
+
+            function lookupMeta(metaByEndpoint, usedKey, keys) {
+              if (!metaByEndpoint || typeof metaByEndpoint !== 'object') return null;
+              const candidates = [];
+              if (usedKey) {
+                candidates.push(usedKey, usedKey.toLowerCase(), normalizeKey(usedKey));
+              }
+              for (const k of keys || []) {
+                candidates.push(k, String(k).toLowerCase(), normalizeKey(k));
+              }
+              for (const c of candidates) {
+                if (Object.prototype.hasOwnProperty.call(metaByEndpoint, c)) {
+                  return metaByEndpoint[c];
+                }
+              }
+              return null;
+            }
+
+            function extractValue(raw) {
+              if (raw && typeof raw === 'object') {
+                if (Object.prototype.hasOwnProperty.call(raw, 'value')) return raw.value;
+                if (Object.prototype.hasOwnProperty.call(raw, 'prediction')) return raw.prediction;
+                if (Object.prototype.hasOwnProperty.call(raw, 'score')) return raw.score;
+              }
+              return raw;
+            }
+
+            function extractUnits(raw, fallbackUnit) {
+              if (raw && typeof raw === 'object') {
+                if (Object.prototype.hasOwnProperty.call(raw, 'units')) return raw.units;
+                if (Object.prototype.hasOwnProperty.call(raw, 'unit')) return raw.unit;
+              }
+              return fallbackUnit || '-';
+            }
+
+            function extractPercentile(raw) {
+              if (raw && typeof raw === 'object') {
+                const fields = ['percentile', 'drugbank_percentile', 'percentile_drugbank', 'drugbankPercentile', 'pct'];
+                for (const f of fields) {
+                  if (Object.prototype.hasOwnProperty.call(raw, f)) return raw[f];
+                }
+              }
+              return null;
+            }
+
+            function lookupPercentile(predictions, usedKey, keys, meta, raw) {
+              const direct = extractPercentile(raw);
+              if (direct !== null && direct !== undefined) return direct;
+              const metaPct = extractPercentile(meta);
+              if (metaPct !== null && metaPct !== undefined) return metaPct;
+              const suffixes = ['_percentile', '_percentile_drugbank', '_drugbank_percentile', '_percentile_db', '_pct'];
+              for (const baseKey of [usedKey, ...(keys || [])]) {
+                if (!baseKey) continue;
+                for (const s of suffixes) {
+                  const key = `${baseKey}${s}`;
+                  if (Object.prototype.hasOwnProperty.call(predictions, key)) {
+                    return predictions[key];
+                  }
+                }
+              }
+              return null;
+            }
+
+            function formatPercentile(value) {
+              if (value === null || value === undefined || value === '') return '—';
+              if (typeof value === 'string') {
+                if (value.includes('%')) return value;
+                const n = Number(value);
+                if (Number.isFinite(n)) return formatPercentile(n);
+                return value;
+              }
+              if (typeof value === 'number' && Number.isFinite(value)) {
+                const pct = value <= 1 ? value * 100 : value;
+                return `${pct.toFixed(2)}%`;
+              }
+              return formatValue(value);
+            }
+
+            function isLowAccuracy(meta) {
+              if (!meta || typeof meta !== 'object') return false;
+              if (meta.low_accuracy === true || meta.lowAccuracy === true || meta.low_confidence === true) return true;
+              const acc = meta.accuracy ?? meta.confidence ?? meta.quality;
+              if (typeof acc === 'string' && /low|poor|weak/i.test(acc)) return true;
+              return false;
+            }
+
+            function formatMetric(value) {
+              if (value === null || value === undefined || value === '') return null;
+              if (typeof value === 'number' && Number.isFinite(value)) {
+                return value.toFixed(2);
+              }
+              return String(value);
+            }
+
+            function formatMetaSummary(meta) {
+              if (!meta || typeof meta !== 'object') return '';
+              const parts = [];
+              const n = meta.dataset_size ?? meta.n ?? meta.size ?? meta.samples;
+              if (n !== null && n !== undefined && n !== '') parts.push(`n=${n}`);
+              const species = meta.species ?? meta.organism ?? meta.host;
+              if (species) parts.push(`species: ${species}`);
+              const r2 = formatMetric(meta.r2 ?? meta.R2 ?? meta.r_squared);
+              if (r2 !== null) parts.push(`R² ${r2}`);
+              const mae = formatMetric(meta.mae ?? meta.MAE);
+              if (mae !== null) parts.push(`MAE ${mae}`);
+              const rank = meta.tdc_rank ?? meta.leaderboard_rank ?? meta.rank;
+              if (rank !== null && rank !== undefined && rank !== '') parts.push(`TDC rank ${rank}`);
+              return parts.join(' • ');
+            }
+
+            function buildQualityCell(meta) {
+              const wrap = document.createElement('div');
+              wrap.className = 'd-flex flex-column gap-1';
+              const low = isLowAccuracy(meta);
+              const metaText = formatMetaSummary(meta);
+
+              if (!low && !metaText) {
+                wrap.textContent = '—';
+                return wrap;
+              }
+
+              if (low) {
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-warning text-dark align-self-start';
+                badge.textContent = 'Low accuracy';
+                wrap.appendChild(badge);
+              }
+
+              if (metaText) {
+                const text = document.createElement('div');
+                text.className = 'text-muted';
+                text.style.fontSize = '0.8rem';
+                text.textContent = metaText;
+                wrap.appendChild(text);
+              }
+
+              return wrap;
+            }
+
+            function renderAdmetTables(predictions) {
+              const wrap = document.getElementById('admetAiTablesWrap');
+              const container = document.getElementById('admetAiTablesContainer');
+              if (!wrap || !container) return;
+              if (!predictions || typeof predictions !== 'object' || Object.keys(predictions).length === 0) {
+                wrap.style.display = 'none';
+                return;
+              }
+
+              const keyIndex = buildKeyIndex(predictions);
+              const metaByEndpoint = extractMetaMap(predictions);
+
+              const tables = [
+                {
+                  title: 'Physicochemical',
+                  valueLabel: 'Value',
+                  rows: [
+                    { label: 'Molecular Weight', keys: ['molecular_weight', 'Molecular_Weight', 'MW', 'MolWt', 'Mol_Wt'], unit: 'Dalton' },
+                    { label: 'LogP', keys: ['logP', 'LogP', 'logp', 'XlogP', 'logP_AlogP98'], unit: 'log-ratio' },
+                    { label: 'Hydrogen Bond Acceptors', keys: ['HBA', 'Hydrogen_Bond_Acceptors', 'Hbond_Acceptors', 'H_Bond_Acceptors'], unit: '#' },
+                    { label: 'Hydrogen Bond Donors', keys: ['HBD', 'Hydrogen_Bond_Donors', 'Hbond_Donors', 'H_Bond_Donors'], unit: '#' },
+                    { label: 'Lipinski Rule of 5', keys: ['Lipinski', 'Lipinski_Ro5', 'RO5', 'Ro5'], unit: '# of 4' },
+                    { label: 'Quantitative Estimate of Druglikeness (QED)', keys: ['QED', 'qed'], unit: '-' },
+                    { label: 'Stereo Centers', keys: ['Stereo_Centers', 'stereo_centers', 'Chiral_Centers'], unit: '#' },
+                    { label: 'Topological Polar Surface Area (TPSA)', keys: ['TPSA', 'tpsa', 'Topo_Polar_Surface_Area'], unit: 'Å2' },
+                  ],
+                },
+                {
+                  title: 'Absorption',
+                  valueLabel: 'Prediction',
+                  rows: [
+                    { label: 'Human Intestinal Absorption', keys: ['HIA_Hou', 'HIA', 'Human_Intestinal_Absorption'], unit: '-' },
+                    { label: 'Oral Bioavailability', keys: ['Bioavailability_Ma', 'Bioavailability', 'Oral_Bioavailability'], unit: '-' },
+                    { label: 'Aqueous Solubility', keys: ['logS', 'LogS', 'Solubility', 'Aqueous_Solubility'], unit: 'log(mol/L)' },
+                    { label: 'Lipophilicity', keys: ['Lipophilicity', 'logD', 'logD7.4'], unit: 'log-ratio' },
+                    { label: 'Hydration Free Energy', keys: ['Hydration_Free_Energy', 'HydrationFreeEnergy', 'HFE'], unit: 'kcal/mol' },
+                    { label: 'Cell Effective Permeability', keys: ['Cell_Effective_Permeability', 'Caco2_Wang', 'Caco2'], unit: 'log(10-6 cm/s)' },
+                    { label: 'PAMPA Permeability', keys: ['PAMPA', 'PAMPA_Permeability'], unit: '-' },
+                    { label: 'P-glycoprotein Inhibition', keys: ['Pgp_Inhibitor', 'Pgp_Broccatelli', 'Pgp_Inhibition'], unit: '-' },
+                  ],
+                },
+                {
+                  title: 'Distribution',
+                  valueLabel: 'Prediction',
+                  rows: [
+                    { label: 'Blood-Brain Barrier Penetration', keys: ['BBB_Martins', 'BBB', 'Blood_Brain_Barrier'], unit: '-' },
+                    { label: 'Plasma Protein Binding Rate', keys: ['PPB', 'Plasma_Protein_Binding', 'PPB_Rate'], unit: '%' },
+                    { label: 'Volume of Distribution at Steady State', keys: ['VDss_Lombardo', 'VDss', 'Volume_of_Distribution'], unit: 'L/kg' },
+                  ],
+                },
+                {
+                  title: 'Metabolism',
+                  valueLabel: 'Prediction',
+                  rows: [
+                    { label: 'CYP1A2 Inhibition', keys: ['CYP1A2_Veith', 'CYP1A2_Inhibition', 'CYP1A2'], unit: '-' },
+                    { label: 'CYP2C19 Inhibition', keys: ['CYP2C19_Veith', 'CYP2C19_Inhibition', 'CYP2C19'], unit: '-' },
+                    { label: 'CYP2C9 Inhibition', keys: ['CYP2C9_Veith', 'CYP2C9_Inhibition', 'CYP2C9'], unit: '-' },
+                    { label: 'CYP2D6 Inhibition', keys: ['CYP2D6_Veith', 'CYP2D6_Inhibition', 'CYP2D6'], unit: '-' },
+                    { label: 'CYP3A4 Inhibition', keys: ['CYP3A4_Veith', 'CYP3A4_Inhibition', 'CYP3A4'], unit: '-' },
+                    { label: 'CYP2C9 Substrate', keys: ['CYP2C9_Substrate', 'CYP2C9_Substrate_CarbonMangels'], unit: '-' },
+                    { label: 'CYP2D6 Substrate', keys: ['CYP2D6_Substrate'], unit: '-' },
+                    { label: 'CYP3A4 Substrate', keys: ['CYP3A4_Substrate', 'CYP3A4_Substrate_CarbonMangels'], unit: '-' },
+                  ],
+                },
+                {
+                  title: 'Excretion',
+                  valueLabel: 'Prediction',
+                  rows: [
+                    { label: 'Half Life', keys: ['Half_Life', 'HalfLife'], unit: 'hr' },
+                    { label: 'Drug Clearance (Hepatocyte)', keys: ['Clearance_Hepatocyte_AZ', 'Clearance_Hepatocyte', 'Hepatocyte_Clearance'], unit: 'uL/min/106 cells' },
+                    { label: 'Drug Clearance (Microsome)', keys: ['Clearance_Microsome', 'Microsome_Clearance'], unit: 'uL/min/mg' },
+                  ],
+                },
+                {
+                  title: 'Toxicity',
+                  valueLabel: 'Prediction',
+                  rows: [
+                    { label: 'hERG Blocking', keys: ['hERG', 'Herg', 'hERG_Blocking'], unit: '-' },
+                    { label: 'Clinical Toxicity', keys: ['ClinTox', 'Clinical_Toxicity'], unit: '-' },
+                    { label: 'Mutagenicity', keys: ['AMES', 'Ames', 'Mutagenicity'], unit: '-' },
+                    { label: 'Drug Induced Liver Injury', keys: ['DILI', 'Drug_Induced_Liver_Injury'], unit: '-' },
+                    { label: 'Carcinogenicity', keys: ['Carcinogens_Lagunin', 'Carcinogenicity'], unit: '-' },
+                    { label: 'Acute Toxicity LD50', keys: ['LD50_Zhu', 'LD50', 'Acute_Toxicity_LD50'], unit: 'log(1/(mol/kg))' },
+                    { label: 'Skin Reaction', keys: ['Skin_Reaction', 'Skin_Sensitization'], unit: '-' },
+                    { label: 'Androgen Receptor (Full Length)', keys: ['NR-AR', 'NR_AR'], unit: '-' },
+                    { label: 'Androgen Receptor (Ligand Binding Domain)', keys: ['NR-AR-LBD', 'NR_AR_LBD'], unit: '-' },
+                    { label: 'Aryl Hydrocarbon Receptor', keys: ['NR-AhR', 'NR_AhR'], unit: '-' },
+                    { label: 'Aromatase', keys: ['NR-Aromatase', 'NR_Aromatase'], unit: '-' },
+                    { label: 'Estrogen Receptor (Full Length)', keys: ['NR-ER', 'NR_ER'], unit: '-' },
+                    { label: 'Estrogen Receptor (Ligand Binding Domain)', keys: ['NR-ER-LBD', 'NR_ER_LBD'], unit: '-' },
+                    { label: 'Peroxisome Proliferator-Activated Receptor Gamma', keys: ['SR-PPAR-gamma', 'SR_PPAR_gamma'], unit: '-' },
+                    { label: 'Nuclear Factor (Erythroid-Derived 2)-Like 2/Antioxidant Responsive Element', keys: ['SR-ARE', 'SR_ARE'], unit: '-' },
+                    { label: 'ATPase Family AAA Domain-Containing Protein 5 (ATAD5)', keys: ['SR-ATAD5', 'SR_ATAD5'], unit: '-' },
+                    { label: 'Heat Shock Factor Response Element', keys: ['SR-HSE', 'SR_HSE'], unit: '-' },
+                    { label: 'Mitochondrial Membrane Potential', keys: ['SR-MMP', 'SR_MMP'], unit: '-' },
+                    { label: 'Tumor Protein p53', keys: ['SR-p53', 'SR_p53'], unit: '-' },
+                  ],
+                },
+              ];
+
+              container.innerHTML = '';
+              let rendered = 0;
+
+              for (const table of tables) {
+                const rows = [];
+                for (const row of table.rows) {
+                  const resolved = resolvePrediction(predictions, keyIndex, row.keys);
+                  const raw = resolved.raw;
+                  const value = extractValue(raw);
+                  const rowMeta = (raw && typeof raw === 'object') ? (raw.meta || raw.metadata || raw.info) : null;
+                  const meta = rowMeta || lookupMeta(metaByEndpoint, resolved.key, row.keys);
+                  const percentile = lookupPercentile(predictions, resolved.key, row.keys, meta, raw);
+                  const units = extractUnits(raw, row.unit);
+                  rows.push({
+                    label: row.label,
+                    value,
+                    percentile,
+                    units,
+                    meta,
+                  });
+                }
+
+                const hasAny = rows.some(r => r.value !== null && r.value !== undefined && r.value !== '');
+                if (!hasAny) continue;
+
+                const card = document.createElement('div');
+                card.className = 'admet-ai-table-card';
+
+                const title = document.createElement('div');
+                title.className = 'fw-semibold text-white mb-2';
+                title.textContent = table.title;
+                card.appendChild(title);
+
+                const tableEl = document.createElement('table');
+                tableEl.className = 'table table-dark table-striped table-hover table-sm';
+                tableEl.style.fontSize = '0.85rem';
+
+                const thead = document.createElement('thead');
+                const headRow = document.createElement('tr');
+                const headLabels = [
+                  'Property',
+                  table.valueLabel,
+                  'DrugBank Percentile',
+                  'Units',
+                  'Data quality',
+                ];
+                for (const label of headLabels) {
+                  const th = document.createElement('th');
+                  th.scope = 'col';
+                  th.textContent = label;
+                  headRow.appendChild(th);
+                }
+                thead.appendChild(headRow);
+                tableEl.appendChild(thead);
+
+                const tbody = document.createElement('tbody');
+                for (const r of rows) {
+                  const tr = document.createElement('tr');
+
+                  const tdProp = document.createElement('td');
+                  tdProp.className = 'text-muted';
+                  tdProp.textContent = r.label;
+                  tr.appendChild(tdProp);
+
+                  const tdVal = document.createElement('td');
+                  tdVal.textContent = formatValue(r.value);
+                  tr.appendChild(tdVal);
+
+                  const tdPct = document.createElement('td');
+                  tdPct.textContent = formatPercentile(r.percentile);
+                  tr.appendChild(tdPct);
+
+                  const tdUnit = document.createElement('td');
+                  tdUnit.textContent = r.units || '-';
+                  tr.appendChild(tdUnit);
+
+                  const tdQual = document.createElement('td');
+                  tdQual.appendChild(buildQualityCell(r.meta));
+                  tr.appendChild(tdQual);
+
+                  tbody.appendChild(tr);
+                }
+                tableEl.appendChild(tbody);
+
+                card.appendChild(tableEl);
+                container.appendChild(card);
+                rendered += 1;
+              }
+
+              if (rendered > 0) {
+                wrap.style.display = '';
+              } else {
+                wrap.style.display = 'none';
+              }
+            }
+
+            function chartBarHorizontal(canvasId, title, entries, color) {
+              const canvas = document.getElementById(canvasId);
+              if (!canvas) return null;
+              const ctx = canvas.getContext('2d');
+              const labels = entries.map(e => e.key); // keep raw endpoint keys for tooltips
+              const values = entries.map(e => e.value);
+
+              return new Chart(ctx, {
+                type: 'bar',
+                data: {
+                  labels,
+                  datasets: [{
+                    label: title,
+                    data: values,
+                    backgroundColor: color,
+                    borderColor: 'rgba(255,255,255,0.18)',
+                    borderWidth: 1,
+                    borderRadius: 6,
+                  }]
+                },
+                options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  indexAxis: 'y',
+                  plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                      callbacks: {
+                        title: function(items) {
+                          const item = items && items[0];
+                          const key = item ? item.label : '';
+                          return prettyLabel(key);
+                        },
+                        label: function(context) {
+                          const v = context.raw;
+                          const key = context.label;
+                          const info = endpointInfo(key);
+                          const val = (typeof v === 'number') ? v.toFixed(3) : String(v);
+                          return `Score: ${val}`;
+                        },
+                        afterLabel: function(context) {
+                          const key = context.label;
+                          const info = endpointInfo(key);
+                          return info.description ? info.description : '';
+                        }
+                      }
+                    }
+                  },
+                  scales: {
+                    x: {
+                      min: 0,
+                      max: 1,
+                      grid: { color: 'rgba(255,255,255,0.06)' },
+                      ticks: { color: 'rgba(255,255,255,0.65)' }
+                    },
+                    y: {
+                      grid: { display: false },
+                      ticks: {
+                        color: 'rgba(255,255,255,0.75)',
+                        font: { size: 11 },
+                        callback: function(value) {
+                          const label = this.getLabelForValue(value);
+                          return prettyLabel(label);
+                        }
+                      }
+                    }
+                  }
+                }
+              });
+            }
+
+            function chartRadar(canvasId, title, labels, values, metaByLabel) {
+              const canvas = document.getElementById(canvasId);
+              if (!canvas) return null;
+              const ctx = canvas.getContext('2d');
+
+              return new Chart(ctx, {
+                type: 'radar',
+                data: {
+                  labels,
+                  datasets: [{
+                    label: title,
+                    data: values,
+                    fill: true,
+                    backgroundColor: 'rgba(0, 245, 255, 0.12)',
+                    borderColor: 'rgba(0, 245, 255, 0.55)',
+                    pointBackgroundColor: 'rgba(0, 245, 255, 0.7)',
+                    pointBorderColor: 'rgba(255,255,255,0.2)',
+                    pointHoverBackgroundColor: '#fff',
+                    pointHoverBorderColor: 'rgba(0, 245, 255, 0.9)',
+                  }]
+                },
+                options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                      callbacks: {
+                        title: function(items) {
+                          const item = items && items[0];
+                          return item ? String(item.label) : '';
+                        },
+                        label: function(context) {
+                          const v = context.raw;
+                          const label = String(context.label);
+                          const meta = metaByLabel ? metaByLabel[label] : null;
+                          const score = (typeof v === 'number') ? v.toFixed(3) : String(v);
+                          const ep = meta && meta.endpoint ? ` (${meta.endpoint})` : '';
+                          return `Score${ep}: ${score}`;
+                        },
+                        afterLabel: function(context) {
+                          const label = String(context.label);
+                          const meta = metaByLabel ? metaByLabel[label] : null;
+                          if (!meta) return '';
+                          return meta.description ? meta.description : '';
+                        }
+                      }
+                    }
+                  },
+                  scales: {
+                    r: {
+                      min: 0,
+                      max: 1,
+                      grid: { color: 'rgba(255,255,255,0.06)' },
+                      angleLines: { color: 'rgba(255,255,255,0.06)' },
+                      pointLabels: { color: 'rgba(255,255,255,0.75)', font: { size: 11 } },
+                      ticks: { color: 'rgba(255,255,255,0.6)', backdropColor: 'transparent' }
+                    }
+                  }
+                }
+              });
+            }
+
+            function setContextText(predictions) {
+              const el = document.getElementById('admetAiContext');
+              if (!el) return;
+
+              const get = (k) => toNumber(predictions ? predictions[k] : null);
+              const insights = [];
+
+              const ames = get('AMES');
+              const dili = get('DILI');
+              const clintox = get('ClinTox');
+              const carcin = get('Carcinogens_Lagunin');
+              const bio = get('Bioavailability_Ma');
+              const hia = get('HIA_Hou');
+              const bbb = get('BBB_Martins');
+              const logP = get('logP') ?? get('LogP') ?? get('logp');
+              const mw = get('molecular_weight');
+              const qed = get('QED');
+
+              if (typeof bio === 'number') insights.push(`Predicted oral bioavailability: ${bio.toFixed(2)}.`);
+              if (typeof hia === 'number') insights.push(`Predicted human intestinal absorption (HIA): ${hia.toFixed(2)}.`);
+              if (typeof bbb === 'number' && bbb >= 0.7) insights.push(`High BBB permeability signal (${bbb.toFixed(2)}): potential CNS exposure.`);
+
+              const toxPairs = [
+                ['DILI', dili],
+                ['AMES', ames],
+                ['ClinTox', clintox],
+                ['Carcinogens', carcin],
+              ].filter(([, v]) => typeof v === 'number');
+
+              const highTox = toxPairs.filter(([, v]) => v >= 0.7).map(([k]) => k);
+              if (highTox.length) insights.push(`Higher predicted toxicology signals: ${highTox.join(', ')}.`);
+
+              if (typeof logP === 'number' && logP >= 4.0) insights.push(`logP ${logP.toFixed(2)} suggests high lipophilicity (can affect solubility and distribution).`);
+              if (typeof mw === 'number' && mw >= 500) insights.push(`Molecular weight ${mw.toFixed(0)} may reduce permeability/bioavailability.`);
+              if (typeof qed === 'number' && qed <= 0.4) insights.push(`Lower drug-likeness (QED ${qed.toFixed(2)}).`);
+
+              if (!insights.length) {
+                el.textContent = 'Graphs below highlight the most relevant available endpoints for this compound.';
+                return;
+              }
+
+              el.innerHTML = `
+                <div class="mb-2">Compound-dependent context (from available endpoints):</div>
+                <ul class="mb-0 ps-3">
+                  ${insights.slice(0, 6).map(t => `<li>${t}</li>`).join('')}
+                </ul>
+              `;
+            }
+
+            function initCharts() {
+              const dataEl = document.getElementById('admetAiPredictions');
+              if (!dataEl) return;
+
+              let predictions;
+              try {
+                predictions = JSON.parse(dataEl.textContent || '{}');
+              } catch (e) {
+                return;
+              }
+
+              setContextText(predictions);
+              renderAdmetTables(predictions);
+
+              // Toxicology: choose known high-signal endpoints if present; otherwise keyword match.
+              const toxKeys = new Set(['DILI', 'AMES', 'ClinTox', 'Carcinogens_Lagunin', 'hERG', 'Herg']);
+              let tox = pickEntries(predictions, (k) => toxKeys.has(k) || /(tox|dili|ames|clintox|carcin|herg)/i.test(k));
+              tox = tox.filter(e => e.value >= 0 && e.value <= 1).sort((a, b) => b.value - a.value).slice(0, 8);
+              if (tox.length) {
+                chartBarHorizontal('admetAiChartTox', 'Toxicology', tox, 'rgba(255, 99, 132, 0.55)');
+              } else {
+                const card = document.getElementById('admetAiCardTox');
+                if (card) card.style.display = 'none';
+              }
+
+              // Absorption/bioavailability
+              const absKeys = new Set(['Bioavailability_Ma', 'HIA_Hou', 'Caco2_Wang', 'Pgp_Broccatelli', 'Pgp_Substrate', 'Pgp_Inhibitor']);
+              let abs = pickEntries(predictions, (k) => absKeys.has(k) || /(bioavail|hia|caco2|pgp|p-gp|absorp)/i.test(k));
+              abs = abs.filter(e => e.value >= 0 && e.value <= 1).sort((a, b) => b.value - a.value).slice(0, 8);
+              if (abs.length) {
+                chartBarHorizontal('admetAiChartAbs', 'Absorption', abs, 'rgba(25, 135, 84, 0.55)');
+              } else {
+                const card = document.getElementById('admetAiCardAbs');
+                if (card) card.style.display = 'none';
+              }
+
+              // CYP metabolism
+              let cyp = pickEntries(predictions, (k) => /^CYP/i.test(k) || /cyp\d/i.test(k));
+              cyp = cyp.filter(e => e.value >= 0 && e.value <= 1).sort((a, b) => b.value - a.value).slice(0, 12);
+              if (cyp.length) {
+                chartBarHorizontal('admetAiChartCyp', 'CYP', cyp, 'rgba(153, 102, 255, 0.55)');
+              } else {
+                const card = document.getElementById('admetAiCardCyp');
+                if (card) card.style.display = 'none';
+              }
+
+              const keyWrap = document.getElementById('admetAiKeyTableWrap');
+              const keyTable = document.getElementById('admetAiKeyTable');
+              if (keyWrap && keyTable) {
+                const tbody = keyTable.querySelector('tbody');
+                const metaKeys = new Set(['__meta__', '_meta', 'meta', 'metadata', 'meta_by_endpoint', 'metaByEndpoint', 'model_meta']);
+                const all = Object.entries(predictions || {})
+                  .filter(([k]) => !metaKeys.has(String(k)))
+                  .map(([k, v]) => {
+                  const category = categorizeEndpoint(k);
+                  return { key: String(k), raw: v, category };
+                });
+
+                all.sort((a, b) => {
+                  if (a.category.order !== b.category.order) return a.category.order - b.category.order;
+                  if (a.category.name !== b.category.name) return a.category.name.localeCompare(b.category.name);
+                  return a.key.localeCompare(b.key);
+                });
+
+                if (tbody && all.length) {
+                  tbody.innerHTML = '';
+                  let currentCategory = '';
+                  for (const r of all) {
+                    if (r.category.name !== currentCategory) {
+                      currentCategory = r.category.name;
+                      const trGroup = document.createElement('tr');
+                      const td = document.createElement('td');
+                      td.colSpan = 2;
+                      td.className = 'text-muted fw-semibold';
+                      td.style.fontSize = '0.8rem';
+                      td.style.background = 'rgba(255,255,255,0.04)';
+                      td.textContent = currentCategory;
+                      trGroup.appendChild(td);
+                      tbody.appendChild(trGroup);
+                    }
+
+                    const tr = document.createElement('tr');
+
+                    const tdK = document.createElement('td');
+                    tdK.className = 'text-muted';
+                    tdK.style.wordBreak = 'break-word';
+                    tdK.style.cursor = 'help';
+                    tdK.textContent = r.key;
+
+                    const info = endpointInfo(r.key);
+                    if (info && info.description) {
+                      tdK.setAttribute('title', info.description);
+                      tdK.setAttribute('data-bs-toggle', 'tooltip');
+                      tdK.setAttribute('data-bs-placement', 'top');
+                    }
+
+                    const tdV = document.createElement('td');
+                    tdV.style.wordBreak = 'break-word';
+                    tdV.textContent = formatValue(r.raw);
+                    tr.appendChild(tdK);
+                    tr.appendChild(tdV);
+                    tbody.appendChild(tr);
+                  }
+                  keyWrap.style.display = '';
+
+                  if (window.bootstrap && window.bootstrap.Tooltip) {
+                    const tooltipTargets = keyTable.querySelectorAll('[data-bs-toggle="tooltip"]');
+                    tooltipTargets.forEach((el) => {
+                      try {
+                        new window.bootstrap.Tooltip(el);
+                      } catch (e) {}
+                    });
+                  }
+                } else {
+                  keyWrap.style.display = 'none';
+                }
+              }
+
+              const wrap = document.getElementById('admetAiGraphsWrap');
+              if (wrap && !tox.length && !abs.length && !cyp.length) {
+                wrap.style.display = 'none';
+              }
+
+              // Organ/system proxy chart
+              const organCard = document.getElementById('admetAiCardOrgan');
+              const organCanvas = document.getElementById('admetAiChartOrgan');
+              if (organCard && organCanvas) {
+                const organDefs = [
+                  { label: 'Liver', keys: ['DILI'], description: 'Drug-induced liver injury likelihood (higher = more risk).' },
+                  { label: 'Heart', keys: [], regex: /herg/i, description: 'hERG/cardiotoxicity proxy if present (higher = more risk).' },
+                  { label: 'Genotoxic', keys: ['AMES'], description: 'Mutagenicity (Ames) signal (higher = more risk).' },
+                  { label: 'Cancer', keys: ['Carcinogens_Lagunin'], description: 'Carcinogenicity signal (higher = more risk).' },
+                  { label: 'Clinical', keys: ['ClinTox'], description: 'Clinical toxicity likelihood (higher = more risk).' },
+                  { label: 'Endocrine', keys: [], regex: /^(NR-|SR-)/i, description: 'Endocrine/stress-response assay activity proxy (higher = stronger signal).' },
+                  { label: 'CNS', keys: ['BBB_Martins'], description: 'BBB permeability (proxy for CNS exposure; not damage).' },
+                ];
+
+                const organLabels = [];
+                const organValues = [];
+                const organMeta = {};
+
+                function pickMaxByRegex(regex) {
+                  let best = null;
+                  let bestKey = '';
+                  for (const [k, v] of Object.entries(predictions || {})) {
+                    if (!regex.test(String(k))) continue;
+                    const n = toNumber(v);
+                    if (n === null) continue;
+                    if (n < 0 || n > 1) continue;
+                    if (best === null || n > best) {
+                      best = n;
+                      bestKey = String(k);
+                    }
+                  }
+                  return best === null ? null : { value: best, key: bestKey };
+                }
+
+                for (const def of organDefs) {
+                  let chosen = null;
+                  let chosenKey = '';
+
+                  if (def.keys && def.keys.length) {
+                    for (const k of def.keys) {
+                      const n = toNumber(predictions[k]);
+                      if (n === null) continue;
+                      if (n < 0 || n > 1) continue;
+                      chosen = n;
+                      chosenKey = k;
+                      break;
+                    }
+                  }
+
+                  if (chosen === null && def.regex) {
+                    const picked = pickMaxByRegex(def.regex);
+                    if (picked) {
+                      chosen = picked.value;
+                      chosenKey = picked.key;
+                    }
+                  }
+
+                  if (chosen === null) continue;
+                  organLabels.push(def.label);
+                  organValues.push(chosen);
+                  organMeta[def.label] = { endpoint: chosenKey, description: def.description };
+                }
+
+                if (organLabels.length >= 2) {
+                  chartRadar('admetAiChartOrgan', 'Organ risk', organLabels, organValues, organMeta);
+                } else {
+                  organCard.style.display = 'none';
+                }
+              }
+            }
+
+            function waitForChartJs() {
+              if (window.Chart) {
+                initCharts();
+              } else {
+                setTimeout(waitForChartJs, 40);
+              }
+            }
+
+            document.addEventListener('DOMContentLoaded', waitForChartJs);
+          })();
+        </script>
+      {% else %}
+        <div class="text-muted">No prediction outputs were returned.</div>
+      {% endif %}
+    {% else %}
+      <div class="text-muted">
+        No cached predictions yet.
+        {% if not admet_ai_available %}
+          Install ADMET-AI on the server to enable this section.
+        {% elif user.is_authenticated %}
+          Click Refresh to compute.
+        {% else %}
+          Login to compute.
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+</div>

@@ -1,13 +1,28 @@
 import json
+import hashlib
+from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 from django.shortcuts import render, get_object_or_404, redirect
 from django.db import models
 from django.db.models import Q, Count
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.http import JsonResponse
+from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
 
-from .models import Compound, CompoundSafetyScreening, CompoundRating, CompoundCategories, CompoundMechanismOfAction, Target, EffectWindow, CompoundTargetInteraction
+from .models import (
+    Compound,
+    CompoundADMETPrediction,
+    CompoundMolPropPrediction,
+    CompoundSafetyScreening,
+    CompoundRating,
+    CompoundCategories,
+    CompoundMechanismOfAction,
+    Target,
+    EffectWindow,
+    CompoundTargetInteraction,
+)
 from .forms import CompoundForm, MechanismOfActionForm, CategoryForm, TargetForm
 
 
@@ -87,6 +102,79 @@ def compound_detail(request, slug):
     target_interactions = sorted(target_interactions, 
                                key=lambda x: affinity_order.get(x.affinity_level, 6))
 
+    # ADMET-AI cached predictions
+    try:
+        from .admet_ai import is_admet_ai_available
+
+        admet_ai_available = is_admet_ai_available()
+    except Exception:
+        admet_ai_available = False
+
+    # MolProp cached predictions
+    molprop_unavailable_reason = ""
+    try:
+        from .molprop import is_molprop_available, get_molprop_unavailable_reason
+
+        molprop_available = is_molprop_available()
+        molprop_unavailable_reason = get_molprop_unavailable_reason()
+    except Exception:
+        molprop_available = False
+        molprop_unavailable_reason = ""
+
+    admet_prediction = getattr(compound, "admet_ai_prediction", None)
+    molprop_prediction = getattr(compound, "molprop_prediction", None)
+    smiles_hash = (
+        hashlib.sha256(compound.smiles.encode("utf-8")).hexdigest()
+        if compound.smiles
+        else ""
+    )
+    admet_prediction_is_stale = bool(
+        admet_prediction and smiles_hash and admet_prediction.smiles_sha256 != smiles_hash
+    )
+    molprop_prediction_is_stale = bool(
+        molprop_prediction and smiles_hash and molprop_prediction.smiles_sha256 != smiles_hash
+    )
+    admet_ai_mechanisms = []
+    admet_ai_mechanism_context = {'mechanisms': [], 'groups': {}, 'summary': {}, 'references': []}
+    try:
+        from .admet_mechanisms import build_predicted_mechanism_context
+
+        primary_predictions = {}
+        secondary_predictions = {}
+        secondary_label = "MolProp"
+        if admet_prediction and isinstance(getattr(admet_prediction, "predictions", None), dict):
+            primary_predictions = admet_prediction.predictions or {}
+            secondary_predictions = (molprop_prediction.predictions if molprop_prediction else {}) or {}
+            secondary_label = "MolProp"
+        elif molprop_prediction and isinstance(getattr(molprop_prediction, "predictions", None), dict):
+            primary_predictions = molprop_prediction.predictions or {}
+            secondary_predictions = {}
+            secondary_label = "ADMET-AI"
+
+        if primary_predictions:
+            admet_ai_mechanism_context = build_predicted_mechanism_context(
+                primary_predictions,
+                target_interactions=target_interactions,
+                secondary_predictions=secondary_predictions,
+                secondary_label=secondary_label,
+            )
+            admet_ai_mechanisms = admet_ai_mechanism_context.get('mechanisms', [])
+    except Exception:
+        admet_ai_mechanisms = []
+        admet_ai_mechanism_context = {'mechanisms': [], 'groups': {}, 'summary': {}, 'references': []}
+    admet_ai_autoload = bool(
+        request.user.is_authenticated
+        and admet_ai_available
+        and compound.smiles
+        and (admet_prediction is None or admet_prediction_is_stale)
+    )
+    molprop_autoload = bool(
+        request.user.is_authenticated
+        and molprop_available
+        and compound.smiles
+        and (molprop_prediction is None or molprop_prediction_is_stale)
+    )
+
     context = {
         'compound': compound,
         'safety_report': safety_report,
@@ -96,6 +184,21 @@ def compound_detail(request, slug):
         'user_reviews': user_reviews,
         'all_categories': CompoundCategories.objects.all(),
         'target_interactions': target_interactions,
+        'admet_ai_available': admet_ai_available,
+        'admet_ai_prediction': admet_prediction,
+        'admet_ai_prediction_is_stale': admet_prediction_is_stale,
+        'admet_ai_refresh_url': reverse('compound_admet_ai_refresh', kwargs={'slug': compound.slug}),
+        'admet_ai_status': request.GET.get('admet', ''),
+        'admet_ai_autoload': admet_ai_autoload,
+        'molprop_available': molprop_available,
+        'molprop_prediction': molprop_prediction,
+        'molprop_prediction_is_stale': molprop_prediction_is_stale,
+        'molprop_refresh_url': reverse('compound_molprop_refresh', kwargs={'slug': compound.slug}),
+        'molprop_status': request.GET.get('molprop', ''),
+        'molprop_autoload': molprop_autoload,
+        'molprop_unavailable_reason': molprop_unavailable_reason,
+        'admet_ai_mechanisms': admet_ai_mechanisms,
+        'admet_ai_mechanism_context': admet_ai_mechanism_context,
     }
 
     return render(request, 'compounds/compound_detail.html', context)
@@ -108,6 +211,111 @@ def compound_details(request, slug):
 
 def is_staff_user(user):
     return user.is_authenticated and user.is_staff
+
+
+def _append_query_params(url: str, params: dict) -> str:
+    parsed = urlparse(url)
+    existing = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    existing.update({k: v for k, v in params.items() if v is not None})
+    new_query = urlencode(existing)
+    return urlunparse(parsed._replace(query=new_query))
+
+
+@login_required
+@require_POST
+def compound_admet_ai_refresh(request, slug):
+    compound = get_object_or_404(Compound, slug=slug)
+
+    next_url = request.POST.get("next") or reverse("compound_detail", kwargs={"slug": slug})
+    if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        next_url = reverse("compound_detail", kwargs={"slug": slug})
+
+    if not compound.smiles:
+        return redirect(_append_query_params(next_url, {"admet": "missing_smiles"}))
+
+    from .admet_ai import is_admet_ai_available, get_admet_ai_version, predict_admet
+
+    if not is_admet_ai_available():
+        return redirect(_append_query_params(next_url, {"admet": "unavailable"}))
+
+    smiles = compound.smiles.strip()
+    smiles_hash = hashlib.sha256(smiles.encode("utf-8")).hexdigest()
+
+    try:
+        predictions = predict_admet(smiles)
+        CompoundADMETPrediction.objects.update_or_create(
+            compound=compound,
+            defaults={
+                "smiles": smiles,
+                "smiles_sha256": smiles_hash,
+                "model_version": get_admet_ai_version(),
+                "predictions": predictions,
+                "error": "",
+            },
+        )
+        return redirect(_append_query_params(next_url, {"admet": "ok"}))
+    except Exception as exc:
+        CompoundADMETPrediction.objects.update_or_create(
+            compound=compound,
+            defaults={
+                "smiles": smiles,
+                "smiles_sha256": smiles_hash,
+                "model_version": get_admet_ai_version(),
+                "predictions": {},
+                "error": str(exc),
+            },
+        )
+        return redirect(_append_query_params(next_url, {"admet": "error"}))
+
+
+@login_required
+@require_POST
+def compound_molprop_refresh(request, slug):
+    compound = get_object_or_404(Compound, slug=slug)
+
+    next_url = request.POST.get("next") or reverse("compound_detail", kwargs={"slug": slug})
+    if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        next_url = reverse("compound_detail", kwargs={"slug": slug})
+
+    if not compound.smiles:
+        return redirect(_append_query_params(next_url, {"molprop": "missing_smiles"}))
+
+    from .molprop import is_molprop_available, get_molprop_version, predict_molprop
+
+    if not is_molprop_available():
+        return redirect(_append_query_params(next_url, {"molprop": "unavailable"}))
+
+    smiles = compound.smiles.strip()
+    smiles_hash = hashlib.sha256(smiles.encode("utf-8")).hexdigest()
+
+    try:
+        predictions, uncertainty = predict_molprop(smiles)
+        CompoundMolPropPrediction.objects.update_or_create(
+            compound=compound,
+            defaults={
+                "smiles": smiles,
+                "smiles_sha256": smiles_hash,
+                "model_version": get_molprop_version(),
+                "predictions": predictions,
+                "uncertainty": uncertainty,
+                "error": "",
+            },
+        )
+        return redirect(_append_query_params(next_url, {"molprop": "ok"}))
+    except Exception as exc:
+        CompoundMolPropPrediction.objects.update_or_create(
+            compound=compound,
+            defaults={
+                "smiles": smiles,
+                "smiles_sha256": smiles_hash,
+                "model_version": get_molprop_version(),
+                "predictions": {},
+                "uncertainty": {},
+                "error": str(exc),
+            },
+        )
+        return redirect(_append_query_params(next_url, {"molprop": "error"}))
+
 
 @user_passes_test(is_staff_user)
 def add_compound(request):

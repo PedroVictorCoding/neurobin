@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ stack.name }} — Embed</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      background: #0f141b;
+      color: #f5f7fb;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    .wrap { padding: 14px; }
+    .card {
+      background: linear-gradient(180deg, #171d27 0%, #121821 100%);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .head {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: baseline;
+    }
+    .title { font-weight: 700; font-size: 15px; }
+    .meta { color: #a4adbc; font-size: 12px; }
+    .list { max-height: 400px; overflow: auto; }
+    .row {
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+    .row:last-child { border-bottom: 0; }
+    .name { font-weight: 600; font-size: 13px; }
+    .notes { color: #97a1b2; font-size: 12px; margin-top: 2px; }
+    .pill {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: #d8f3ff;
+      white-space: nowrap;
+    }
+    @media (max-width: 480px) {
+      .wrap { padding: 10px; }
+      .head { flex-direction: column; align-items: flex-start; }
+      .row { flex-direction: column; align-items: flex-start; }
+      .pill { width: 100%; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="head">
+        <div>
+          <div class="title">{{ stack.name }}</div>
+          <div class="meta">By {{ stack.user.username }}</div>
+        </div>
+        <div class="meta">{{ items|length }} compounds</div>
+      </div>
+      <div class="list">
+        {% for item in items %}
+          <div class="row">
+            <div>
+              <div class="name">
+                <a href="/compounds/{{ item.compound.slug }}/" style="color: inherit; text-decoration: none;">{{ item.compound.name }}</a>
+              </div>
+              {% if item.notes %}
+                <div class="notes">{{ item.notes }}</div>
+              {% endif %}
+            </div>
+            <div class="pill">
+              {% if item.dosage_amount %}{{ item.dosage_amount }} {{ item.dosage_unit }} • {% endif %}
+              every {{ item.recurrence_interval }} {{ item.get_recurrence_unit_display }}
+            </div>
+          </div>
+        {% empty %}
+          <div class="row">
+            <div class="meta">No compounds in this stack yet.</div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</body>
+</html>

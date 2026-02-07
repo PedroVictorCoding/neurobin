@@ -94,6 +94,11 @@
     padding: 15px;
     box-sizing: border-box;
   }
+
+  /* Ensure green mechanism pills are readable */
+  .mechanisms-scrollable .badge.bg-success {
+    color: #fff !important;
+  }
   
   .mechanisms-scrollable::-webkit-scrollbar {
     width: 8px;
@@ -249,7 +254,7 @@
     <!-- Mechanisms Section - Full Width -->
     <hr style="margin: left 20px; border-color: #444; max-width: 50%">
     <div class="mt-4" style="width: 100%;">
-      {% if target_interactions or user.is_staff %}
+      {% if target_interactions or admet_ai_mechanisms or user.is_staff %}
         <div class="d-flex justify-content-between align-items-center mb-2">
           <p class="fw-medium text-secondary mb-0"><strong>Mechanisms</strong></p>
         </div>
@@ -269,6 +274,9 @@
               </div>
             {% endif %}
           {% endfor %}
+
+          {% include "compounds/_predicted_mechanisms.html" %}
+
           {% if not target_interactions and user.is_staff %}
             <p class="text-muted"><em>No mechanisms added yet.</em></p>
           {% endif %}
@@ -335,6 +343,10 @@
     {% include 'includes/effect_curves.html' with page_type='compound_detail' %}
   </div>
 </div>
+
+{% if admet_ai_available or admet_ai_prediction or molprop_available or molprop_prediction or user.is_staff %}
+  {% include 'compounds/_admet_ai_panel.html' %}
+{% endif %}
 
 <!-- Compound Interactions Section -->
 <div class="card bg-neurobin-card text-light mb-3 shadow p-3"

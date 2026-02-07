@@ -22,6 +22,7 @@ Welcome to the comprehensive documentation for the Neurobin platform - a neuroch
 ### 🏗️ Technical Documentation
 - [Database Schema](./technical/DATABASE_SCHEMA.md) - Database structure
 - [Architecture](./technical/architecture.md) - System architecture
+- [Project Detail (Improved)](./PROJECT_DETAIL.md) - Product + v2 design blueprint
 - [Security](./technical/SECURITY.md) - Security considerations
 
 ### 👨‍💻 Development
@@ -36,6 +37,7 @@ Welcome to the comprehensive documentation for the Neurobin platform - a neuroch
 | [Platform Overview](../README.md) | Main project overview |
 | [API Documentation](./api/API_DOCUMENTATION.md) | REST API reference |
 | [ChEMBL Import Guide](./guides/CHEMBL_IMPORT_GUIDE.md) | Data import system |
+| [Project Detail (Improved)](./PROJECT_DETAIL.md) | Product + v2 blueprint |
 | [Development Guide](./development/DEVELOPMENT.md) | Development workflow |
 | [Deployment Guide](./setup/DEPLOYMENT.md) | Production deployment |
 

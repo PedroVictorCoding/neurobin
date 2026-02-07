@@ -9,6 +9,7 @@ scikit-learn>=1.3.0
 # Feature Engineering & Chemistry
 rdkit-pypi>=2023.3.1  # Chemical descriptors and molecular features
 mordred>=1.2.0        # Additional molecular descriptors
+admet-ai              # ADMET-AI property predictions (https://github.com/swansonk14/admet_ai)
 
 # Advanced ML Tools
 transformers>=4.30.0   # For molecular embeddings

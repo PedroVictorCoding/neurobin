@@ -109,6 +109,12 @@ GET /api/compounds/?search=caffeine&ordering=name&page=1
 }
 ```
 
+### Compound Autocomplete (Select2 / AJAX)
+```http
+GET /api/compounds/compound-search/?q={query}&limit=20
+```
+Returns a compact list used for fast dropdown searching (name + aliases).
+
 ### Get Compound Details 🔒
 ```http
 GET /api/compounds/{id}/

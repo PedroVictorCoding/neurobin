@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -20,7 +21,7 @@
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   
   <!-- Stylesheets -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -286,7 +287,7 @@
       
       /* Semantic Colors (refined for dark) */
       --success: #00ff88;          /* Success actions - bright green */
-      --warning: #ffaa00;          /* Warning states - bright orange */
+      --warning: #b86bff;          /* Warning states - cyberpunk purple */
       --danger: #ff4444;           /* Danger/error states - bright red */
       --info: var(--accent-primary); /* Info uses our cyan accent */
     }
@@ -774,9 +775,11 @@
   </style>
   <!-- Select2 for searchable dropdowns -->
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+  <!-- Brutalist cyberpunk theme overrides -->
+  <link href="{% static 'css/cyberpunk.css' %}?v=20260203" rel="stylesheet" />
 </head>
 
-<body id="body" class="text-light" style="background-color: var(--bg-primary);"">
+<body id="body" class="text-light" style="background-color: var(--bg-primary);">
 
   <nav class="navbar navbar-expand-lg bg-neurobin-dark px-3 py-2">
     <div class="container-fluid">
@@ -790,12 +793,18 @@
       <div class="collapse navbar-collapse" id="navbarContent">
         <!-- Desktop layout -->
         <div class="w-100 d-lg-flex d-none justify-content-end align-items-center">
-          <div class="btn-group" role="group">
+          <div class="d-flex align-items-center gap-2">
             <!-- Search form as first button in group -->
             <form action="{% url 'compound_search' %}" method="get" class="d-flex my-2 my-lg-0" style="margin: 0;">
-              <div class="input-group">
-                <input type="text" name="q" placeholder="Search compounds..." class="btn-outline-secondary form-control text-light" style="border-top-right-radius: 0; border-bottom-right-radius: 0;">
-                <button class="btn btn-outline-secondary" type="submit" style="border-top-left-radius: 0; border-bottom-left-radius: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; border-left: 0;">
+              <div class="d-flex align-items-stretch gap-2 position-relative" style="min-width: 340px;">
+                <input id="navCompoundSearch" type="text" name="q" placeholder="Search compounds..." class="btn-outline-secondary form-control text-light" autocomplete="off" aria-label="Search compounds">
+                <div id="navCompoundSearchResults"
+                     class="list-group position-absolute w-100"
+                     role="listbox"
+                     aria-label="Compound suggestions"
+                     style="top: 44px; left: 0; z-index: 1050; display: none; max-height: 280px; overflow: auto; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;">
+                </div>
+                <button class="btn btn-outline-secondary" type="submit">
                   <i class="fas fa-search"></i>
                 </button>
               </div>
@@ -803,7 +812,7 @@
             
             <!-- Options dropdown as second button in group -->
             <div class="dropdown">
-              <button class="btn btn-outline-secondary dropdown-toggle" style="color:#FFF; border:1px solid #6c757d; background:transparent; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 0;" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+              <button class="btn btn-outline-secondary dropdown-toggle" style="color:#FFF; border:1px solid #6c757d; background:transparent;" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                 Options
               </button>
               <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
@@ -820,6 +829,11 @@
                 <li><h6 class="dropdown-header text-white fw-bold">Logs</h6></li>
                 <li><a class="dropdown-item ps-4" href="{% url 'log_intake' %}">Log Intake</a></li>
                 <li><a class="dropdown-item ps-4" href="{% url 'analytics_dashboard' %}">Logs Dashboard</a></li>
+
+                <li><h6 class="dropdown-header text-white fw-bold">Stacks</h6></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'my_stacks' %}">My Stacks</a></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'stack_schedule' %}">Stack Schedule</a></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'explore_stacks' %}">Explore Stacks</a></li>
 
                 {% endif %}
 
@@ -855,8 +869,16 @@
         <div class="d-lg-none w-100 mobile-nav-content">
           <!-- Search form full width -->
           <form action="{% url 'compound_search' %}" method="get" class="mb-3">
-            <div class="input-group">
-              <input type="text" name="q" placeholder="Search compounds..." class="form-control bg-dark text-light" style="border: 1px solid #6c757d;">
+            <div class="d-flex align-items-stretch gap-2">
+              <div class="position-relative w-100">
+                <input id="mobileCompoundSearch" type="text" name="q" placeholder="Search compounds..." class="form-control bg-dark text-light" style="border: 1px solid #6c757d;" autocomplete="off" aria-label="Search compounds">
+                <div id="mobileCompoundSearchResults"
+                     class="list-group position-absolute w-100"
+                     role="listbox"
+                     aria-label="Compound suggestions"
+                     style="top: 44px; left: 0; z-index: 1050; display: none; max-height: 240px; overflow: auto; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;">
+                </div>
+              </div>
               <button class="btn btn-outline-secondary" type="submit">
                 <i class="fas fa-search"></i>
               </button>
@@ -893,6 +915,10 @@
               <li><a class="dropdown-item ps-4" href="{% url 'analytics_dashboard' %}">
                 <i class="fas fa-chart-bar me-2"></i>Logs Dashboard
               </a></li>
+              <li><h6 class="dropdown-header text-white fw-bold">Stacks</h6></li>
+              <li><a class="dropdown-item ps-4" href="{% url 'my_stacks' %}">My Stacks</a></li>
+              <li><a class="dropdown-item ps-4" href="{% url 'stack_schedule' %}">Stack Schedule</a></li>
+              <li><a class="dropdown-item ps-4" href="{% url 'explore_stacks' %}">Explore Stacks</a></li>
               {% endif %}
 
               {% if user.is_staff %}
@@ -936,8 +962,39 @@
   </nav>
 
   <main class="container-fluid px-3 py-4">
+    {% if user.is_authenticated and not user.email %}
+      <div class="alert alert-info py-2 mb-3">
+        <i class="fas fa-envelope me-2"></i>
+        Add an email to your profile so we can reach you if you ever need account recovery.
+        <a class="alert-link ms-2" href="{% url 'edit_profile' %}">Add email</a>
+      </div>
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
+
+  <!-- Mobile bottom bar -->
+  <div class="cp-mobile-bar d-lg-none">
+    <div class="container-fluid cp-mobile-bar-inner">
+      <button type="button" class="btn cp-bottom-item cp-mobile-search">
+        <i class="fas fa-search me-2"></i>Search
+      </button>
+
+      <div class="dropup">
+        <button class="btn cp-bottom-item dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+          <i class="fas fa-plus me-2"></i>Log
+        </button>
+        <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
+          {% if user.is_authenticated %}
+            <li><a class="dropdown-item" href="{% url 'log_intake' %}">Log Intake</a></li>
+            <li><a class="dropdown-item" href="{% url 'my_stacks' %}">Stacks</a></li>
+            <li><a class="dropdown-item" href="{% url 'research:snippet_list' %}">Research</a></li>
+          {% else %}
+            <li><a class="dropdown-item" href="{% url 'login' %}">Login</a></li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+  </div>
 
   
   <!-- jQuery and Select2 JS for AJAX-powered selects -->
@@ -945,6 +1002,22 @@
   <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', function() {
+      const mobileSearchButton = document.querySelector('.cp-mobile-search');
+      if (mobileSearchButton) {
+        mobileSearchButton.addEventListener('click', function() {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          const collapseEl = document.getElementById('navbarContent');
+          if (collapseEl && window.bootstrap && window.bootstrap.Collapse) {
+            const c = window.bootstrap.Collapse.getOrCreateInstance(collapseEl, { toggle: false });
+            c.show();
+          }
+          setTimeout(function() {
+            const input = document.getElementById('mobileCompoundSearch');
+            if (input) input.focus();
+          }, 150);
+        });
+      }
+
       if (window.jQuery && jQuery.fn.select2) {
         jQuery('.searchable').select2({
           width: 'resolve',
@@ -968,6 +1041,131 @@
           minimumInputLength: 1,
         });
       }
+
+      function setupCompoundAutocomplete(inputId, resultsId) {
+        const input = document.getElementById(inputId);
+        const resultsEl = document.getElementById(resultsId);
+        if (!input || !resultsEl) return;
+
+        const cache = new Map();
+        let debounceTimer = null;
+        let activeRequest = null;
+
+        function hide() {
+          resultsEl.style.display = 'none';
+          resultsEl.innerHTML = '';
+        }
+
+        function showItems(items) {
+          resultsEl.innerHTML = '';
+          if (!items || !items.length) {
+            hide();
+            return;
+          }
+
+          items.forEach((c, idx) => {
+            const a = document.createElement('a');
+            a.className = 'list-group-item list-group-item-action';
+            a.href = c.slug ? (`/compounds/${encodeURIComponent(c.slug)}/`) : '#';
+            a.setAttribute('role', 'option');
+            a.setAttribute('data-idx', String(idx));
+            a.style.background = 'rgba(16, 16, 20, 0.92)';
+            a.style.borderColor = 'rgba(255,255,255,0.08)';
+            a.style.color = 'rgba(247, 247, 251, 0.92)';
+            const row = document.createElement('div');
+            row.className = 'd-flex justify-content-between align-items-center gap-2';
+
+            const left = document.createElement('div');
+            left.style.minWidth = '0';
+            left.style.overflow = 'hidden';
+            left.style.textOverflow = 'ellipsis';
+            left.style.whiteSpace = 'nowrap';
+
+            const strong = document.createElement('strong');
+            strong.textContent = (c && c.name) ? String(c.name) : '';
+            left.appendChild(strong);
+
+            if (c && c.aliases) {
+              const aliases = document.createElement('span');
+              aliases.className = 'text-muted';
+              aliases.style.fontSize = '0.85rem';
+              aliases.textContent = ` — ${String(c.aliases)}`;
+              left.appendChild(aliases);
+            }
+
+            const right = document.createElement('span');
+            right.className = 'text-muted';
+            right.style.fontSize = '0.8rem';
+            right.textContent = 'Open';
+
+            row.appendChild(left);
+            row.appendChild(right);
+            a.appendChild(row);
+            a.addEventListener('mousedown', (e) => {
+              // Prevent form submit / blur race.
+              e.preventDefault();
+            });
+            a.addEventListener('click', (e) => {
+              e.preventDefault();
+              if (c.slug) window.location.href = `/compounds/${encodeURIComponent(c.slug)}/`;
+            });
+            resultsEl.appendChild(a);
+          });
+
+          resultsEl.style.display = '';
+        }
+
+        async function run(query) {
+          const q = (query || '').trim();
+          if (q.length < 1) {
+            hide();
+            return;
+          }
+
+          if (cache.has(q)) {
+            showItems(cache.get(q));
+            return;
+          }
+
+          if (activeRequest) activeRequest.abort();
+          activeRequest = new AbortController();
+
+          try {
+            const url = `{% url "compound-search-api" %}?q=${encodeURIComponent(q)}&limit=5`;
+            const resp = await fetch(url, { signal: activeRequest.signal, headers: { 'Accept': 'application/json' } });
+            if (!resp.ok) {
+              hide();
+              return;
+            }
+            const data = await resp.json();
+            const items = (data && data.compounds) ? data.compounds : [];
+            cache.set(q, items);
+            showItems(items);
+          } catch (e) {
+            hide();
+          }
+        }
+
+        input.addEventListener('input', () => {
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => run(input.value), 120);
+        });
+
+        input.addEventListener('focus', () => {
+          if (input.value && resultsEl.innerHTML.trim()) resultsEl.style.display = '';
+        });
+
+        input.addEventListener('blur', () => {
+          setTimeout(hide, 120);
+        });
+
+        document.addEventListener('click', (e) => {
+          if (!resultsEl.contains(e.target) && e.target !== input) hide();
+        });
+      }
+
+      setupCompoundAutocomplete('navCompoundSearch', 'navCompoundSearchResults');
+      setupCompoundAutocomplete('mobileCompoundSearch', 'mobileCompoundSearchResults');
     });
   </script>
 </body>

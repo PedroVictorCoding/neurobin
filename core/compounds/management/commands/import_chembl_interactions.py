@@ -18,8 +18,14 @@ from typing import List, Dict, Optional, Set, Tuple
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.db.models import Q
+from compounds.interaction_engine import (
+    canonicalize_mechanism,
+    infer_interaction_type as infer_interaction_type_shared,
+    infer_interaction_type_multi as infer_interaction_type_multi_shared,
+    rebuild_compound_pair_interactions,
+)
 from compounds.models import (
-    Compound, Target, CompoundTargetInteraction, CompoundToCompoundTargetInteraction,
+    Compound, Target, CompoundTargetInteraction,
     ActionType, TargetType
 )
 
@@ -36,40 +42,6 @@ class ChEMBLImporter:
     """ChEMBL API client for fetching compound-target interaction data."""
     
     BASE_URL = "https://www.ebi.ac.uk/chembl/api/data"
-    
-    # Mechanism normalization mapping
-    MECHANISM_MAPPING = {
-        'agonist': 'agonist',
-        'partial agonist': 'agonist', 
-        'full agonist': 'agonist',
-        'antagonist': 'antagonist',
-        'competitive antagonist': 'antagonist',
-        'non-competitive antagonist': 'antagonist',
-        'inhibitor': 'inhibitor',
-        'competitive inhibitor': 'inhibitor',
-        'non-competitive inhibitor': 'inhibitor',
-        'reversible inhibitor': 'inhibitor',
-        'irreversible inhibitor': 'inhibitor',
-        'substrate': 'substrate',
-        'inducer': 'inducer',
-        'modulator': 'modulator',
-        'positive modulator': 'pam',  # More specific for synergy detection
-        'positive allosteric modulator': 'pam',
-        'pam': 'pam',
-        'negative modulator': 'nam',
-        'negative allosteric modulator': 'nam', 
-        'nam': 'nam',
-        'blocker': 'blocker',
-        'channel blocker': 'blocker',
-        'opener': 'opener',
-        'channel opener': 'opener',
-        'activator': 'activator',
-        'binder': 'binder',
-        'binding': 'binder',
-        'high affinity binding': 'binder',
-        'inverse agonist': 'antagonist',  # Functionally similar to antagonist
-        'partial inverse agonist': 'antagonist',
-    }
     
     def __init__(self, slow_mode: bool = False):
         self.session = requests.Session()
@@ -275,6 +247,15 @@ class ChEMBLImporter:
             return []
         
         return data.get('activities', [])
+
+    def filter_activities_for_target(self, activities: List[Dict], target_chembl_id: str) -> List[Dict]:
+        """Return only activities that match the target ChEMBL ID."""
+        if not target_chembl_id:
+            return []
+        return [
+            activity for activity in activities
+            if activity.get('target_chembl_id') == target_chembl_id
+        ]
     
     def get_target_details(self, target_chembl_id: str) -> Optional[Dict]:
         """Fetch detailed target information."""
@@ -283,22 +264,8 @@ class ChEMBLImporter:
         return self.fetch_with_retry(url)
     
     def normalize_mechanism(self, mechanism: str) -> str:
-        """Normalize mechanism terms to standard choices."""
-        if not mechanism:
-            return 'unknown'
-        
-        mechanism_lower = mechanism.lower().strip()
-        
-        # Direct mapping
-        if mechanism_lower in self.MECHANISM_MAPPING:
-            return self.MECHANISM_MAPPING[mechanism_lower]
-        
-        # Fuzzy matching
-        for key, value in self.MECHANISM_MAPPING.items():
-            if key in mechanism_lower:
-                return value
-        
-        return 'unknown'
+        """Normalize mechanism terms using the shared canonical mapper."""
+        return canonicalize_mechanism(mechanism_of_action=mechanism)
     
     def calculate_affinity_level(self, activities: List[Dict]) -> str:
         """Calculate affinity level based on IC50/EC50/Ki/Kd values."""
@@ -1682,8 +1649,12 @@ class Command(BaseCommand):
                 if not mechanism_raw or mechanism_raw.lower() in ['unknown', '', 'binding']:
                     continue
                 
-                # Normalize mechanism terms
-                mechanism_normalized = importer.normalize_mechanism(mechanism_raw)
+                action_type_raw = mechanism_data.get('action_type', '')
+                # Normalize using canonical priority: action_type > mechanism_of_action
+                mechanism_normalized = canonicalize_mechanism(
+                    action_type=action_type_raw,
+                    mechanism_of_action=mechanism_raw,
+                )
                 
                 # Map to interaction types
                 interaction_type = self._map_mechanism_to_interaction_type(mechanism_normalized)
@@ -1721,37 +1692,20 @@ class Command(BaseCommand):
     
     def _map_mechanism_to_interaction_type(self, mechanism: str) -> str:
         """Map normalized mechanism to interaction type choices."""
-        mechanism_lower = mechanism.lower()
-        
-        # Map common mechanisms to interaction types
-        if 'agonist' in mechanism_lower:
-            if 'partial' in mechanism_lower:
-                return 'partial_agonist'
-            elif 'inverse' in mechanism_lower:
-                return 'inverse_agonist'
-            else:
-                return 'agonist'
-        elif 'antagonist' in mechanism_lower:
-            return 'antagonist'
-        elif 'inhibitor' in mechanism_lower:
-            return 'inhibitor'
-        elif 'activator' in mechanism_lower:
-            return 'activator'
-        elif 'modulator' in mechanism_lower:
-            if 'positive' in mechanism_lower or 'pam' in mechanism_lower:
-                return 'pam'
-            elif 'negative' in mechanism_lower or 'nam' in mechanism_lower:
-                return 'nam'
-            else:
-                return 'binder'  # Generic modulator
-        elif 'binder' in mechanism_lower:
-            return 'binder'
-        elif 'upregulat' in mechanism_lower:
-            return 'upregulator'
-        elif 'downregulat' in mechanism_lower:
-            return 'downregulator'
-        else:
-            return 'unknown'
+        canonical = canonicalize_mechanism(mechanism_of_action=mechanism)
+        valid_choices = {
+            'agonist',
+            'antagonist',
+            'partial_agonist',
+            'inverse_agonist',
+            'pam',
+            'nam',
+            'binder',
+            'inhibitor',
+            'activator',
+            'unknown',
+        }
+        return canonical if canonical in valid_choices else 'unknown'
     
     def find_compound(self, chembl_id: str) -> Optional[Compound]:
         """Find compound by ChEMBL ID or name."""
@@ -1784,36 +1738,43 @@ class Command(BaseCommand):
             self.stdout.write(f"    [!] Skipping blacklisted target: {target.name} ({target.organism})")
             return False
         
-        # Normalize mechanism
         mechanism_raw = mechanism_data.get('mechanism_of_action', '')
-        mechanism = importer.normalize_mechanism(mechanism_raw)
+        action_type_raw = mechanism_data.get('action_type', '')
+        notes_raw = mechanism_data.get('mechanism_comment', '')
+        notes_joined = '; '.join(filter(None, [mechanism_raw, f"Action: {action_type_raw}" if action_type_raw else '', notes_raw]))
+
+        # Normalize mechanism using action first, then mechanism text, then notes.
+        mechanism = canonicalize_mechanism(
+            action_type=action_type_raw,
+            mechanism_of_action=mechanism_raw,
+            notes=notes_joined,
+        )
         
         # Get or create structured action type
-        structured_action_type = importer.get_or_create_action_type(mechanism_raw)
+        structured_action_type = importer.get_or_create_action_type(action_type_raw or mechanism_raw or mechanism)
         
-        # Calculate affinity level
-        affinity_level = importer.calculate_affinity_level(activities)
+        # Calculate affinity from activities that match this exact target.
+        target_activities = importer.filter_activities_for_target(activities, target_chembl_id)
+        affinity_level = importer.calculate_affinity_level(target_activities)
         
         # Create or update interaction
         interaction, created = CompoundTargetInteraction.objects.get_or_create(
             compound=compound,
             target=target,
+            mechanism=mechanism,
             defaults={
-                'mechanism': mechanism,
                 'structured_action_type': structured_action_type,
                 'affinity_level': affinity_level,
-                'notes': mechanism_raw,
+                'notes': notes_joined or mechanism_raw,
                 'source': 'ChEMBL'
             }
         )
         
         if not created and interaction.source == 'ChEMBL':
             # Update existing ChEMBL interaction
-            interaction.mechanism = mechanism
             interaction.structured_action_type = structured_action_type
             interaction.affinity_level = affinity_level
-            interaction.notes = mechanism_raw
-            interaction.save()
+            interaction.notes = notes_joined or mechanism_raw
             interaction.save()
         
         action = "Created" if created else "Updated"
@@ -1903,143 +1864,27 @@ class Command(BaseCommand):
         return target
     
     def create_compound_interactions(self):
-        """Create compound-to-compound interactions based on shared targets."""
+        """Create compound-to-compound interactions using shared inference engine."""
         self.stdout.write("[→] Analyzing compound pairs with shared targets...")
-        
-        # Get all targets with multiple compounds
-        targets_with_compounds = {}
-        for interaction in CompoundTargetInteraction.objects.select_related('compound', 'target'):
-            target_id = interaction.target_id
-            if target_id not in targets_with_compounds:
-                targets_with_compounds[target_id] = []
-            targets_with_compounds[target_id].append(interaction)
-        
-        created_count = 0
-        
-        for target_id, interactions in targets_with_compounds.items():
-            if len(interactions) < 2:
-                continue
-            
-            target = interactions[0].target
-            
-            # Create pairs of compounds sharing this target
-            for i in range(len(interactions)):
-                for j in range(i + 1, len(interactions)):
-                    interaction1 = interactions[i]
-                    interaction2 = interactions[j]
-                    
-                    if self.create_compound_pair_interaction(
-                        interaction1, interaction2, target
-                    ):
-                        created_count += 1
-        
-        self.stdout.write(f"[✓] Created {created_count} compound-to-compound interactions")
-    
-    def create_compound_pair_interaction(self, interaction1: CompoundTargetInteraction,
-                                       interaction2: CompoundTargetInteraction,
-                                       shared_target: Target) -> bool:
-        """Create interaction between two compounds sharing a target."""
-        compound1 = interaction1.compound
-        compound2 = interaction2.compound
-        
-        # Check if interaction already exists
-        existing = CompoundToCompoundTargetInteraction.objects.filter(
-            Q(compound_a=compound1, compound_b=compound2) |
-            Q(compound_a=compound2, compound_b=compound1)
-        ).filter(target=shared_target).first()
-        
-        if existing:
-            return False
-        
-        # Infer interaction type based on mechanisms
-        mechanism1 = interaction1.mechanism
-        mechanism2 = interaction2.mechanism
-        interaction_type = self.infer_interaction_type(mechanism1, mechanism2)
-        
-        # Create interaction
-        CompoundToCompoundTargetInteraction.objects.create(
-            compound_a=compound1,
-            compound_b=compound2,
-            target=shared_target,
-            interaction_type=interaction_type,
-            description=f"{compound1.name}: {mechanism1}, {compound2.name}: {mechanism2}",
-            confidence='medium',
-            source='ChEMBL'
+        stats = rebuild_compound_pair_interactions(
+            source='ChEMBL',
+            auto_sources=('ChEMBL', 'computed_shared_target'),
+            preserve_non_auto=True,
+            progress_every=2000,
+            progress=self.stdout.write,
         )
-        
-        self.stdout.write(f"  [✓] {compound1.name} ↔ {compound2.name} → {interaction_type}")
-        return True
+        self.stdout.write(
+            f"[✓] Pair interactions: created={stats['created']}, updated={stats['updated']}, "
+            f"unchanged={stats['unchanged']}, skipped_curated={stats['skipped_curated']}"
+        )
+    
+    def infer_interaction_type_multi(self, mechanisms1: List[str], mechanisms2: List[str]) -> Tuple[str, str]:
+        """Infer one pair interaction from all mechanism combinations."""
+        return infer_interaction_type_multi_shared(mechanisms1, mechanisms2)
     
     def infer_interaction_type(self, mechanism1: str, mechanism2: str) -> str:
-        """
-        Infer interaction type based on mechanisms using pharmacologically accurate classifications.
-        
-        Rules:
-        - SYNERGISTIC: Different mechanisms with same functional outcome (e.g., PAM + Agonist)
-        - ADDITIVE: Same mechanisms (e.g., inhibitor + inhibitor) 
-        - ANTAGONISTIC: Opposing mechanisms/outcomes (e.g., agonist + antagonist)
-        - COMPETITIVE: Same binding site/mechanism type but different compounds
-        """
-        
-        # Define mechanism functional outcomes
-        activating_mechanisms = {'agonist', 'activator', 'opener', 'inducer', 'pam'}
-        inhibiting_mechanisms = {'antagonist', 'inhibitor', 'blocker', 'nam'}
-        modulatory_mechanisms = {'modulator'}  # Could be either direction
-        metabolic_mechanisms = {'substrate'}
-        binding_mechanisms = {'binder'}
-        
-        # Both mechanisms are exactly the same - ADDITIVE
-        if mechanism1 == mechanism2:
-            if mechanism1 in activating_mechanisms or mechanism1 in inhibiting_mechanisms:
-                return 'additive'
-            elif mechanism1 in modulatory_mechanisms:
-                return 'additive'  # Same type modulators are additive
-            elif mechanism1 in metabolic_mechanisms:
-                return 'competitive_metabolism'
-            elif mechanism1 in binding_mechanisms:
-                return 'competitive'
-            else:
-                return 'additive'
-        
-        # Different mechanisms with SAME functional outcome - SYNERGISTIC
-        mech1_activating = mechanism1 in activating_mechanisms
-        mech2_activating = mechanism2 in activating_mechanisms
-        mech1_inhibiting = mechanism1 in inhibiting_mechanisms
-        mech2_inhibiting = mechanism2 in inhibiting_mechanisms
-        
-        if (mech1_activating and mech2_activating) or (mech1_inhibiting and mech2_inhibiting):
-            # Different mechanisms but same outcome - synergistic
-            if mechanism1 != mechanism2:
-                return 'synergistic'
-        
-        # Opposing mechanisms - ANTAGONISTIC
-        if (mech1_activating and mech2_inhibiting) or (mech1_inhibiting and mech2_activating):
-            return 'antagonistic'
-        
-        # Substrate + Inhibitor interactions - special case
-        if (mechanism1 == 'substrate' and mechanism2 in inhibiting_mechanisms) or \
-           (mechanism2 == 'substrate' and mechanism1 in inhibiting_mechanisms):
-            return 'enzyme_inhibition'
-        
-        # Both substrates - metabolic competition
-        if mechanism1 == 'substrate' and mechanism2 == 'substrate':
-            return 'competitive_metabolism'
-        
-        # One is modulator, other has clear direction
-        if mechanism1 in modulatory_mechanisms or mechanism2 in modulatory_mechanisms:
-            non_mod = mechanism2 if mechanism1 in modulatory_mechanisms else mechanism1
-            if non_mod in activating_mechanisms or non_mod in inhibiting_mechanisms:
-                return 'synergistic'  # Modulators typically enhance other mechanisms
-        
-        # Both are binding without clear functional effect
-        if mechanism1 in binding_mechanisms or mechanism2 in binding_mechanisms:
-            return 'competitive'
-        
-        # Default for unclear combinations
-        if mechanism1 != 'unknown' and mechanism2 != 'unknown':
-            return 'competitive'
-        
-        return 'unknown'
+        """Infer interaction type based on shared engine rules."""
+        return infer_interaction_type_shared(mechanism1, mechanism2)
     
     def _get_mechanism_summary(self, chembl_id: str, importer: ChEMBLImporter) -> str:
         """Get a brief summary of the compound's primary mechanism for description."""

@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}Calendar Graph View — Neurobin{% endblock %}
+{% block content %}
+<div class="container-fluid py-4 stack-page">
+  <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2 stack-header">
+    <div>
+      <h1 class="mb-0">Calendar Graph View</h1>
+      <div class="text-muted small">{{ calendar.title }}</div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap stack-actions">
+      <div class="btn-group" role="group" aria-label="Schedule range">
+        <a class="btn btn-outline-secondary {% if period == 'day' %}active{% endif %}" href="{% url 'stack_calendar' %}?period=day">Day</a>
+        <a class="btn btn-outline-secondary {% if period == 'week' %}active{% endif %}" href="{% url 'stack_calendar' %}?period=week">Week</a>
+        <a class="btn btn-outline-secondary {% if period == 'month' %}active{% endif %}" href="{% url 'stack_calendar' %}?period=month">Month</a>
+      </div>
+      <a class="btn btn-outline-secondary" href="{% url 'stack_schedule' %}?period={{ period }}">Back to Schedule</a>
+    </div>
+  </div>
+
+  <div class="alert alert-info">
+    Bar height = doses/day (capped). Each day cell lists scheduled compounds (scrollable).
+  </div>
+
+  <style>
+    .cal-period-day .cal-cell { min-height: auto; }
+    .cal-period-day .cal-items { max-height: none; overflow: visible; }
+
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(var(--cal-cols), minmax(160px, 1fr));
+      gap: 0.75rem;
+    }
+    .cal-weekdays {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+      font-size: 0.9rem;
+      color: rgba(255, 255, 255, 0.7);
+      padding-left: 0.25rem;
+    }
+    .cal-cell {
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 0.75rem;
+      padding: 0.75rem;
+      min-height: 180px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .cal-cell.cal-outside {
+      opacity: 0.45;
+    }
+    .cal-cell.cal-today {
+      border-color: rgba(13, 202, 240, 0.75);
+      box-shadow: 0 0 0 1px rgba(13, 202, 240, 0.25) inset;
+    }
+    .cal-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .cal-bar-wrap {
+      height: 52px;
+      display: flex;
+      align-items: flex-end;
+      background: rgba(0, 0, 0, 0.15);
+      border-radius: 0.5rem;
+      overflow: hidden;
+      margin-bottom: 0.5rem;
+    }
+    .cal-bar {
+      width: 100%;
+      background: rgba(13, 202, 240, 0.55);
+    }
+    .cal-items {
+      max-height: 130px;
+      overflow: auto;
+      padding-right: 0.25rem;
+    }
+    .cal-item {
+      font-size: 0.9rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cal-item-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .cal-period-day .cal-item-row:not(:last-child),
+    .cal-period-week .cal-item-row:not(:last-child) {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      padding-bottom: 0.25rem;
+      margin-bottom: 0.25rem;
+    }
+    .cal-item-main {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cal-take {
+      flex: 0 0 auto;
+    }
+    .cal-level-0 .cal-bar { height: 0%; background: transparent; }
+    .cal-level-1 .cal-bar { background: rgba(25, 135, 84, 0.55); }
+    .cal-level-2 .cal-bar { background: rgba(255, 193, 7, 0.55); }
+    .cal-level-3 .cal-bar { background: rgba(255, 140, 0, 0.55); }
+    .cal-level-4 .cal-bar { background: rgba(220, 53, 69, 0.55); }
+  </style>
+
+  <div class="cal-period-{{ period }}">
+    {% if period == 'week' %}
+      {% for week in calendar.weeks %}
+        {% for cell in week %}
+          <div class="cal-cell cal-level-{{ cell.level }} mb-3 {% if cell.is_today %}cal-today{% endif %}">
+            <div class="cal-top">
+              <div class="fw-semibold">{{ cell.date|date:"D, M j" }}</div>
+              <div class="text-muted small">{{ cell.count }}</div>
+            </div>
+            <div class="cal-bar-wrap">
+              <div class="cal-bar" style="height: {{ cell.bar_height }}%;"></div>
+            </div>
+            {% if cell.count %}
+              <div class="cal-items" style="max-height: 240px;">
+                {% for o in cell.occurrences %}
+                    <div class="cal-item-row">
+                      <div class="cal-item-main">
+                      {{ o.scheduled_for|date:"H:i" }} —
+                      {% if o.compound_slug %}
+                        <a class="text-decoration-none text-light" href="{% url 'compound_detail' o.compound_slug %}">{{ o.compound_name }}</a>
+                      {% else %}
+                        {{ o.compound_name }}
+                      {% endif %}
+                      <span class="text-muted">({{ o.stack_name }})</span>
+                    </div>
+                    {% if o.is_taken %}
+                      <form method="post" class="m-0 cal-take">
+                        {% csrf_token %}
+                        <input type="hidden" name="period" value="{{ period }}">
+                        <input type="hidden" name="stack_item_id" value="{{ o.stack_item_id }}">
+                        <input type="hidden" name="scheduled_for" value="{{ o.scheduled_for|date:'c' }}">
+                        <button class="btn btn-sm btn-success" type="submit" name="untake_stack_item" aria-label="Undo taken" title="Click to undo">✓</button>
+                      </form>
+                    {% else %}
+                      <form method="post" class="m-0 cal-take">
+                        {% csrf_token %}
+                        <input type="hidden" name="period" value="{{ period }}">
+                        <input type="hidden" name="stack_item_id" value="{{ o.stack_item_id }}">
+                        <input type="hidden" name="scheduled_for" value="{{ o.scheduled_for|date:'c' }}">
+                        <button class="btn btn-sm btn-outline-secondary text-secondary" type="submit" name="take_stack_item" aria-label="Mark taken" title="Not taken">—</button>
+                      </form>
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="text-muted small">—</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endfor %}
+    {% else %}
+      {% if calendar.columns == 7 %}
+        <div class="cal-weekdays">
+          <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
+        </div>
+      {% endif %}
+
+      <div class="cal-grid" style="--cal-cols: {{ calendar.columns }};">
+        {% for week in calendar.weeks %}
+          {% for cell in week %}
+            <div class="cal-cell cal-level-{{ cell.level }} {% if cell.is_outside_month %}cal-outside{% endif %} {% if cell.is_today %}cal-today{% endif %}">
+              <div class="cal-top">
+                <div class="fw-semibold">{{ cell.date|date:"D, M j" }}</div>
+                <div class="text-muted small">{{ cell.count }}</div>
+              </div>
+              <div class="cal-bar-wrap">
+                <div class="cal-bar" style="height: {{ cell.bar_height }}%;"></div>
+              </div>
+              {% if cell.count %}
+                <div class="cal-items">
+                  {% for o in cell.occurrences %}
+                    <div class="cal-item-row">
+                      <div class="cal-item-main">
+                        {{ o.scheduled_for|date:"H:i" }} —
+                        {% if o.compound_slug %}
+                          <a class="text-decoration-none text-light" href="{% url 'compound_detail' o.compound_slug %}">{{ o.compound_name }}</a>
+                        {% else %}
+                          {{ o.compound_name }}
+                        {% endif %}
+                        <span class="text-muted">({{ o.stack_name }})</span>
+                      </div>
+                      {% if o.is_taken %}
+                        <form method="post" class="m-0 cal-take">
+                          {% csrf_token %}
+                          <input type="hidden" name="period" value="{{ period }}">
+                          <input type="hidden" name="stack_item_id" value="{{ o.stack_item_id }}">
+                          <input type="hidden" name="scheduled_for" value="{{ o.scheduled_for|date:'c' }}">
+                          <button class="btn btn-sm btn-success" type="submit" name="untake_stack_item" aria-label="Undo taken" title="Click to undo">✓</button>
+                        </form>
+                      {% else %}
+                        <form method="post" class="m-0 cal-take">
+                          {% csrf_token %}
+                          <input type="hidden" name="period" value="{{ period }}">
+                          <input type="hidden" name="stack_item_id" value="{{ o.stack_item_id }}">
+                          <input type="hidden" name="scheduled_for" value="{{ o.scheduled_for|date:'c' }}">
+                          <button class="btn btn-sm btn-outline-secondary text-secondary" type="submit" name="take_stack_item" aria-label="Mark taken" title="Not taken">—</button>
+                        </form>
+                      {% endif %}
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="text-muted small">—</div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,78 @@
+{% if admet_ai_mechanism_context.mechanisms %}
+  <div class="mt-3 pt-2" style="border-top: 1px solid rgba(255, 255, 255, 0.12);">
+    <div class="text-muted small mb-2">Predicted mechanisms (ADMET-AI + MolProp context)</div>
+
+    <div class="text-muted small mb-2">
+      Predicted signals are not equivalent to confirmed pharmacology.
+    </div>
+    {% if admet_ai_mechanism_context.summary.cross_model_total %}
+      <div class="text-muted small mb-2">
+        Cross-model agreement: {{ admet_ai_mechanism_context.summary.cross_model_agree_count|default:0 }}/{{ admet_ai_mechanism_context.summary.cross_model_total }} matched endpoints.
+      </div>
+    {% endif %}
+
+    <div class="d-flex flex-wrap gap-2 mb-2">
+      {% for m in admet_ai_mechanism_context.summary.top_likely %}
+        <span class="badge bg-success text-dark" style="font-size:0.72rem;">Likely: {{ m.label }} ({{ m.score|floatformat:2 }})</span>
+      {% endfor %}
+      {% for m in admet_ai_mechanism_context.summary.uncertain %}
+        <span class="badge bg-secondary text-light" style="font-size:0.72rem;">Uncertain: {{ m.label }}</span>
+      {% endfor %}
+      {% for m in admet_ai_mechanism_context.summary.possible_false %}
+        <span class="badge bg-warning text-dark" style="font-size:0.72rem;">Check: {{ m.label }}</span>
+      {% endfor %}
+    </div>
+
+    {% for note in admet_ai_mechanism_context.summary.notes %}
+      <div class="text-muted small mb-2">• {{ note }}</div>
+    {% endfor %}
+
+    <div style="padding-right: 0.25rem;">
+      {% for kind, rows in admet_ai_mechanism_context.groups.items %}
+        <div class="text-muted small mt-2 mb-1">{{ kind }}</div>
+        {% for m in rows %}
+          <div class="d-flex align-items-center mb-2">
+            <span class="badge rounded-pill bg-secondary text-dark me-2"
+                  title="{{ m.interpretation }}"
+                  style="max-width: 100%; white-space: normal; font-size: 0.74rem; font-weight: 500;">
+              {{ m.label }}
+              <span class="badge bg-warning ms-1 text-dark" style="font-size: 0.65rem;">{{ m.score|floatformat:2 }}</span>
+              <span class="badge {% if m.confidence == 'high' %}bg-success{% elif m.confidence == 'medium' %}bg-info{% else %}bg-dark text-light{% endif %} ms-1" style="font-size: 0.62rem;">
+                {{ m.confidence|title }}
+              </span>
+              <span class="badge {% if m.expected_status == 'expected' %}bg-success{% elif m.expected_status == 'unexpected' %}bg-warning text-dark{% else %}bg-secondary{% endif %} ms-1" style="font-size:0.62rem;">
+                {{ m.expected_status|title }}
+              </span>
+              {% if m.secondary_score is not None %}
+                <span class="badge bg-info text-dark ms-1" style="font-size:0.62rem;">
+                  {{ m.secondary_label }} {{ m.secondary_score|floatformat:2 }}
+                </span>
+                <span class="badge {% if m.cross_model_agreement %}bg-success{% else %}bg-warning text-dark{% endif %} ms-1" style="font-size:0.62rem;">
+                  {% if m.cross_model_agreement %}Agreement{% else %}Disagree{% endif %}
+                </span>
+              {% endif %}
+            </span>
+          </div>
+        {% endfor %}
+      {% endfor %}
+    </div>
+
+    {% if admet_ai_mechanism_context.references %}
+      <div class="mt-2 text-muted small">Curated evidence overlay</div>
+      <div>
+        {% for r in admet_ai_mechanism_context.references %}
+          <div class="small text-muted mb-1">
+            {{ r.name }}{% if r.mechanism %} ({{ r.mechanism }}){% endif %}
+            {% if r.source %} — {{ r.source }}{% endif %}
+            {% if r.chembl_url %}
+              • <a href="{{ r.chembl_url }}" target="_blank" rel="noopener noreferrer">ChEMBL</a>
+            {% endif %}
+            {% if r.pubmed_url %}
+              • <a href="{{ r.pubmed_url }}" target="_blank" rel="noopener noreferrer">PubMed</a>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+{% endif %}

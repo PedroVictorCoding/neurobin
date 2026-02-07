@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}About — Neurobin{% endblock %}
+
+{% block content %}
+<div class="container py-4" style="max-width: 980px;">
+  <div class="mb-4">
+    <h1 class="text-light mb-2">About</h1>
+    <p class="text-muted mb-0">
+      Neurobin aggregates public scientific data and optional ML tooling to help explore compounds, targets, and research.
+    </p>
+  </div>
+
+  <div class="card bg-neurobin-card text-light mb-4 shadow">
+    <div class="card-body">
+      <h2 class="h5 mb-3 text-white">External Tools & Data Sources</h2>
+      <div class="row g-3">
+        <div class="col-12 col-md-4">
+          <div class="border border-secondary rounded p-3 h-100" style="background: rgba(0,0,0,0.2);">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <i class="fas fa-vials text-info"></i>
+              <div class="fw-semibold">ADMET-AI</div>
+            </div>
+            <div class="text-muted" style="font-size: 0.95rem;">
+              Predictive ADMET property modeling from SMILES (optional server-side integration).
+            </div>
+            <div class="mt-3">
+              <a class="btn btn-sm btn-outline-info"
+                 href="https://github.com/swansonk14/admet_ai"
+                 target="_blank" rel="noopener noreferrer">
+                <i class="fas fa-external-link-alt"></i> Project
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-12 col-md-4">
+          <div class="border border-secondary rounded p-3 h-100" style="background: rgba(0,0,0,0.2);">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <i class="fas fa-database text-primary"></i>
+              <div class="fw-semibold">ChEMBL</div>
+            </div>
+            <div class="text-muted" style="font-size: 0.95rem;">
+              Bioactivity database for drug-like compounds, targets, and mechanisms.
+            </div>
+            <div class="mt-3">
+              <a class="btn btn-sm btn-outline-primary"
+                 href="https://www.ebi.ac.uk/chembl/"
+                 target="_blank" rel="noopener noreferrer">
+                <i class="fas fa-external-link-alt"></i> Website
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-12 col-md-4">
+          <div class="border border-secondary rounded p-3 h-100" style="background: rgba(0,0,0,0.2);">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <i class="fas fa-book-medical text-success"></i>
+              <div class="fw-semibold">PubMed</div>
+            </div>
+            <div class="text-muted" style="font-size: 0.95rem;">
+              Biomedical literature search and metadata from NLM/NIH.
+            </div>
+            <div class="mt-3">
+              <a class="btn btn-sm btn-outline-success"
+                 href="https://pubmed.ncbi.nlm.nih.gov/"
+                 target="_blank" rel="noopener noreferrer">
+                <i class="fas fa-external-link-alt"></i> Website
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="border-secondary my-4">
+      <div class="text-muted" style="font-size: 0.95rem;">
+        For a more complete list of acknowledgments, see the <a href="{% url 'credits' %}">Credits</a> page.
+      </div>
+    </div>
+  </div>
+
+  <div class="alert alert-secondary border-0" style="background: rgba(108, 117, 125, 0.15);">
+    <strong>Disclaimer:</strong> Neurobin is for informational and research purposes only and is not medical advice.
+  </div>
+</div>
+{% endblock %}
+

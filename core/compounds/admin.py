@@ -2,6 +2,8 @@ from django.contrib import admin
 
 from .models import (
     Compound, 
+    CompoundADMETPrediction,
+    CompoundMolPropPrediction,
     CompoundCategories, 
     Target, 
     CompoundMechanismOfAction, 
@@ -13,6 +15,7 @@ from .models import (
     ActionType,
     TargetType
 )
+from research.models import ResearchImportJob
 
 
 @admin.register(Compound)
@@ -22,6 +25,46 @@ class CompoundAdmin(admin.ModelAdmin):
     filter_horizontal = ('categories',)
     search_fields = ('name', 'aliases', 'description', 'chembl_id')
     fields = ('name', 'slug', 'chembl_id', 'description', 'aliases', 'smiles', 'categories', 'mechanism_of_action')
+    actions = ['queue_research_import']
+
+    def queue_research_import(self, request, queryset):
+        created = 0
+        skipped = 0
+        for compound in queryset:
+            existing = ResearchImportJob.objects.filter(
+                compound=compound,
+                status__in=['queued', 'running'],
+            ).exists()
+            if existing:
+                skipped += 1
+                continue
+            ResearchImportJob.objects.create(
+                compound=compound,
+                requested_by=request.user,
+                status='queued',
+                max_results=10,
+            )
+            created += 1
+        if created:
+            self.message_user(request, f"Queued {created} research import job(s).")
+        if skipped:
+            self.message_user(request, f"Skipped {skipped} compound(s) with existing queued/running jobs.")
+    queue_research_import.short_description = "Queue research import for selected compounds"
+
+@admin.register(CompoundADMETPrediction)
+class CompoundADMETPredictionAdmin(admin.ModelAdmin):
+    list_display = ('compound', 'computed_at', 'model_version')
+    search_fields = ('compound__name', 'compound__slug')
+    autocomplete_fields = ('compound',)
+    readonly_fields = ('computed_at',)
+
+
+@admin.register(CompoundMolPropPrediction)
+class CompoundMolPropPredictionAdmin(admin.ModelAdmin):
+    list_display = ('compound', 'computed_at', 'model_version')
+    search_fields = ('compound__name', 'compound__slug')
+    autocomplete_fields = ('compound',)
+    readonly_fields = ('computed_at',)
 
 @admin.register(CompoundCategories)
 class CompoundCategoriesAdmin(admin.ModelAdmin):

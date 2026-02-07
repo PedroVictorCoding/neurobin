@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}{{ stack.name }} — Stack{% endblock %}
+{% block content %}
+<div class="container py-4 stack-page">
+  <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2 stack-header">
+    <div>
+      <div class="text-muted small text-uppercase">Stack</div>
+      <h1 class="mb-0">{{ stack.name }}</h1>
+      <div class="d-flex flex-wrap gap-2 align-items-center mt-2 stack-badges">
+        {% if stack.is_active %}
+          <span class="badge bg-success">Active</span>
+        {% else %}
+          <span class="badge bg-secondary">Inactive</span>
+        {% endif %}
+        {% if stack.visibility == "public" %}
+          <span class="badge bg-info">Public</span>
+        {% elif stack.visibility == "unlisted" %}
+          <span class="badge bg-warning">Unlisted</span>
+        {% else %}
+          <span class="badge bg-dark">Private</span>
+        {% endif %}
+        <span class="text-muted small">Created: {{ stack.created|date:"M d, Y" }}</span>
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 stack-actions">
+      <a class="btn btn-outline-secondary" href="{% url 'my_stacks' %}">Back</a>
+      <a class="btn btn-outline-info" target="_blank" rel="noopener noreferrer" href="{% url 'stack_share' stack.id %}" title="Share stack" aria-label="Share stack">
+        <i class="fas fa-share-alt"></i>
+      </a>
+      <form method="post" class="m-0">
+        {% csrf_token %}
+        <button class="btn {% if stack.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %}" type="submit" name="toggle_stack_active">
+          {% if stack.is_active %}Stop{% else %}Run{% endif %}
+        </button>
+      </form>
+      <form method="post" class="m-0 d-flex gap-1 align-items-center stack-actions-form">
+        {% csrf_token %}
+        <select name="visibility" class="form-select" style="width: 150px;">
+          <option value="private" {% if stack.visibility == "private" %}selected{% endif %}>Private</option>
+          <option value="public" {% if stack.visibility == "public" %}selected{% endif %}>Public</option>
+          <option value="unlisted" {% if stack.visibility == "unlisted" %}selected{% endif %}>Unlisted</option>
+        </select>
+        <button class="btn btn-outline-secondary" type="submit" name="set_stack_visibility">Save</button>
+      </form>
+      <form method="post" class="m-0" onsubmit="return confirm('Delete this stack and all its items?');">
+        {% csrf_token %}
+        <button class="btn btn-outline-danger" type="submit" name="delete_stack">Delete</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center stack-card-header">
+      <div class="fw-bold">Add Compound</div>
+      <div class="text-muted small">Uses fast search</div>
+    </div>
+    <form method="post" class="d-flex flex-wrap align-items-center gap-2 p-3 cp-stack-add" autocomplete="off">
+      {% csrf_token %}
+      {{ add_form.compound }}
+      {{ add_form.dosage_amount }}
+      {{ add_form.dosage_unit }}
+      {{ add_form.time_of_day }}
+      {{ add_form.intake_time }}
+      {{ add_form.recurrence_interval }}
+      {{ add_form.recurrence_unit }}
+      {{ add_form.notes }}
+      <button class="btn btn-outline-success" type="submit" name="add_compound_to_stack">Add</button>
+      {% if add_form.errors %}
+        <div class="text-danger small">
+          {% for field, errs in add_form.errors.items %}
+            {{ field }}: {{ errs.0 }}<br>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </form>
+  </div>
+
+  {% if stack_risk %}
+    {% include "stacks/_risk_panel.html" %}
+  {% endif %}
+
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center stack-card-header">
+      <div class="fw-bold">Compounds</div>
+      <div class="text-muted small">Count: {{ items|length }}</div>
+    </div>
+    <ul class="list-group list-group-flush">
+          {% for item in items %}
+        <li class="list-group-item d-flex justify-content-between align-items-start flex-column flex-md-row">
+          <div>
+            <strong>
+              <a class="text-decoration-none text-light" href="{% url 'compound_detail' item.compound.slug %}">{{ item.compound.name }}</a>
+            </strong>
+            {% if item.dosage_amount %}
+              <span class="badge bg-info ms-2">Dose: {{ item.dosage_amount }} {{ item.dosage_unit }}</span>
+            {% endif %}
+            {% if item.intake_time %}
+              <span class="badge bg-secondary ms-2">At: {{ item.intake_time|date:"M d, Y H:i" }}</span>
+            {% endif %}
+            {% if item.time_of_day %}
+              <span class="badge bg-warning ms-2">{{ item.get_time_of_day_display }}</span>
+            {% endif %}
+            <span class="badge bg-dark ms-2">
+              Every {{ item.recurrence_interval }} {{ item.get_recurrence_unit_display }}
+            </span>
+            {% if item.notes %}
+              <div class="text-muted small mt-1">Notes: {{ item.notes }}</div>
+            {% endif %}
+
+            {% if edit_item_id == item.id and edit_form %}
+              <div class="mt-3">
+                <form method="post" class="d-flex flex-wrap align-items-center gap-2 stack-edit-form" autocomplete="off">
+                  {% csrf_token %}
+                  <input type="hidden" name="item_id" value="{{ item.id }}">
+                  {{ edit_form.compound }}
+                  {{ edit_form.dosage_amount }}
+                  {{ edit_form.dosage_unit }}
+                  {{ edit_form.time_of_day }}
+                  {{ edit_form.intake_time }}
+                  {{ edit_form.recurrence_interval }}
+                  {{ edit_form.recurrence_unit }}
+                  {{ edit_form.notes }}
+                  <button class="btn btn-sm btn-primary" type="submit" name="update_stack_item">Save</button>
+                  <a class="btn btn-sm btn-outline-secondary" href="{% url 'stack_detail' stack.id %}">Cancel</a>
+                </form>
+                {% if edit_form.errors %}
+                  <div class="text-danger small mt-2">
+                    {% for field, errs in edit_form.errors.items %}
+                      {{ field }}: {{ errs.0 }}<br>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+            {% endif %}
+          </div>
+          <div class="d-flex align-items-center gap-2 mt-2 mt-md-0 stack-item-actions">
+            <div class="text-muted small">Added: {{ item.added|date:"M d, Y H:i" }}</div>
+            <a class="btn btn-sm btn-outline-secondary" href="{% url 'stack_detail' stack.id %}?edit={{ item.id }}">Edit</a>
+            <form method="post" class="m-0" onsubmit="return confirm('Remove this compound from the stack?');">
+              {% csrf_token %}
+              <input type="hidden" name="item_id" value="{{ item.id }}">
+              <button class="btn btn-sm btn-outline-danger" type="submit" name="delete_stack_item">Remove</button>
+            </form>
+          </div>
+        </li>
+      {% empty %}
+        <li class="list-group-item text-muted">No compounds in this stack yet.</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endblock %}

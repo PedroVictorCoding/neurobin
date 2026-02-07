@@ -367,6 +367,46 @@ class ResearchSettings(models.Model):
         return f"Research Settings (Updated: {self.updated_at.strftime('%Y-%m-%d')})"
 
 
+class ResearchImportJob(models.Model):
+    """Queue import jobs for compound-specific research ingestion."""
+
+    STATUS_CHOICES = [
+        ('queued', 'Queued'),
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+
+    compound = models.ForeignKey(
+        Compound,
+        on_delete=models.CASCADE,
+        related_name='research_import_jobs'
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='research_import_requests'
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='queued')
+    max_results = models.PositiveIntegerField(default=10)
+    imported_count = models.PositiveIntegerField(default=0)
+    query = models.TextField(blank=True)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Research Import Job'
+        verbose_name_plural = 'Research Import Jobs'
+
+    def __str__(self):
+        return f"Import {self.compound.name} ({self.status})"
+
+
 class SnippetComment(models.Model):
     """
     Standalone comment system for research snippets.

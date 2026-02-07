@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Delete Research Snippet — Neurobin{% endblock %}
+{% block content %}
+<div class="container" style="max-width: 800px;">
+  <div class="row">
+    <div class="col-12">
+      <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+          <a href="{% url 'research:snippet_list' %}" class="text-info">Research</a>
+          <span class="text-muted mx-1">/</span>
+          <a href="{% url 'research:snippet_detail' snippet.pk %}" class="text-info">{{ snippet.title|truncatechars:40 }}</a>
+          <span class="text-muted mx-1">/</span>
+          <li class="breadcrumb-item active text-white">Delete</li>
+        </ol>
+      </nav>
+
+      <div class="card bg-neurobin-card">
+        <div class="card-header">
+          <h2 class="text-white mb-1">Delete Research Snippet</h2>
+          <p class="text-muted mb-0">This action cannot be undone.</p>
+        </div>
+        <div class="card-body">
+          <div class="alert alert-warning">
+            <i class="fas fa-triangle-exclamation"></i>
+            You are about to permanently delete this research snippet.
+          </div>
+
+          <div class="mb-3">
+            <div class="text-muted small">Snippet</div>
+            <div class="text-white fw-semibold">{{ snippet.title }}</div>
+          </div>
+          <div class="mb-3">
+            <div class="text-muted small">Compound</div>
+            <div class="text-white">{{ snippet.compound.name }}</div>
+          </div>
+          <div class="mb-3">
+            <div class="text-muted small">Created by</div>
+            <div class="text-white">{{ snippet.created_by.username }}</div>
+          </div>
+
+          <form method="post">
+            {% csrf_token %}
+            <div class="d-flex justify-content-between">
+              <a class="btn btn-outline-secondary" href="{% url 'research:snippet_detail' snippet.pk %}">
+                <i class="fas fa-arrow-left"></i> Cancel
+              </a>
+              <button type="submit" class="btn btn-danger">
+                <i class="fas fa-trash"></i> Delete Snippet
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

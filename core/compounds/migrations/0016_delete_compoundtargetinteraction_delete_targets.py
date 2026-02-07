@@ -10,10 +10,20 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.DeleteModel(
-            name='CompoundTargetInteraction',
-        ),
-        migrations.DeleteModel(
-            name='Targets',
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(
+                    sql="DROP TABLE IF EXISTS compounds_compoundtargetinteraction;",
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
+                migrations.RunSQL(
+                    sql="DROP TABLE IF EXISTS compounds_targets;",
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
+            ],
+            state_operations=[
+                migrations.DeleteModel(name='CompoundTargetInteraction'),
+                migrations.DeleteModel(name='Targets'),
+            ],
         ),
     ]

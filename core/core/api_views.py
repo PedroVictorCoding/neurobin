@@ -40,6 +40,12 @@ def api_root(request, format=None):
                 'user_roles': request.build_absolute_uri('/api/research/userrole/'),
                 'research_settings': request.build_absolute_uri('/api/research/researchsettings/'),
                 'snippet_comments': request.build_absolute_uri('/api/research/snippetcomment/'),
+            },
+            'stacks': {
+                'stacks': request.build_absolute_uri('/api/stacks/stack/'),
+                'stack_items': request.build_absolute_uri('/api/stacks/stackitem/'),
+                'public_stacks': request.build_absolute_uri('/api/stacks/public-stack/'),
+                'schedule': request.build_absolute_uri('/api/stacks/schedule/'),
             }
         },
         'documentation': 'See API_DOCUMENTATION.md for detailed usage information'

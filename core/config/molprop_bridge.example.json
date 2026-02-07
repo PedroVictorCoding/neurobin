@@ -1,0 +1,14 @@
+{
+  "repo_dir": "/absolute/path/to/MolPROP",
+  "device": "cpu",
+  "endpoints": {
+    "BBB_Martins": {
+      "setup_json": "config/setup.json",
+      "checkpoint_file": "models/weights/SLEF_validation.pth",
+      "mode": "discrete",
+      "positive_class_index": 0,
+      "source_column": "ids",
+      "target_column": "y"
+    }
+  }
+}

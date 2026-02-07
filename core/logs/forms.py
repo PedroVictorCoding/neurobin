@@ -16,7 +16,7 @@ class IntakeLogForm(forms.ModelForm):
     
     class Meta:
         model = IntakeLog
-        fields = ['compound', 'amount', 'unit', 'taken_at', 'notes']
+        fields = ['compound', 'amount', 'unit', 'time_of_day', 'taken_at', 'notes']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -24,6 +24,7 @@ class IntakeLogForm(forms.ModelForm):
         self.fields['compound'].widget = forms.HiddenInput()
         self.fields['amount'].widget.attrs.update({'class': 'form-control bg-dark text-light'})
         self.fields['unit'].widget.attrs.update({'class': 'form-select bg-dark text-light'})
+        self.fields['time_of_day'].widget.attrs.update({'class': 'form-select bg-dark text-light'})
         self.fields['taken_at'].widget.attrs.update({'class': 'form-control bg-dark text-light', 'type': 'datetime-local'})
         self.fields['notes'].widget.attrs.update({'class': 'form-control bg-dark text-light', 'rows': 3})
         

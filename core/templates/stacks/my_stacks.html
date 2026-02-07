@@ -1,12 +1,18 @@
 {% extends "base.html" %}
 {% block title %}My Stacks — Neurobin{% endblock %}
 {% block content %}
-<div class="container py-4">
-  <h1 class="mb-4">My Stacks</h1>
+<div class="container py-4 stack-page">
+  <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2 stack-header">
+    <h1 class="mb-0">My Stacks</h1>
+    <div class="d-flex gap-2 stack-actions">
+      <a class="btn btn-outline-secondary" href="{% url 'stack_schedule' %}">Schedule</a>
+      <a class="btn btn-outline-secondary" href="{% url 'explore_stacks' %}">Explore Stacks</a>
+    </div>
+  </div>
 
   <form method="post" class="mb-4">
     {% csrf_token %}
-    <div class="input-group" style="max-width: 400px;">
+    <div class="input-group w-100" style="max-width: 400px;">
       {{ form.name }}
       <button class="btn btn-primary" type="submit" name="add_stack">Add Stack</button>
     </div>
@@ -17,57 +23,59 @@
 
   {% if stacks %}
     {% for stack in stacks %}
-      <div class="card mb-3">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <span class="fw-bold">{{ stack.name }}</span>
-          <span class="text-muted small">Created: {{ stack.created|date:"M d, Y" }}</span>
+      <div class="card mb-3 stack-card d-flex flex-column">
+        <div class="card-header d-flex justify-content-between align-items-center stack-card-header">
+          <div class="d-flex flex-column">
+            <span class="fw-bold text-white">{{ stack.name }}</span>
+            <div class="d-flex flex-wrap gap-2 align-items-center mt-1 stack-badges">
+              {% if stack.is_active %}
+                <span class="badge bg-success">Active</span>
+              {% else %}
+                <span class="badge bg-secondary">Inactive</span>
+              {% endif %}
+              {% include "stacks/_risk_badge.html" with risk=stack.risk %}
+              {% if stack.visibility == "public" %}
+                <span class="badge bg-info">Public</span>
+              {% elif stack.visibility == "unlisted" %}
+                <span class="badge bg-warning">Unlisted</span>
+              {% else %}
+                <span class="badge bg-dark">Private</span>
+              {% endif %}
+              <span class="text-muted small">Created: {{ stack.created|date:"M d, Y" }}</span>
+              <span class="text-muted small">Items: {{ stack.item_count }}</span>
+            </div>
+          </div>
         </div>
-        <ul class="list-group list-group-flush">
-          {% for item in stack.items.all %}
-            <li class="list-group-item d-flex justify-content-between align-items-start flex-column flex-md-row">
-              <div>
-                <input type="checkbox" {% if item.completed %}checked{% endif %} disabled class="me-1">
-                <strong>{{ item.compound.name }}</strong>
-                {% if item.dosage_amount %}
-                  <span class="badge bg-info ms-2">Dose: {{ item.dosage_amount }}</span>
-                {% endif %}
-                {% if item.intake_time %}
-                  <span class="badge bg-secondary ms-2">At: {{ item.intake_time|date:"M d, Y H:i" }}</span>
-                {% endif %}
-                {% if item.recurrence_interval %}
-                  <span class="badge bg-warning ms-2">
-                    Every {{ item.recurrence_interval }} {{ item.get_recurrence_unit_display }}
-                  </span>
-                {% endif %}
-                {% if item.notes %}
-                  <div class="text-muted small mt-1">Notes: {{ item.notes }}</div>
-                {% endif %}
-              </div>
-              <div class="text-muted small mt-2 mt-md-0">Added: {{ item.added|date:"M d, Y H:i" }}</div>
-            </li>
-          {% empty %}
-            <li class="list-group-item text-muted">No compounds in this stack yet.</li>
-          {% endfor %}
-        </ul>
-        <form method="post" class="d-flex align-items-center gap-2 p-3 border-bottom" style="background: #181818;" autocomplete="off">
-          {% csrf_token %}
-          <input type="hidden" name="stack_id" value="{{ stack.id }}">
-          {% with form=stack.add_form %}
-            {{ form.compound }}
-            {{ form.dosage_amount }}
-            {{ form.intake_time }}
-            {{ form.recurrence_interval }}
-            {{ form.recurrence_unit }}
-            <button class="btn btn-sm btn-outline-success ms-2" type="submit" name="add_compound_to_stack">Add Compound</button>
-            {% if form.errors %}
-              <div class="text-danger small ms-2">
-                {% for field, errs in form.errors.items %}
-                  {{ field }}: {{ errs.0 }}<br>
-                {% endfor %}
-              </div>
-            {% endif %}
-          {% endwith %}
-        </form>
+        <div class="card-footer mt-auto stack-card-footer">
+          <div class="d-flex flex-wrap gap-2 stack-actions">
+            <a class="btn btn-sm btn-primary" href="{% url 'stack_detail' stack.id %}">Open</a>
+            <a class="btn btn-sm btn-outline-info" target="_blank" rel="noopener noreferrer" href="{% url 'stack_share' stack.id %}" title="Share stack" aria-label="Share stack">
+              <i class="fas fa-share-alt"></i>
+            </a>
+            <form method="post" class="m-0">
+              {% csrf_token %}
+              <input type="hidden" name="stack_id" value="{{ stack.id }}">
+              <button class="btn btn-sm {% if stack.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %}" type="submit" name="toggle_stack_active">
+                {% if stack.is_active %}Stop{% else %}Run{% endif %}
+              </button>
+            </form>
+            <form method="post" class="m-0 d-flex gap-1 align-items-center stack-actions-form">
+              {% csrf_token %}
+              <input type="hidden" name="stack_id" value="{{ stack.id }}">
+              <select name="visibility" class="form-select form-select-sm" style="width: 120px;">
+                <option value="private" {% if stack.visibility == "private" %}selected{% endif %}>Private</option>
+                <option value="public" {% if stack.visibility == "public" %}selected{% endif %}>Public</option>
+                <option value="unlisted" {% if stack.visibility == "unlisted" %}selected{% endif %}>Unlisted</option>
+              </select>
+              <button class="btn btn-sm btn-outline-secondary" type="submit" name="set_stack_visibility">Save</button>
+            </form>
+            <form method="post" class="m-0" onsubmit="return confirm('Delete this stack and all its items?');">
+              {% csrf_token %}
+              <input type="hidden" name="stack_id" value="{{ stack.id }}">
+              <button class="btn btn-sm btn-outline-danger" type="submit" name="delete_stack">Delete</button>
+            </form>
+          </div>
+        </div>
       </div>
     {% endfor %}
   {% else %}

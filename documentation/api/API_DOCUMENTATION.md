@@ -372,6 +372,43 @@ Example:
 - **Retrieve/Update/Delete**: `GET/PUT/PATCH/DELETE /api/research/snippetcomment/{id}/`
 - **Filter by snippet**: `GET /api/research/snippetcomment/?snippet={snippet_id}`
 
+## Stacks App
+
+### Stack
+- **List/Create**: `GET/POST /api/stacks/stack/`
+- **Retrieve/Update/Delete**: `GET/PUT/PATCH/DELETE /api/stacks/stack/{id}/`
+
+Example:
+```json
+{
+    "id": 1,
+    "user": 1,
+    "name": "Daily Routine",
+    "created": "2025-08-07T12:00:00Z"
+}
+```
+
+### StackItem
+- **List/Create**: `GET/POST /api/stacks/stackitem/`
+- **Retrieve/Update/Delete**: `GET/PUT/PATCH/DELETE /api/stacks/stackitem/{id}/`
+- **Filter by stack**: `GET /api/stacks/stackitem/?stack={stack_id}`
+
+Example:
+```json
+{
+    "id": 10,
+    "stack": 1,
+    "compound": 5,
+    "dosage_amount": "50.00",
+    "intake_time": "2025-08-19T08:00:00Z",
+    "recurrence_interval": 1,
+    "recurrence_unit": "daily",
+    "notes": "Morning dose",
+    "completed": false,
+    "added": "2025-08-18T09:00:00Z"
+}
+```
+
 ## HTTP Status Codes
 
 - **200 OK**: Successful GET, PUT, PATCH

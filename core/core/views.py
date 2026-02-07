@@ -21,3 +21,7 @@ def effect_curves_demo(request):
 
 def credits(request):
     return render(request, "core/credits.html")
+
+
+def about(request):
+    return render(request, "core/about.html")

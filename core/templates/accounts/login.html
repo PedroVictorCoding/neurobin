@@ -1,10 +1,46 @@
 {% extends "base.html" %}
+{% block title %}Login — Neurobin{% endblock %}
 {% block content %}
-<h2>Login</h2>
-<form method="post">
-  {% csrf_token %}
-  {{ form.as_p }}
-  <button type="submit">Login</button>
-</form>
-<p>Don't have an account? <a href="{% url 'register' %}">Register here</a>.</p>
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-12 col-md-8 col-lg-5">
+      <div class="card border-0 shadow-lg bg-dark text-light">
+        <div class="card-body p-4 p-md-5">
+          <h2 class="h4 fw-bold mb-1 text-white">Welcome back</h2>
+          <p class="text-muted mb-4">Log in to manage stacks and track intake.</p>
+
+          {% if form.non_field_errors %}
+            <div class="alert alert-danger py-2">
+              {% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+            </div>
+          {% endif %}
+
+          <form method="post" novalidate>
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="form-label text-light" for="{{ form.username.id_for_label }}">Username</label>
+              {{ form.username }}
+              {% if form.username.errors %}
+                <div class="text-danger small mt-1">{% for error in form.username.errors %}{{ error }}{% endfor %}</div>
+              {% endif %}
+            </div>
+            <div class="mb-4">
+              <label class="form-label text-light" for="{{ form.password.id_for_label }}">Password</label>
+              {{ form.password }}
+              {% if form.password.errors %}
+                <div class="text-danger small mt-1">{% for error in form.password.errors %}{{ error }}{% endfor %}</div>
+              {% endif %}
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Log In</button>
+          </form>
+
+          <div class="text-center mt-4">
+            <span class="text-muted">Don’t have an account?</span>
+            <a href="{% url 'register' %}" class="text-info text-decoration-none">Create one</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

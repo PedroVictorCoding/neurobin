@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
 from .models import UserProfile
+from stacks.models import Stack
 
 class UserProfileInline(admin.StackedInline):
     model = UserProfile
@@ -10,8 +11,15 @@ class UserProfileInline(admin.StackedInline):
     verbose_name_plural = 'Profile'
     fields = ('profile_image', 'bio', 'location', 'website')
 
+class StackInline(admin.TabularInline):
+    model = Stack
+    extra = 0
+    fields = ('name', 'visibility', 'is_active', 'created')
+    readonly_fields = ('created',)
+
+
 class CustomUserAdmin(UserAdmin):
-    inlines = (UserProfileInline,)
+    inlines = (UserProfileInline, StackInline)
 
 # Unregister the default User admin and register our custom one
 admin.site.unregister(User)

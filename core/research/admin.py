@@ -9,7 +9,8 @@ from .models import (
     SnippetTagging,
     SnippetComment,
     UserRole,
-    ResearchSettings
+    ResearchSettings,
+    ResearchImportJob,
 )
 
 
@@ -205,6 +206,17 @@ class ResearchSettingsAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         # Don't allow deletion of settings
         return False
+
+
+@admin.register(ResearchImportJob)
+class ResearchImportJobAdmin(admin.ModelAdmin):
+    list_display = (
+        'compound', 'status', 'max_results', 'imported_count',
+        'requested_by', 'created_at', 'started_at', 'finished_at'
+    )
+    list_filter = ('status', 'created_at')
+    search_fields = ('compound__name', 'requested_by__username', 'query')
+    readonly_fields = ('imported_count', 'error_message', 'created_at', 'started_at', 'finished_at')
 
 
 @admin.register(SnippetComment)

@@ -1,0 +1,2 @@
+# Stacks app package marker.
+

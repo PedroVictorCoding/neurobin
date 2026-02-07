@@ -1,5 +1,4 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
@@ -7,16 +6,16 @@ from django.contrib import messages
 from django.db.models import Count, Q, Avg
 from research.models import ResearchSnippet, SnippetReview, SnippetComment
 from .models import UserProfile
-from .forms import UserProfileForm
+from .forms import StyledUserCreationForm, UserProfileForm
 
 def register(request):
     if request.method == 'POST':
-        form = UserCreationForm(request.POST)
+        form = StyledUserCreationForm(request.POST)
         if form.is_valid():
             form.save()
             return redirect('login')
     else:
-        form = UserCreationForm()
+        form = StyledUserCreationForm()
     return render(request, 'accounts/register.html', {'form': form})
 
 def custom_logout(request):

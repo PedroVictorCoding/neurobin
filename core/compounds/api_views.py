@@ -154,7 +154,7 @@ def compound_search_api(request):
     compounds = Compound.objects.filter(
         Q(name__icontains=query) |
         Q(aliases__icontains=query)
-    ).values('id', 'name', 'aliases')[:limit]
+    ).values('id', 'name', 'slug', 'aliases')[:limit]
     
     # Format results for dropdown
     results = []
@@ -162,8 +162,8 @@ def compound_search_api(request):
         results.append({
             'id': compound['id'],
             'name': compound['name'],
+            'slug': compound['slug'],
             'aliases': compound['aliases'] or ''
         })
     
     return Response({'compounds': results})
-
