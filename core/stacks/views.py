@@ -993,6 +993,7 @@ class StackShareView(TemplateView):
         context['stack_risk'] = risk_result.assessment
         context['share_url'] = self.request.build_absolute_uri()
         context['embed_url'] = self.request.build_absolute_uri(reverse('stack_share_embed', kwargs={'stack_id': stack.id}))
+        context['stack_detail_url'] = self.request.build_absolute_uri(reverse('stack_detail', kwargs={'stack_id': stack.id}))
         context['embed_description'] = _build_stack_embed_description(stack, items)
         return context
 
