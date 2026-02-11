@@ -242,6 +242,24 @@ class StackSharingAndScheduleTests(TestCase):
         self.assertEqual(resp3.status_code, 302)
         self.assertFalse(IntakeLog.objects.filter(user=self.other, stack_item_id=item.id, scheduled_for__isnull=False).exists())
 
+
+    def test_share_page_has_redirect_to_stack_detail_and_embed_description(self):
+        stack = Stack.objects.create(user=self.owner, name='Share Me', visibility='public')
+        StackItem.objects.create(
+            stack=stack,
+            compound=self.compound,
+            dosage_amount='100.00',
+            dosage_unit='mg',
+            recurrence_interval=1,
+            recurrence_unit='daily',
+            order=0,
+        )
+
+        resp = self.client.get(f'/stacks/share/{stack.id}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f'url=http://testserver/stacks/{stack.id}/')
+        self.assertContains(resp, 'Caffeine 100.00mg / q1d')
+
     def test_owner_can_delete_stackitem_via_api(self):
         stack = Stack.objects.create(user=self.other, name='S', is_active=False, visibility='private')
         item = StackItem.objects.create(stack=stack, compound=self.compound, recurrence_interval=1, recurrence_unit='daily')

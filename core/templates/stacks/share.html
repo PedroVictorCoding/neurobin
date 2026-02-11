@@ -4,10 +4,15 @@
 {% block meta_description1 %}{{ embed_description }}{% endblock %}
 {% block og_title %}{{ stack.name }} — Neurobin Stack{% endblock %}
 {% block og_description %}{{ embed_description }}{% endblock %}
+{% block og_type %}article{% endblock %}
 {% block og_image %}{{ request.scheme }}://{{ request.get_host }}{% static 'img/neurobin-og.png' %}{% endblock %}
 {% block twitter_title %}{{ stack.name }} — Neurobin Stack{% endblock %}
 {% block twitter_description %}{{ embed_description }}{% endblock %}
 {% block twitter_image %}{{ request.scheme }}://{{ request.get_host }}{% static 'img/neurobin-og.png' %}{% endblock %}
+{% block head_extra %}
+  <meta http-equiv="refresh" content="0; url={{ stack_detail_url }}">
+  <link rel="canonical" href="{{ stack_detail_url }}">
+{% endblock %}
 {% block content %}
 <div class="container py-4 stack-page">
   <div class="d-flex justify-content-between align-items-center mb-3 stack-header">
@@ -17,66 +22,32 @@
       <div class="text-muted small mt-1">By {{ stack.user.username }} • {{ items|length }} compounds</div>
     </div>
     <div class="d-flex gap-2 stack-actions">
-      <a class="btn btn-outline-info" href="{{ share_url }}" target="_blank" rel="noopener noreferrer">
-        <i class="fas fa-share-alt me-1"></i>Open
+      <a class="btn btn-primary" href="{{ stack_detail_url }}">
+        <i class="fas fa-arrow-right me-1"></i>Open Stack
       </a>
       <a class="btn btn-outline-secondary" href="{% url 'explore_stacks' %}">Explore Stacks</a>
     </div>
+  </div>
+
+  <div class="alert alert-info">
+    Redirecting to the stack page… If it doesn't open automatically,
+    <a href="{{ stack_detail_url }}" class="alert-link">click here</a>.
   </div>
 
   {% if stack.description %}
     <div class="alert alert-secondary">{{ stack.description }}</div>
   {% endif %}
 
-  {% if stack_risk %}
-    {% include "stacks/_risk_panel.html" %}
-  {% endif %}
-
-  <div class="card mb-3">
-    <div class="card-header d-flex justify-content-between align-items-center">
-      <div class="fw-bold">Embed</div>
-      <div class="text-muted small">Discord + web preview</div>
-    </div>
-    <div class="card-body">
-      <div class="mb-2 text-muted small">Share URL</div>
-      <input class="form-control mb-3" type="text" readonly value="{{ share_url }}">
-      <div class="mb-2 text-muted small">Embed URL</div>
-      <input class="form-control mb-3" type="text" readonly value="{{ embed_url }}">
-      <div class="mb-2 text-muted small">Iframe code</div>
-      <textarea class="form-control" rows="2" readonly><iframe src="{{ embed_url }}" title="{{ stack.name }} embed" width="100%" height="460" style="border:0;border-radius:12px;overflow:hidden;" loading="lazy"></iframe></textarea>
-    </div>
-  </div>
-
-  <div class="card mb-3">
-    <div class="card-header d-flex justify-content-between align-items-center">
-      <div class="fw-bold">Embed Preview</div>
-      <div class="text-muted small">Spotify-style list panel</div>
-    </div>
-    <div class="card-body p-2">
-      <iframe
-        src="{{ embed_url }}"
-        title="{{ stack.name }} embed preview"
-        width="100%"
-        height="460"
-        style="border:0;border-radius:12px;overflow:hidden;"
-        class="stack-embed-frame"
-        loading="lazy">
-      </iframe>
-    </div>
-  </div>
-
   <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-      <div class="fw-bold">Compounds</div>
-      <div class="text-muted small">Embeddable preview</div>
+      <div class="fw-bold">Embed Summary</div>
+      <div class="text-muted small">Used for Discord unfurls</div>
     </div>
     <ul class="list-group list-group-flush">
-      {% for item in items %}
+      {% for item in items|slice:":8" %}
         <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
           <div>
-            <strong>
-              <a class="text-decoration-none text-light" href="{% url 'compound_detail' item.compound.slug %}">{{ item.compound.name }}</a>
-            </strong>
+            <strong>{{ item.compound.name }}</strong>
             {% if item.notes %}
               <div class="text-muted small">{{ item.notes }}</div>
             {% endif %}
