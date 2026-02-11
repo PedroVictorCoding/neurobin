@@ -361,6 +361,8 @@ class StackDetailView(LoginRequiredMixin, TemplateView):
     template_name = 'stacks/stack_detail.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.stack = Stack.objects.filter(id=kwargs.get('stack_id'), user=request.user).first()
         if not self.stack:
             return redirect('my_stacks')
