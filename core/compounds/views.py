@@ -1,9 +1,11 @@
 import json
 import hashlib
+from io import StringIO
 from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 from django.shortcuts import render, get_object_or_404, redirect
 from django.db import models
 from django.db.models import Q, Count
+from django.core.management import call_command
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.http import JsonResponse
 from django.urls import reverse
@@ -26,11 +28,51 @@ from .models import (
 from .forms import CompoundForm, MechanismOfActionForm, CategoryForm, TargetForm
 
 
+def _push_recent_compound(request, compound):
+    recent = request.session.get("recent_compounds", [])
+    if not isinstance(recent, list):
+        recent = []
+    recent = [row for row in recent if row.get("slug") != compound.slug]
+    recent.insert(0, {"slug": compound.slug, "name": compound.name})
+    request.session["recent_compounds"] = recent[:8]
+
+
+def _prediction_map(prediction_obj):
+    if prediction_obj is None:
+        return {}
+    payload = getattr(prediction_obj, "predictions", None)
+    if isinstance(payload, dict):
+        return payload or {}
+    return {}
+
+
+def _merge_prediction_maps(
+    admet_predictions: dict,
+    molprop_predictions: dict,
+) -> tuple[dict, dict]:
+    """
+    Merge ADMET-AI + MolProp predictions for display.
+
+    ADMET-AI wins on key collisions because its endpoint naming is
+    currently the primary UI vocabulary.
+    """
+    merged = {}
+    sources = {}
+    for key, value in molprop_predictions.items():
+        merged[key] = value
+        sources[key] = "MolProp"
+    for key, value in admet_predictions.items():
+        merged[key] = value
+        sources[key] = "ADMET-AI"
+    return merged, sources
+
+
 def compound_detail(request, slug):
     compound = get_object_or_404(Compound, slug=slug)
     
     # Increment view count
     compound.increment_views()
+    _push_recent_compound(request, compound)
     
     #safety_report = CompoundSafetyScreening.objects.filter(compound=compound).order_by('-created_by').first()
     #safety_report = compound.compoundsafetyscreening_set.all()
@@ -123,6 +165,12 @@ def compound_detail(request, slug):
 
     admet_prediction = getattr(compound, "admet_ai_prediction", None)
     molprop_prediction = getattr(compound, "molprop_prediction", None)
+    admet_predictions = _prediction_map(admet_prediction)
+    molprop_predictions = _prediction_map(molprop_prediction)
+    merged_predictions, merged_prediction_sources = _merge_prediction_maps(
+        admet_predictions,
+        molprop_predictions,
+    )
     smiles_hash = (
         hashlib.sha256(compound.smiles.encode("utf-8")).hexdigest()
         if compound.smiles
@@ -142,12 +190,12 @@ def compound_detail(request, slug):
         primary_predictions = {}
         secondary_predictions = {}
         secondary_label = "MolProp"
-        if admet_prediction and isinstance(getattr(admet_prediction, "predictions", None), dict):
-            primary_predictions = admet_prediction.predictions or {}
-            secondary_predictions = (molprop_prediction.predictions if molprop_prediction else {}) or {}
+        if admet_predictions:
+            primary_predictions = dict(merged_predictions)
+            secondary_predictions = dict(molprop_predictions)
             secondary_label = "MolProp"
-        elif molprop_prediction and isinstance(getattr(molprop_prediction, "predictions", None), dict):
-            primary_predictions = molprop_prediction.predictions or {}
+        elif molprop_predictions:
+            primary_predictions = dict(molprop_predictions)
             secondary_predictions = {}
             secondary_label = "ADMET-AI"
 
@@ -187,6 +235,13 @@ def compound_detail(request, slug):
         'admet_ai_available': admet_ai_available,
         'admet_ai_prediction': admet_prediction,
         'admet_ai_prediction_is_stale': admet_prediction_is_stale,
+        'admet_panel_predictions': merged_predictions,
+        'admet_panel_prediction_sources': merged_prediction_sources,
+        'admet_panel_source_payload': {
+            'admet_predictions': admet_predictions,
+            'molprop_predictions': molprop_predictions,
+            'molprop_uncertainty': getattr(molprop_prediction, "uncertainty", {}) if molprop_prediction else {},
+        },
         'admet_ai_refresh_url': reverse('compound_admet_ai_refresh', kwargs={'slug': compound.slug}),
         'admet_ai_status': request.GET.get('admet', ''),
         'admet_ai_autoload': admet_ai_autoload,
@@ -199,6 +254,7 @@ def compound_detail(request, slug):
         'molprop_unavailable_reason': molprop_unavailable_reason,
         'admet_ai_mechanisms': admet_ai_mechanisms,
         'admet_ai_mechanism_context': admet_ai_mechanism_context,
+        'research_import_status': request.GET.get('research_import', ''),
     }
 
     return render(request, 'compounds/compound_detail.html', context)
@@ -317,16 +373,92 @@ def compound_molprop_refresh(request, slug):
         return redirect(_append_query_params(next_url, {"molprop": "error"}))
 
 
+@require_POST
+@user_passes_test(is_staff_user)
+def queue_compound_research_import(request, slug):
+    compound = get_object_or_404(Compound, slug=slug)
+
+    next_url = request.POST.get("next") or reverse("compound_detail", kwargs={"slug": slug})
+    if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        next_url = reverse("compound_detail", kwargs={"slug": slug})
+
+    from research.models import ResearchImportJob
+
+    has_existing_job = ResearchImportJob.objects.filter(
+        compound=compound,
+        status__in=["queued", "running"],
+    ).exists()
+    if has_existing_job:
+        return redirect(_append_query_params(next_url, {"research_import": "exists"}))
+
+    ResearchImportJob.objects.create(
+        compound=compound,
+        requested_by=request.user,
+        status="queued",
+        max_results=10,
+    )
+    return redirect(_append_query_params(next_url, {"research_import": "queued"}))
+
+
 @user_passes_test(is_staff_user)
 def add_compound(request):
+    chembl_import_id = ''
+    chembl_import_message = ''
+    chembl_import_message_type = 'danger'
+    chembl_import_output = ''
+
     if request.method == 'POST':
+        if request.POST.get('quick_import_chembl'):
+            chembl_import_id = (request.POST.get('chembl_import_id') or '').strip().upper()
+            form = CompoundForm()
+
+            if not chembl_import_id:
+                chembl_import_message = 'Enter a CHEMBL ID to import.'
+            elif not chembl_import_id.startswith('CHEMBL'):
+                chembl_import_message = 'CHEMBL ID must start with "CHEMBL" (example: CHEMBL25).'
+            else:
+                out = StringIO()
+                try:
+                    call_command(
+                        'import_chembl_interactions',
+                        compounds=chembl_import_id,
+                        batch_size=1,
+                        create_compound_interactions=False,
+                        stdout=out,
+                        stderr=out,
+                    )
+                except Exception as exc:
+                    chembl_import_message = f'Failed to import {chembl_import_id}: {exc}'
+                    chembl_import_output = out.getvalue().strip()
+                else:
+                    imported = Compound.objects.filter(chembl_id__iexact=chembl_import_id).first()
+                    if imported:
+                        return redirect('compound_detail', slug=imported.slug)
+                    chembl_import_message = f'Import completed but no compound with {chembl_import_id} was created.'
+                    chembl_import_message_type = 'warning'
+                    chembl_import_output = out.getvalue().strip()
+
+            return render(request, 'compounds/add_compound.html', {
+                'form': form,
+                'chembl_import_id': chembl_import_id,
+                'chembl_import_message': chembl_import_message,
+                'chembl_import_message_type': chembl_import_message_type,
+                'chembl_import_output': chembl_import_output,
+            })
+
         form = CompoundForm(request.POST)
         if form.is_valid():
             compound = form.save()
             return redirect('compound_detail', slug=compound.slug)
     else:
         form = CompoundForm()
-    return render(request, 'compounds/add_compound.html', {'form': form})
+    return render(request, 'compounds/add_compound.html', {
+        'form': form,
+        'chembl_import_id': chembl_import_id,
+        'chembl_import_message': chembl_import_message,
+        'chembl_import_message_type': chembl_import_message_type,
+        'chembl_import_output': chembl_import_output,
+    })
 
 
 

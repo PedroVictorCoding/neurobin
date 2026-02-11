@@ -116,11 +116,15 @@
 
     {% if not compound.smiles %}
       <div class="text-muted">Add a SMILES string to enable ADMET-AI predictions.</div>
-    {% elif admet_ai_prediction %}
+    {% elif admet_ai_prediction or molprop_prediction %}
       <div class="d-flex flex-wrap gap-3 text-muted mb-3" style="font-size: 0.9rem;">
-        <div><strong class="text-light">Computed:</strong> {{ admet_ai_prediction.computed_at|date:"Y-m-d H:i" }}</div>
-        {% if admet_ai_prediction.model_version %}
-          <div><strong class="text-light">Model:</strong> {{ admet_ai_prediction.model_version }}</div>
+        {% if admet_ai_prediction %}
+          <div><strong class="text-light">ADMET-AI:</strong> {{ admet_ai_prediction.computed_at|date:"Y-m-d H:i" }}</div>
+          {% if admet_ai_prediction.model_version %}
+            <div><strong class="text-light">ADMET model:</strong> {{ admet_ai_prediction.model_version }}</div>
+          {% endif %}
+        {% elif admet_ai_available %}
+          <div class="text-muted"><strong class="text-light">ADMET-AI:</strong> not cached yet</div>
         {% endif %}
         {% if admet_ai_prediction_is_stale %}
           <div class="text-warning"><i class="fas fa-triangle-exclamation"></i> Stale (SMILES changed)</div>
@@ -132,8 +136,10 @@
         {% endif %}
       </div>
 
-      {% if admet_ai_prediction.predictions %}
-        {{ admet_ai_prediction.predictions|json_script:"admetAiPredictions" }}
+      {% if admet_panel_predictions %}
+        {{ admet_panel_predictions|json_script:"admetAiPredictions" }}
+        {{ admet_panel_prediction_sources|json_script:"admetAiPredictionSources" }}
+        {{ admet_panel_source_payload|json_script:"admetAiSourcePayload" }}
 
         <style>
           .admet-ai-chart-wrap {
@@ -176,6 +182,23 @@
           .admet-ai-table-card .table {
             margin-bottom: 0;
           }
+          .admet-summary-card {
+            background: rgba(0,0,0,0.12);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px;
+            padding: 10px 12px;
+          }
+          .admet-summary-card .admet-summary-label {
+            color: rgba(255,255,255,0.72);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+          }
+          .admet-summary-card .admet-summary-value {
+            color: #fff;
+            font-size: 1.05rem;
+            font-weight: 600;
+          }
         </style>
 
         <div id="admetAiGraphsWrap" class="mt-3">
@@ -185,6 +208,26 @@
             </div>
           </div>
           <div id="admetAiContext" class="text-muted mb-3" style="font-size: 0.95rem;"></div>
+          <div class="row g-2 mb-3" id="admetAiSummaryWrap">
+            <div class="col-12 col-md-4">
+              <div class="admet-summary-card">
+                <div class="admet-summary-label">Predicted Toxicity Class</div>
+                <div class="admet-summary-value" id="admetAiMetricToxClass">N/A</div>
+              </div>
+            </div>
+            <div class="col-12 col-md-4">
+              <div class="admet-summary-card">
+                <div class="admet-summary-label">Average Similarity</div>
+                <div class="admet-summary-value" id="admetAiMetricSimilarity">N/A</div>
+              </div>
+            </div>
+            <div class="col-12 col-md-4">
+              <div class="admet-summary-card">
+                <div class="admet-summary-label">Prediction Accuracy</div>
+                <div class="admet-summary-value" id="admetAiMetricAccuracy">N/A</div>
+              </div>
+            </div>
+          </div>
           <div class="text-muted mb-2" style="font-size: 0.85rem;">
             Tip: hover a bar for what the endpoint means.
           </div>
@@ -229,7 +272,7 @@
             <div class="col-12" id="admetAiCardOrgan">
               <div class="border border-secondary rounded p-3" style="background: rgba(0,0,0,0.15);">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                  <div class="fw-semibold text-white">Organ/System Risk (proxy endpoints)</div>
+                  <div class="fw-semibold text-white">Organ/System Interaction (proxy endpoints)</div>
                   <div class="text-muted" style="font-size: 0.85rem;">0 → 1 (higher signal)</div>
                 </div>
                 <div class="admet-ai-chart-wrap" style="height: 300px;">
@@ -268,6 +311,27 @@
                   <tr>
                     <th scope="col" style="width: 55%;">Endpoint</th>
                     <th scope="col">Prediction</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="mt-3" id="admetAiProToxWrap" style="display: none;">
+            <div class="fw-semibold text-white mb-2">
+              <i class="fas fa-shield-virus text-info"></i> ProTox-style Endpoint Summary
+            </div>
+            <div class="table-responsive"
+                 style="max-height: 320px; overflow-y: auto; border: 1px solid #495057; border-radius: 8px;">
+              <table class="table table-dark table-striped table-hover table-sm mb-0" style="font-size: 0.84rem;" id="admetAiProToxTable">
+                <thead class="sticky-top">
+                  <tr>
+                    <th scope="col">Classification</th>
+                    <th scope="col">Target</th>
+                    <th scope="col">Shorthand</th>
+                    <th scope="col">Prediction</th>
+                    <th scope="col">Probability</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -373,6 +437,195 @@
               } catch (e) {
                 return String(value);
               }
+            }
+
+            function parseJsonScript(id, fallback) {
+              const el = document.getElementById(id);
+              if (!el) return fallback;
+              try {
+                return JSON.parse(el.textContent || '{}');
+              } catch (e) {
+                return fallback;
+              }
+            }
+
+            function toProbability(value) {
+              const n = toNumber(value);
+              if (n === null) return null;
+              if (n >= 0 && n <= 1) return n;
+              if (n >= 0 && n <= 100) return n / 100;
+              return null;
+            }
+
+            function formatPercent(value) {
+              const prob = toProbability(value);
+              if (prob === null) return 'N/A';
+              return `${(prob * 100).toFixed(0)}%`;
+            }
+
+            function readMetricFromObject(obj, keys) {
+              if (!obj || typeof obj !== 'object') return null;
+              const keyIndex = buildKeyIndex(obj);
+              for (const key of keys || []) {
+                if (Object.prototype.hasOwnProperty.call(obj, key)) return obj[key];
+                const lower = String(key).toLowerCase();
+                if (keyIndex.has(lower)) return obj[keyIndex.get(lower)];
+                const norm = normalizeKey(key);
+                if (keyIndex.has(norm)) return obj[keyIndex.get(norm)];
+              }
+              return null;
+            }
+
+            function getSummaryMetrics(predictions, sourcePayload) {
+              const metricSources = [
+                sourcePayload,
+                sourcePayload && sourcePayload.molprop_predictions,
+                sourcePayload && sourcePayload.admet_predictions,
+                sourcePayload && sourcePayload.molprop_uncertainty,
+                predictions,
+              ];
+
+              function firstMetric(keys) {
+                for (const src of metricSources) {
+                  const found = readMetricFromObject(src, keys);
+                  if (found !== null && found !== undefined && found !== '') return found;
+                }
+                return null;
+              }
+
+              const toxClassRaw = firstMetric([
+                'predicted_toxicity_class',
+                'toxicity_class',
+                'tox_class',
+                'protox_class',
+                'predicted_class',
+              ]);
+              const similarityRaw = firstMetric([
+                'average_similarity',
+                'avg_similarity',
+                'mean_similarity',
+                'similarity',
+              ]);
+              const accuracyRaw = firstMetric([
+                'prediction_accuracy',
+                'avg_prediction_accuracy',
+                'average_accuracy',
+                'accuracy',
+                'model_accuracy',
+              ]);
+
+              let toxClass = 'N/A';
+              const toxClassNumber = toNumber(toxClassRaw);
+              if (toxClassNumber !== null) {
+                const rounded = Math.round(toxClassNumber);
+                if (rounded >= 1 && rounded <= 6) toxClass = String(rounded);
+              } else if (typeof toxClassRaw === 'string' && toxClassRaw.trim()) {
+                toxClass = toxClassRaw.trim();
+              }
+
+              return {
+                toxClass,
+                similarity: formatPercent(similarityRaw),
+                accuracy: formatPercent(accuracyRaw),
+              };
+            }
+
+            function setSummaryMetrics(predictions, sourcePayload) {
+              const toxClassEl = document.getElementById('admetAiMetricToxClass');
+              const similarityEl = document.getElementById('admetAiMetricSimilarity');
+              const accuracyEl = document.getElementById('admetAiMetricAccuracy');
+              if (!toxClassEl || !similarityEl || !accuracyEl) return;
+              const metrics = getSummaryMetrics(predictions, sourcePayload);
+              toxClassEl.textContent = metrics.toxClass;
+              similarityEl.textContent = metrics.similarity;
+              accuracyEl.textContent = metrics.accuracy;
+            }
+
+            function extractProbabilityFromRaw(raw) {
+              if (raw && typeof raw === 'object') {
+                const candidates = [
+                  raw.probability,
+                  raw.prob,
+                  raw.confidence,
+                  raw.score,
+                  raw.value,
+                  raw.prediction,
+                ];
+                for (const c of candidates) {
+                  const p = toProbability(c);
+                  if (p !== null) return p;
+                }
+              }
+              return toProbability(raw);
+            }
+
+            function extractPredictionLabel(raw) {
+              if (raw && typeof raw === 'object') {
+                const maybe = raw.prediction ?? raw.label ?? raw.classification ?? raw.state;
+                if (typeof maybe === 'string') {
+                  const s = maybe.trim();
+                  if (s) return s;
+                }
+              }
+              if (typeof raw === 'string') {
+                const s = raw.trim();
+                if (s) return s;
+              }
+              return '';
+            }
+
+            function normalizeActiveAverage(obj) {
+              if (!obj || typeof obj !== 'object') return null;
+              const fields = [
+                'active_average',
+                'average_active',
+                'avg_active',
+                'active_class_average',
+                'average_for_active_molecules',
+                'class_average',
+                'mean_active',
+              ];
+              for (const field of fields) {
+                if (!Object.prototype.hasOwnProperty.call(obj, field)) continue;
+                const p = toProbability(obj[field]);
+                if (p !== null) return p;
+              }
+              return null;
+            }
+
+            function lookupActiveAverage(predictions, endpointKey) {
+              const raw = predictions ? predictions[endpointKey] : null;
+              if (raw && typeof raw === 'object') {
+                const direct = normalizeActiveAverage(raw);
+                if (direct !== null) return direct;
+                const meta = raw.meta || raw.metadata || raw.info;
+                const metaAvg = normalizeActiveAverage(meta);
+                if (metaAvg !== null) return metaAvg;
+              }
+
+              const metaByEndpoint = extractMetaMap(predictions);
+              if (metaByEndpoint && typeof metaByEndpoint === 'object') {
+                const meta = lookupMeta(metaByEndpoint, endpointKey, [endpointKey]);
+                const metaAvg = normalizeActiveAverage(meta);
+                if (metaAvg !== null) return metaAvg;
+              }
+
+              const suffixes = [
+                '_active_average',
+                '_average_active',
+                '_avg_active',
+                '_active_class_average',
+                '_class_average',
+                '_mean_active',
+              ];
+              for (const suffix of suffixes) {
+                const directKey = `${endpointKey}${suffix}`;
+                if (Object.prototype.hasOwnProperty.call(predictions || {}, directKey)) {
+                  const p = toProbability(predictions[directKey]);
+                  if (p !== null) return p;
+                }
+              }
+              return null;
             }
 
             function categorizeEndpoint(key) {
@@ -780,6 +1033,113 @@
               }
             }
 
+            function renderProToxTable(predictions) {
+              const wrap = document.getElementById('admetAiProToxWrap');
+              const table = document.getElementById('admetAiProToxTable');
+              if (!wrap || !table) return;
+              const tbody = table.querySelector('tbody');
+              if (!tbody) return;
+
+              const rows = [
+                { group: 'Organ toxicity', target: 'Hepatotoxicity', shorthand: 'dili', keys: ['dili', 'DILI', 'Drug_Induced_Liver_Injury'] },
+                { group: 'Organ toxicity', target: 'Neurotoxicity', shorthand: 'neuro', keys: ['neuro', 'neurotoxicity'] },
+                { group: 'Organ toxicity', target: 'Nephrotoxicity', shorthand: 'nephro', keys: ['nephro', 'nephrotoxicity'] },
+                { group: 'Organ toxicity', target: 'Respiratory toxicity', shorthand: 'respi', keys: ['respi', 'respiratory_toxicity'] },
+                { group: 'Organ toxicity', target: 'Cardiotoxicity', shorthand: 'cardio', keys: ['cardio', 'cardiotoxicity', 'hERG', 'Herg'] },
+                { group: 'Toxicity end points', target: 'Carcinogenicity', shorthand: 'carcino', keys: ['carcino', 'carcinogenicity', 'Carcinogens_Lagunin'] },
+                { group: 'Toxicity end points', target: 'Immunotoxicity', shorthand: 'immuno', keys: ['immuno', 'immunotoxicity'] },
+                { group: 'Toxicity end points', target: 'Mutagenicity', shorthand: 'mutagen', keys: ['mutagen', 'mutagenicity', 'AMES', 'Ames'] },
+                { group: 'Toxicity end points', target: 'Cytotoxicity', shorthand: 'cyto', keys: ['cyto', 'cytotoxicity'] },
+                { group: 'Toxicity end points', target: 'BBB-barrier', shorthand: 'bbb', keys: ['bbb', 'BBB_Martins', 'Blood_Brain_Barrier'] },
+                { group: 'Toxicity end points', target: 'Ecotoxicity', shorthand: 'eco', keys: ['eco', 'ecotoxicity'] },
+                { group: 'Toxicity end points', target: 'Clinical toxicity', shorthand: 'clinical', keys: ['clinical', 'ClinTox', 'Clinical_Toxicity'] },
+                { group: 'Toxicity end points', target: 'Nutritional toxicity', shorthand: 'nutri', keys: ['nutri', 'nutritional_toxicity'] },
+                { group: 'Tox21-Nuclear receptor signalling pathways', target: 'Aryl hydrocarbon Receptor (AhR)', shorthand: 'nr_ahr', keys: ['nr_ahr', 'NR-AhR', 'NR_AhR'] },
+                { group: 'Tox21-Nuclear receptor signalling pathways', target: 'Androgen Receptor (AR)', shorthand: 'nr_ar', keys: ['nr_ar', 'NR-AR', 'NR_AR'] },
+                { group: 'Tox21-Nuclear receptor signalling pathways', target: 'Androgen Receptor Ligand Binding Domain (AR-LBD)', shorthand: 'nr_ar_lbd', keys: ['nr_ar_lbd', 'NR-AR-LBD', 'NR_AR_LBD'] },
+                { group: 'Tox21-Nuclear receptor signalling pathways', target: 'Aromatase', shorthand: 'nr_aromatase', keys: ['nr_aromatase', 'NR-Aromatase', 'NR_Aromatase'] },
+                { group: 'Tox21-Nuclear receptor signalling pathways', target: 'Estrogen Receptor Alpha (ER)', shorthand: 'nr_er', keys: ['nr_er', 'NR-ER', 'NR_ER'] },
+                { group: 'Tox21-Nuclear receptor signalling pathways', target: 'Estrogen Receptor Ligand Binding Domain (ER-LBD)', shorthand: 'nr_er_lbd', keys: ['nr_er_lbd', 'NR-ER-LBD', 'NR_ER_LBD'] },
+                { group: 'Tox21-Nuclear receptor signalling pathways', target: 'Peroxisome Proliferator Activated Receptor Gamma (PPAR-Gamma)', shorthand: 'nr_ppar_gamma', keys: ['nr_ppar_gamma', 'NR-PPAR-gamma', 'NR_PPAR_gamma'] },
+                { group: 'Tox21-Stress response pathways', target: 'Nuclear factor (erythroid-derived 2)-like 2/antioxidant responsive element (nrf2/ARE)', shorthand: 'sr_are', keys: ['sr_are', 'SR-ARE', 'SR_ARE'] },
+                { group: 'Tox21-Stress response pathways', target: 'Heat shock factor response element (HSE)', shorthand: 'sr_hse', keys: ['sr_hse', 'SR-HSE', 'SR_HSE'] },
+                { group: 'Tox21-Stress response pathways', target: 'Mitochondrial Membrane Potential (MMP)', shorthand: 'sr_mmp', keys: ['sr_mmp', 'SR-MMP', 'SR_MMP'] },
+                { group: 'Tox21-Stress response pathways', target: 'Phosphoprotein (Tumor Supressor) p53', shorthand: 'sr_p53', keys: ['sr_p53', 'SR-p53', 'SR_p53'] },
+                { group: 'Tox21-Stress response pathways', target: 'ATPase family AAA domain-containing protein 5 (ATAD5)', shorthand: 'sr_atad5', keys: ['sr_atad5', 'SR-ATAD5', 'SR_ATAD5'] },
+                { group: 'Molecular Initiating Events', target: 'Thyroid hormone receptor alpha (THRα)', shorthand: 'mie_thr_alpha', keys: ['mie_thr_alpha', 'thr_alpha'] },
+                { group: 'Molecular Initiating Events', target: 'Thyroid hormone receptor beta (THRβ)', shorthand: 'mie_thr_beta', keys: ['mie_thr_beta', 'thr_beta'] },
+                { group: 'Molecular Initiating Events', target: 'Transtyretrin (TTR)', shorthand: 'mie_ttr', keys: ['mie_ttr', 'ttr'] },
+                { group: 'Molecular Initiating Events', target: 'Ryanodine receptor (RYR)', shorthand: 'mie_ryr', keys: ['mie_ryr', 'ryr'] },
+                { group: 'Molecular Initiating Events', target: 'GABA receptor (GABAR)', shorthand: 'mie_gabar', keys: ['mie_gabar', 'gabar'] },
+                { group: 'Molecular Initiating Events', target: 'Glutamate N-methyl-D-aspartate receptor (NMDAR)', shorthand: 'mie_nmdar', keys: ['mie_nmdar', 'nmdar'] },
+                { group: 'Molecular Initiating Events', target: 'alpha-amino-3-hydroxy-5-methyl-4-isoxazolepropionate receptor (AMPAR)', shorthand: 'mie_ampar', keys: ['mie_ampar', 'ampar'] },
+                { group: 'Molecular Initiating Events', target: 'Kainate receptor (KAR)', shorthand: 'mie_kar', keys: ['mie_kar', 'kar'] },
+                { group: 'Molecular Initiating Events', target: 'Achetylcholinesterase (AChE)', shorthand: 'mie_ache', keys: ['mie_ache', 'ache'] },
+                { group: 'Molecular Initiating Events', target: 'Constitutive androstane receptor (CAR)', shorthand: 'mie_car', keys: ['mie_car', 'car'] },
+                { group: 'Molecular Initiating Events', target: 'Pregnane X receptor (PXR)', shorthand: 'mie_pxr', keys: ['mie_pxr', 'pxr'] },
+                { group: 'Molecular Initiating Events', target: 'NADH-quinone oxidoreductase (NADHOX)', shorthand: 'mie_nadhox', keys: ['mie_nadhox', 'nadhox'] },
+                { group: 'Molecular Initiating Events', target: 'Voltage gated sodium channel (VGSC)', shorthand: 'mie_vgsc', keys: ['mie_vgsc', 'vgsc'] },
+                { group: 'Molecular Initiating Events', target: 'Na+/I- symporter (NIS)', shorthand: 'mie_nis', keys: ['mie_nis', 'nis'] },
+                { group: 'Metabolism', target: 'Cytochrome CYP1A2', shorthand: 'CYP1A2', keys: ['CYP1A2', 'CYP1A2_Veith', 'cyp1a2'] },
+                { group: 'Metabolism', target: 'Cytochrome CYP2C19', shorthand: 'CYP2C19', keys: ['CYP2C19', 'CYP2C19_Veith', 'cyp2c19'] },
+                { group: 'Metabolism', target: 'Cytochrome CYP2C9', shorthand: 'CYP2C9', keys: ['CYP2C9', 'CYP2C9_Veith', 'cyp2c9'] },
+                { group: 'Metabolism', target: 'Cytochrome CYP2D6', shorthand: 'CYP2D6', keys: ['CYP2D6', 'CYP2D6_Veith', 'cyp2d6'] },
+                { group: 'Metabolism', target: 'Cytochrome CYP3A4', shorthand: 'CYP3A4', keys: ['CYP3A4', 'CYP3A4_Veith', 'cyp3a4'] },
+                { group: 'Metabolism', target: 'Cytochrome CYP2E1', shorthand: 'CYP2E1', keys: ['CYP2E1', 'cyp2e1'] },
+              ];
+
+              const keyIndex = buildKeyIndex(predictions || {});
+              tbody.innerHTML = '';
+              let availableCount = 0;
+
+              for (const row of rows) {
+                const resolved = resolvePrediction(predictions || {}, keyIndex, row.keys || []);
+                const raw = resolved.raw;
+                const probability = extractProbabilityFromRaw(raw);
+                const rawLabel = extractPredictionLabel(raw).toLowerCase();
+                let predictionLabel = 'Unknown';
+                if (rawLabel.includes('active') || rawLabel === '1' || rawLabel === 'true' || rawLabel === 'positive') {
+                  predictionLabel = 'Active';
+                } else if (rawLabel.includes('inactive') || rawLabel === '0' || rawLabel === 'false' || rawLabel === 'negative') {
+                  predictionLabel = 'Inactive';
+                } else if (probability !== null) {
+                  predictionLabel = probability >= 0.5 ? 'Active' : 'Inactive';
+                }
+
+                if (probability !== null || predictionLabel !== 'Unknown') {
+                  availableCount += 1;
+                }
+
+                const tr = document.createElement('tr');
+                const tdGroup = document.createElement('td');
+                tdGroup.textContent = row.group;
+                tr.appendChild(tdGroup);
+
+                const tdTarget = document.createElement('td');
+                tdTarget.textContent = row.target;
+                tr.appendChild(tdTarget);
+
+                const tdShort = document.createElement('td');
+                tdShort.textContent = row.shorthand;
+                tr.appendChild(tdShort);
+
+                const tdPred = document.createElement('td');
+                tdPred.textContent = predictionLabel;
+                tdPred.className = predictionLabel === 'Active'
+                  ? 'text-warning fw-semibold'
+                  : (predictionLabel === 'Inactive' ? 'text-success fw-semibold' : 'text-muted');
+                tr.appendChild(tdPred);
+
+                const tdProb = document.createElement('td');
+                tdProb.textContent = probability === null ? 'N/A' : probability.toFixed(2);
+                tr.appendChild(tdProb);
+
+                tbody.appendChild(tr);
+              }
+
+              wrap.style.display = availableCount > 0 ? '' : 'none';
+            }
+
             function chartBarHorizontal(canvasId, title, entries, color) {
               const canvas = document.getElementById(canvasId);
               if (!canvas) return null;
@@ -851,32 +1211,47 @@
               });
             }
 
-            function chartRadar(canvasId, title, labels, values, metaByLabel) {
+            function chartRadar(canvasId, title, labels, values, metaByLabel, secondaryValues, secondaryLabel) {
               const canvas = document.getElementById(canvasId);
               if (!canvas) return null;
               const ctx = canvas.getContext('2d');
+              const datasets = [{
+                label: title,
+                data: values,
+                fill: true,
+                backgroundColor: 'rgba(0, 245, 255, 0.12)',
+                borderColor: 'rgba(0, 245, 255, 0.55)',
+                pointBackgroundColor: 'rgba(0, 245, 255, 0.7)',
+                pointBorderColor: 'rgba(255,255,255,0.2)',
+                pointHoverBackgroundColor: '#fff',
+                pointHoverBorderColor: 'rgba(0, 245, 255, 0.9)',
+              }];
+              const hasSecondary = Array.isArray(secondaryValues) && secondaryValues.length === labels.length;
+              if (hasSecondary) {
+                datasets.push({
+                  label: secondaryLabel || 'Average active molecules/class',
+                  data: secondaryValues,
+                  fill: true,
+                  backgroundColor: 'rgba(255, 153, 0, 0.25)',
+                  borderColor: 'rgba(255, 153, 0, 0.85)',
+                  pointBackgroundColor: 'rgba(255, 153, 0, 1)',
+                  pointBorderColor: 'rgba(255,255,255,0.25)',
+                  pointHoverBackgroundColor: '#fff',
+                  pointHoverBorderColor: 'rgba(255, 153, 0, 1)',
+                });
+              }
 
               return new Chart(ctx, {
                 type: 'radar',
                 data: {
                   labels,
-                  datasets: [{
-                    label: title,
-                    data: values,
-                    fill: true,
-                    backgroundColor: 'rgba(0, 245, 255, 0.12)',
-                    borderColor: 'rgba(0, 245, 255, 0.55)',
-                    pointBackgroundColor: 'rgba(0, 245, 255, 0.7)',
-                    pointBorderColor: 'rgba(255,255,255,0.2)',
-                    pointHoverBackgroundColor: '#fff',
-                    pointHoverBorderColor: 'rgba(0, 245, 255, 0.9)',
-                  }]
+                  datasets,
                 },
                 options: {
                   responsive: true,
                   maintainAspectRatio: false,
                   plugins: {
-                    legend: { display: false },
+                    legend: { display: hasSecondary },
                     tooltip: {
                       callbacks: {
                         title: function(items) {
@@ -889,7 +1264,7 @@
                           const meta = metaByLabel ? metaByLabel[label] : null;
                           const score = (typeof v === 'number') ? v.toFixed(3) : String(v);
                           const ep = meta && meta.endpoint ? ` (${meta.endpoint})` : '';
-                          return `Score${ep}: ${score}`;
+                          return `${context.dataset && context.dataset.label ? context.dataset.label : 'Score'}${ep}: ${score}`;
                         },
                         afterLabel: function(context) {
                           const label = String(context.label);
@@ -967,15 +1342,15 @@
               const dataEl = document.getElementById('admetAiPredictions');
               if (!dataEl) return;
 
-              let predictions;
-              try {
-                predictions = JSON.parse(dataEl.textContent || '{}');
-              } catch (e) {
-                return;
-              }
+              const predictions = parseJsonScript('admetAiPredictions', {});
+              const predictionSources = parseJsonScript('admetAiPredictionSources', {});
+              const sourcePayload = parseJsonScript('admetAiSourcePayload', {});
+              if (!predictions || typeof predictions !== 'object') return;
 
+              setSummaryMetrics(predictions, sourcePayload);
               setContextText(predictions);
               renderAdmetTables(predictions);
+              renderProToxTable(predictions);
 
               // Toxicology: choose known high-signal endpoints if present; otherwise keyword match.
               const toxKeys = new Set(['DILI', 'AMES', 'ClinTox', 'Carcinogens_Lagunin', 'hERG', 'Herg']);
@@ -1062,6 +1437,13 @@
                     const tdV = document.createElement('td');
                     tdV.style.wordBreak = 'break-word';
                     tdV.textContent = formatValue(r.raw);
+                    const source = predictionSources && predictionSources[r.key] ? String(predictionSources[r.key]) : '';
+                    if (source) {
+                      const badge = document.createElement('span');
+                      badge.className = source === 'ADMET-AI' ? 'badge bg-info text-dark ms-2' : 'badge bg-secondary ms-2';
+                      badge.textContent = source;
+                      tdV.appendChild(badge);
+                    }
                     tr.appendChild(tdK);
                     tr.appendChild(tdV);
                     tbody.appendChild(tr);
@@ -1082,36 +1464,34 @@
               }
 
               const wrap = document.getElementById('admetAiGraphsWrap');
-              if (wrap && !tox.length && !abs.length && !cyp.length) {
-                wrap.style.display = 'none';
-              }
-
               // Organ/system proxy chart
               const organCard = document.getElementById('admetAiCardOrgan');
               const organCanvas = document.getElementById('admetAiChartOrgan');
+              let hasOrganChart = false;
               if (organCard && organCanvas) {
                 const organDefs = [
-                  { label: 'Liver', keys: ['DILI'], description: 'Drug-induced liver injury likelihood (higher = more risk).' },
-                  { label: 'Heart', keys: [], regex: /herg/i, description: 'hERG/cardiotoxicity proxy if present (higher = more risk).' },
-                  { label: 'Genotoxic', keys: ['AMES'], description: 'Mutagenicity (Ames) signal (higher = more risk).' },
-                  { label: 'Cancer', keys: ['Carcinogens_Lagunin'], description: 'Carcinogenicity signal (higher = more risk).' },
-                  { label: 'Clinical', keys: ['ClinTox'], description: 'Clinical toxicity likelihood (higher = more risk).' },
-                  { label: 'Endocrine', keys: [], regex: /^(NR-|SR-)/i, description: 'Endocrine/stress-response assay activity proxy (higher = stronger signal).' },
-                  { label: 'CNS', keys: ['BBB_Martins'], description: 'BBB permeability (proxy for CNS exposure; not damage).' },
+                  { label: 'Liver', keys: ['DILI', 'dili'], description: 'Drug-induced liver injury likelihood (higher = more risk).' },
+                  { label: 'Heart', keys: ['cardio', 'cardiotoxicity'], regex: /herg|cardio/i, description: 'hERG/cardiotoxicity proxy if present (higher = more risk).' },
+                  { label: 'Genotoxic', keys: ['AMES', 'mutagen', 'mutagenicity'], description: 'Mutagenicity signal (higher = more risk).' },
+                  { label: 'Cancer', keys: ['Carcinogens_Lagunin', 'carcino', 'carcinogenicity'], description: 'Carcinogenicity signal (higher = more risk).' },
+                  { label: 'Clinical', keys: ['ClinTox', 'clinical', 'clinical_toxicity'], description: 'Clinical toxicity likelihood (higher = more risk).' },
+                  { label: 'Endocrine', keys: [], regex: /^(NR-|SR-)|nr_|sr_/i, description: 'Endocrine/stress-response assay activity proxy (higher = stronger signal).' },
+                  { label: 'CNS', keys: ['BBB_Martins', 'bbb', 'neuro', 'neurotoxicity'], description: 'BBB/CNS proxy signal (not a diagnosis).' },
                 ];
 
                 const organLabels = [];
                 const organValues = [];
+                const organAverageValues = [];
                 const organMeta = {};
+                const keyIndex = buildKeyIndex(predictions || {});
 
                 function pickMaxByRegex(regex) {
                   let best = null;
                   let bestKey = '';
                   for (const [k, v] of Object.entries(predictions || {})) {
                     if (!regex.test(String(k))) continue;
-                    const n = toNumber(v);
+                    const n = toProbability(v);
                     if (n === null) continue;
-                    if (n < 0 || n > 1) continue;
                     if (best === null || n > best) {
                       best = n;
                       bestKey = String(k);
@@ -1125,13 +1505,13 @@
                   let chosenKey = '';
 
                   if (def.keys && def.keys.length) {
-                    for (const k of def.keys) {
-                      const n = toNumber(predictions[k]);
-                      if (n === null) continue;
-                      if (n < 0 || n > 1) continue;
-                      chosen = n;
-                      chosenKey = k;
-                      break;
+                    const resolved = resolvePrediction(predictions, keyIndex, def.keys);
+                    if (resolved && resolved.key) {
+                      const n = toProbability(resolved.raw);
+                      if (n !== null) {
+                        chosen = n;
+                        chosenKey = String(resolved.key);
+                      }
                     }
                   }
 
@@ -1146,14 +1526,34 @@
                   if (chosen === null) continue;
                   organLabels.push(def.label);
                   organValues.push(chosen);
+                  organAverageValues.push(chosenKey ? lookupActiveAverage(predictions, chosenKey) : null);
                   organMeta[def.label] = { endpoint: chosenKey, description: def.description };
                 }
 
                 if (organLabels.length >= 2) {
-                  chartRadar('admetAiChartOrgan', 'Organ risk', organLabels, organValues, organMeta);
+                  const hasAverage = organAverageValues.some((v) => typeof v === 'number');
+                  const averageSeries = hasAverage
+                    ? organAverageValues.map((v, i) => (typeof v === 'number' ? v : organValues[i]))
+                    : null;
+                  chartRadar(
+                    'admetAiChartOrgan',
+                    'This molecule',
+                    organLabels,
+                    organValues,
+                    organMeta,
+                    averageSeries,
+                    'Average active molecules/class'
+                  );
+                  hasOrganChart = true;
                 } else {
                   organCard.style.display = 'none';
                 }
+              }
+
+              const proToxWrap = document.getElementById('admetAiProToxWrap');
+              const hasProTox = !!(proToxWrap && proToxWrap.style.display !== 'none');
+              if (wrap && !tox.length && !abs.length && !cyp.length && !hasOrganChart && !hasProTox) {
+                wrap.style.display = 'none';
               }
             }
 
