@@ -35,7 +35,7 @@
           </div>
           <div class="mb-3">
             <div class="text-muted small">Created by</div>
-            <div class="text-white">{{ snippet.created_by.username }}</div>
+            <div class="text-white">{{ snippet.created_by.username|default:"Deleted user" }}</div>
           </div>
 
           <form method="post">

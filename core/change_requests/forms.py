@@ -1,6 +1,6 @@
 from django import forms
 from django.contrib.contenttypes.models import ContentType
-from .models import ChangeRequest, ChangeRequestComment
+from .models import ChangeRequest, ChangeRequestComment, FeatureRequest
 import json
 
 
@@ -135,3 +135,39 @@ class ReviewChangeRequestForm(forms.Form):
         required=False,
         help_text="Optional notes about your decision"
     )
+
+
+class FeatureRequestForm(forms.ModelForm):
+    class Meta:
+        model = FeatureRequest
+        fields = ['request_type', 'title', 'details', 'display_name', 'contact_email']
+        widgets = {
+            'request_type': forms.Select(attrs={'class': 'form-select'}),
+            'title': forms.TextInput(
+                attrs={
+                    'class': 'form-control',
+                    'placeholder': 'Short summary of the feature or consideration',
+                    'maxlength': 200,
+                }
+            ),
+            'details': forms.Textarea(
+                attrs={
+                    'class': 'form-control',
+                    'rows': 6,
+                    'placeholder': 'What should be added or improved? Include context and expected behavior.',
+                }
+            ),
+            'display_name': forms.TextInput(
+                attrs={
+                    'class': 'form-control',
+                    'placeholder': 'Optional name',
+                    'maxlength': 100,
+                }
+            ),
+            'contact_email': forms.EmailInput(
+                attrs={
+                    'class': 'form-control',
+                    'placeholder': 'Optional email for follow-up',
+                }
+            ),
+        }

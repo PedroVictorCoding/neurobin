@@ -10,7 +10,9 @@ from .models import (
     CompoundRating, 
     CompoundSafetyScreening,
     EffectWindow,
+    CompoundTargetContextConsensus,
     CompoundTargetInteraction,
+    CompoundTargetInteractionEvidence,
     CompoundToCompoundTargetInteraction,
     ActionType,
     TargetType
@@ -168,6 +170,47 @@ class CompoundToCompoundTargetInteractionAdmin(admin.ModelAdmin):
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('compound_a', 'compound_b', 'target')
+
+
+@admin.register(CompoundTargetInteractionEvidence)
+class CompoundTargetInteractionEvidenceAdmin(admin.ModelAdmin):
+    list_display = (
+        'compound',
+        'target',
+        'source',
+        'canonical_mechanism',
+        'evidence_level',
+        'evidence_weight',
+        'imported_at',
+    )
+    list_filter = ('source', 'canonical_mechanism', 'evidence_level', 'species')
+    search_fields = (
+        'compound__name',
+        'compound__chembl_id',
+        'target__name',
+        'target__chembl_id',
+        'source_record_id',
+        'notes',
+    )
+    readonly_fields = ('evidence_uid', 'context_key', 'imported_at')
+    autocomplete_fields = ('compound', 'target')
+
+
+@admin.register(CompoundTargetContextConsensus)
+class CompoundTargetContextConsensusAdmin(admin.ModelAdmin):
+    list_display = (
+        'compound',
+        'target',
+        'consensus_mechanism',
+        'consensus_confidence',
+        'has_conflict',
+        'evidence_count',
+        'updated_at',
+    )
+    list_filter = ('consensus_mechanism', 'consensus_confidence', 'has_conflict', 'species')
+    search_fields = ('compound__name', 'target__name', 'context_key', 'unresolved_reason')
+    readonly_fields = ('updated_at',)
+    autocomplete_fields = ('compound', 'target')
 
 
 @admin.register(ActionType)

@@ -20,6 +20,7 @@ from .forms import StackForm
 from .forms_add_compound import AddCompoundForm
 from .models import StackItem
 from .models import StackRiskAssessment
+from .models import StackTrait
 from logs.models import IntakeLog
 from .services import (
     annotate_occurrences_taken,
@@ -28,6 +29,13 @@ from .services import (
     merge_taken_logs_into_occurrences,
     take_stack_item,
     untake_stack_item_occurrence,
+)
+from .trait_engine import (
+    DEFAULT_TRAITS,
+    analyze_stack_character_sheet,
+    grouping_preset_options,
+    parse_focus_groups,
+    recommend_stack_builds,
 )
 from .risk import get_or_compute_stack_risk
 
@@ -76,6 +84,15 @@ def _append_query_params(url: str, params: dict) -> str:
     existing.update({k: v for k, v in params.items() if v is not None})
     new_query = urlencode(existing)
     return urlunparse(parsed._replace(query=new_query))
+
+
+def _push_recent_stack(request, stack: Stack):
+    recent = request.session.get('recent_stacks', [])
+    if not isinstance(recent, list):
+        recent = []
+    recent = [row for row in recent if row.get('id') != stack.id]
+    recent.insert(0, {'id': stack.id, 'name': stack.name})
+    request.session['recent_stacks'] = recent[:8]
 
 
 @login_required
@@ -347,7 +364,207 @@ class StackDetailView(LoginRequiredMixin, TemplateView):
         self.stack = Stack.objects.filter(id=kwargs.get('stack_id'), user=request.user).first()
         if not self.stack:
             return redirect('my_stacks')
+        _push_recent_stack(request, self.stack)
         return super().dispatch(request, *args, **kwargs)
+
+    def _get_recommendation_traits(self):
+        db_traits = list(
+            StackTrait.objects.filter(is_active=True)
+            .order_by('display_order', 'label')
+            .values('slug', 'label', 'trait_type', 'is_hypothesis', 'default_weight')
+        )
+        if db_traits:
+            return db_traits
+        return [
+            {
+                'slug': row['slug'],
+                'label': row['label'],
+                'trait_type': row['trait_type'],
+                'is_hypothesis': row['is_hypothesis'],
+                'default_weight': row.get('default_weight', 1.0),
+            }
+            for row in DEFAULT_TRAITS
+        ]
+
+    def _default_recommendation_form(self, traits):
+        max_traits = {row['slug']: '' for row in traits if row['trait_type'] == 'risk'}
+        default_selected = []
+        return {
+            'max_traits': max_traits,
+            'selected_focus_groups': default_selected,
+            'max_stack_size': '3',
+            'top_k': '5',
+            'beam_width': '12',
+            'min_confidence': 'medium',
+            'output_mode': 'ranked',
+            'include_distribution': False,
+            'no_cyp3a4_conflicts': False,
+            'required_route': '',
+            'min_group_score': '0.5',
+            'species': '',
+            'assay_type': '',
+            'route': '',
+        }
+
+    def _bind_recommendation_trait_rows(self, traits, form_state):
+        rows = []
+        for trait in traits:
+            slug = trait['slug']
+            row = dict(trait)
+            row['max_value'] = (form_state.get('max_traits') or {}).get(slug, '')
+            rows.append(row)
+        return rows
+
+    def _build_grouping_sections(self, traits, form_state):
+        trait_rows = [dict(row) for row in traits]
+        selected = set(form_state.get('selected_focus_groups') or [])
+        grouped = defaultdict(list)
+
+        for option in grouping_preset_options():
+            trait_slug = option.get('trait_slug') or 'other'
+            grouped[trait_slug].append(
+                {
+                    **option,
+                    'field_name': f"focus_group_{option['slug']}",
+                    'selected': option['slug'] in selected,
+                }
+            )
+
+        sections = []
+        for row in trait_rows:
+            options = grouped.pop(row['slug'], [])
+            if not options:
+                continue
+            sections.append(
+                {
+                    'trait_slug': row['slug'],
+                    'trait_label': row['label'],
+                    'trait_type': row.get('trait_type', ''),
+                    'options': options,
+                }
+            )
+        for trait_slug, options in grouped.items():
+            sections.append(
+                {
+                    'trait_slug': trait_slug,
+                    'trait_label': trait_slug.replace('_', ' ').title(),
+                    'trait_type': 'benefit',
+                    'options': options,
+                }
+            )
+        return sections
+
+    def _build_recommendation_payload(self, request, traits):
+        errors = []
+        form_state = self._default_recommendation_form(traits)
+
+        preset_map = {row['slug']: row for row in grouping_preset_options()}
+        selected_focus_groups = []
+        for preset_slug in preset_map:
+            field_name = f'focus_group_{preset_slug}'
+            if request.POST.get(field_name):
+                selected_focus_groups.append(preset_slug)
+        form_state['selected_focus_groups'] = selected_focus_groups
+
+        if not selected_focus_groups:
+            errors.append("Select at least one category toggle.")
+
+        trait_defaults = {}
+        for row in traits:
+            try:
+                trait_defaults[row['slug']] = float(row.get('default_weight') or 1.0)
+            except (TypeError, ValueError):
+                trait_defaults[row['slug']] = 1.0
+
+        trait_selection_count = defaultdict(int)
+        for group_slug in selected_focus_groups:
+            trait_slug = (preset_map.get(group_slug) or {}).get('trait_slug')
+            if trait_slug:
+                trait_selection_count[trait_slug] += 1
+
+        goals = {}
+        for trait_slug, selection_count in trait_selection_count.items():
+            base_weight = trait_defaults.get(trait_slug, 1.0)
+            goals[trait_slug] = round(base_weight * (1.0 + (0.15 * max(0, selection_count - 1))), 3)
+
+        max_traits = {}
+        for row in traits:
+            if row['trait_type'] != 'risk':
+                continue
+            slug = row['slug']
+            raw = (request.POST.get(f'max_{slug}') or '').strip()
+            form_state['max_traits'][slug] = raw
+            if not raw:
+                continue
+            try:
+                max_traits[slug] = float(raw)
+            except ValueError:
+                errors.append(f"Invalid max value for risk trait '{slug}': {raw}")
+
+        form_state['min_confidence'] = (request.POST.get('min_confidence') or 'medium').strip().lower()
+        if form_state['min_confidence'] not in {'low', 'medium', 'high'}:
+            form_state['min_confidence'] = 'medium'
+
+        form_state['output_mode'] = (request.POST.get('output_mode') or 'ranked').strip().lower()
+        if form_state['output_mode'] not in {'ranked', 'hybrid', 'cloud'}:
+            form_state['output_mode'] = 'ranked'
+        form_state['include_distribution'] = bool(request.POST.get('include_distribution'))
+        if form_state['output_mode'] in {'hybrid', 'cloud'}:
+            form_state['include_distribution'] = True
+
+        form_state['no_cyp3a4_conflicts'] = bool(request.POST.get('no_cyp3a4_conflicts'))
+        form_state['required_route'] = (request.POST.get('required_route') or '').strip()
+        parsed_focus_groups = parse_focus_groups(selected_focus_groups)
+        form_state['min_group_score'] = (request.POST.get('min_group_score') or '0.5').strip()
+        try:
+            min_group_score = float(form_state['min_group_score'])
+        except ValueError:
+            errors.append(f"Invalid min group score: {form_state['min_group_score']}")
+            min_group_score = 0.5
+        min_group_score = max(0.0, min(10.0, min_group_score))
+        form_state['min_group_score'] = str(min_group_score)
+        form_state['species'] = (request.POST.get('species') or '').strip()
+        form_state['assay_type'] = (request.POST.get('assay_type') or '').strip()
+        form_state['route'] = (request.POST.get('route') or '').strip()
+
+        for int_field, min_val, max_val, default in (
+            ('max_stack_size', 1, 6, 3),
+            ('top_k', 1, 12, 5),
+            ('beam_width', 2, 48, 12),
+        ):
+            raw = (request.POST.get(int_field) or str(default)).strip()
+            form_state[int_field] = raw
+            try:
+                parsed = int(raw)
+            except ValueError:
+                errors.append(f"Invalid integer for {int_field}: {raw}")
+                parsed = default
+            if parsed < min_val or parsed > max_val:
+                parsed = max(min_val, min(max_val, parsed))
+            form_state[int_field] = str(parsed)
+
+        payload = {
+            'goals': goals,
+            'constraints': {
+                'max_traits': max_traits,
+                'no_cyp3a4_conflicts': form_state['no_cyp3a4_conflicts'],
+                'required_route': form_state['required_route'],
+                'focus_groups': parsed_focus_groups,
+                'min_group_score': min_group_score,
+            },
+            'max_stack_size': int(form_state['max_stack_size']),
+            'top_k': int(form_state['top_k']),
+            'beam_width': int(form_state['beam_width']),
+            'min_evidence_confidence': form_state['min_confidence'],
+            'output_mode': form_state['output_mode'],
+            'include_distribution': form_state['include_distribution'],
+            'desired_context': {
+                'species': form_state['species'],
+                'assay_type': form_state['assay_type'],
+                'route': form_state['route'],
+            },
+        }
+        return form_state, payload, errors
 
     def post(self, request, *args, **kwargs):
         if 'add_compound_to_stack' in request.POST:
@@ -401,6 +618,33 @@ class StackDetailView(LoginRequiredMixin, TemplateView):
         if 'delete_stack' in request.POST:
             self.stack.delete()
             return redirect('my_stacks')
+
+        if 'recommend_stack_additions' in request.POST:
+            context = self.get_context_data(**kwargs)
+            traits = context['recommendation_traits']
+            form_state, payload, errors = self._build_recommendation_payload(request, traits)
+            stack_compound_ids = [item.compound_id for item in context['items']]
+            recommendation_result = None
+            if not errors:
+                recommendation_result = recommend_stack_builds(
+                    goals=payload['goals'],
+                    constraints=payload['constraints'],
+                    base_compound_ids=stack_compound_ids,
+                    max_stack_size=payload['max_stack_size'],
+                    beam_width=payload['beam_width'],
+                    top_k=payload['top_k'],
+                    min_evidence_confidence=payload['min_evidence_confidence'],
+                    output_mode=payload['output_mode'],
+                    include_distribution=payload['include_distribution'],
+                    desired_context=payload['desired_context'],
+                )
+            context['stack_recommendation_form'] = form_state
+            context['recommendation_trait_rows'] = self._bind_recommendation_trait_rows(traits, form_state)
+            context['grouping_sections'] = self._build_grouping_sections(traits, form_state)
+            context['stack_recommendation_result'] = recommendation_result
+            context['stack_recommendation_meta'] = (recommendation_result or {}).get('meta')
+            context['stack_recommendation_errors'] = errors
+            return self.render_to_response(context)
 
         return redirect('stack_detail', stack_id=self.stack.id)
 
@@ -469,6 +713,32 @@ class StackDetailView(LoginRequiredMixin, TemplateView):
 
         context['stack_risk_autoload'] = bool(needs_prediction)
 
+        stack_compound_ids = [item.compound_id for item in context['items']]
+        if stack_compound_ids:
+            context['stack_trait_sheet'] = analyze_stack_character_sheet(
+                compound_ids=stack_compound_ids,
+                goals={},
+                constraints={},
+                min_evidence_confidence="low",
+            )
+        else:
+            context['stack_trait_sheet'] = None
+
+        context['recommendation_traits'] = self._get_recommendation_traits()
+        context['stack_recommendation_form'] = self._default_recommendation_form(context['recommendation_traits'])
+        context['recommendation_trait_rows'] = self._bind_recommendation_trait_rows(
+            context['recommendation_traits'],
+            context['stack_recommendation_form'],
+        )
+        context['grouping_sections'] = self._build_grouping_sections(
+            context['recommendation_traits'],
+            context['stack_recommendation_form'],
+        )
+        context['stack_recommendation_result'] = None
+        context['stack_recommendation_meta'] = None
+        context['stack_recommendation_errors'] = []
+        context['grouping_presets'] = grouping_preset_options()
+
         context['add_form'] = AddCompoundForm()
         edit_raw = (self.request.GET.get('edit') or '').strip()
         edit_item_id = None
@@ -483,6 +753,32 @@ class StackDetailView(LoginRequiredMixin, TemplateView):
             item = StackItem.objects.filter(id=edit_item_id, stack=self.stack).select_related('compound').first()
             if item:
                 context['edit_form'] = AddCompoundForm(instance=item)
+
+        events = [
+            {
+                'ts': self.stack.created,
+                'title': 'Stack created',
+                'detail': self.stack.name,
+            }
+        ]
+        for item in context['items'][:20]:
+            events.append(
+                {
+                    'ts': item.added,
+                    'title': 'Compound added',
+                    'detail': item.compound.name,
+                }
+            )
+        if context.get('stack_risk') and context['stack_risk'].computed_at:
+            events.append(
+                {
+                    'ts': context['stack_risk'].computed_at,
+                    'title': 'Risk snapshot refreshed',
+                    'detail': context['stack_risk'].risk_level,
+                }
+            )
+        events.sort(key=lambda row: row['ts'], reverse=True)
+        context['stack_activity_events'] = events[:10]
         return context
 
 

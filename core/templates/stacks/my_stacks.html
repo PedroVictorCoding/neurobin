@@ -10,11 +10,15 @@
     </div>
   </div>
 
+  <div class="alert alert-secondary py-2 mb-3">
+    <div class="small">Return loop: review active stacks daily, refresh risk snapshots, and log intake for clean longitudinal data.</div>
+  </div>
+
   <form method="post" class="mb-4">
     {% csrf_token %}
     <div class="input-group w-100" style="max-width: 400px;">
       {{ form.name }}
-      <button class="btn btn-primary" type="submit" name="add_stack">Add Stack</button>
+      <button class="btn btn-primary" type="submit" name="add_stack">Create Stack</button>
     </div>
     {% if form.errors %}
       <div class="text-danger small mt-1">{{ form.errors.name }}</div>
@@ -23,23 +27,23 @@
 
   {% if stacks %}
     {% for stack in stacks %}
-      <div class="card mb-3 stack-card d-flex flex-column">
+      <div class="card mb-3 stack-card d-flex flex-column {% if stack.risk and stack.risk.risk_level == 'high' %}stack-risk-high{% elif stack.risk and stack.risk.risk_level == 'moderate' %}stack-risk-moderate{% elif stack.risk and stack.risk.risk_level == 'low' %}stack-risk-low{% else %}stack-risk-unknown{% endif %}">
         <div class="card-header d-flex justify-content-between align-items-center stack-card-header">
           <div class="d-flex flex-column">
             <span class="fw-bold text-white">{{ stack.name }}</span>
             <div class="d-flex flex-wrap gap-2 align-items-center mt-1 stack-badges">
               {% if stack.is_active %}
-                <span class="badge bg-success">Active</span>
+                <span class="badge cp-stack-state cp-stack-state-active">Active</span>
               {% else %}
-                <span class="badge bg-secondary">Inactive</span>
+                <span class="badge cp-stack-state cp-stack-state-inactive">Inactive</span>
               {% endif %}
               {% include "stacks/_risk_badge.html" with risk=stack.risk %}
               {% if stack.visibility == "public" %}
-                <span class="badge bg-info">Public</span>
+                <span class="badge cp-visibility-badge cp-visibility-public">Public</span>
               {% elif stack.visibility == "unlisted" %}
-                <span class="badge bg-warning">Unlisted</span>
+                <span class="badge cp-visibility-badge cp-visibility-unlisted">Unlisted</span>
               {% else %}
-                <span class="badge bg-dark">Private</span>
+                <span class="badge cp-visibility-badge cp-visibility-private">Private</span>
               {% endif %}
               <span class="text-muted small">Created: {{ stack.created|date:"M d, Y" }}</span>
               <span class="text-muted small">Items: {{ stack.item_count }}</span>
@@ -48,14 +52,14 @@
         </div>
         <div class="card-footer mt-auto stack-card-footer">
           <div class="d-flex flex-wrap gap-2 stack-actions">
-            <a class="btn btn-sm btn-primary" href="{% url 'stack_detail' stack.id %}">Open</a>
-            <a class="btn btn-sm btn-outline-info" target="_blank" rel="noopener noreferrer" href="{% url 'stack_share' stack.id %}" title="Share stack" aria-label="Share stack">
+            <a class="btn btn-sm btn-primary cp-btn-review" href="{% url 'stack_detail' stack.id %}">Review</a>
+            <a class="btn btn-sm btn-outline-info cp-btn-share" target="_blank" rel="noopener noreferrer" href="{% url 'stack_share' stack.id %}" title="Share stack" aria-label="Share stack">
               <i class="fas fa-share-alt"></i>
             </a>
             <form method="post" class="m-0">
               {% csrf_token %}
               <input type="hidden" name="stack_id" value="{{ stack.id }}">
-              <button class="btn btn-sm {% if stack.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %}" type="submit" name="toggle_stack_active">
+              <button class="btn btn-sm {% if stack.is_active %}btn-outline-danger cp-btn-stop{% else %}btn-outline-success cp-btn-run{% endif %}" type="submit" name="toggle_stack_active">
                 {% if stack.is_active %}Stop{% else %}Run{% endif %}
               </button>
             </form>
@@ -67,12 +71,12 @@
                 <option value="public" {% if stack.visibility == "public" %}selected{% endif %}>Public</option>
                 <option value="unlisted" {% if stack.visibility == "unlisted" %}selected{% endif %}>Unlisted</option>
               </select>
-              <button class="btn btn-sm btn-outline-secondary" type="submit" name="set_stack_visibility">Save</button>
+              <button class="btn btn-sm btn-outline-secondary cp-btn-save" type="submit" name="set_stack_visibility">Save</button>
             </form>
             <form method="post" class="m-0" onsubmit="return confirm('Delete this stack and all its items?');">
               {% csrf_token %}
               <input type="hidden" name="stack_id" value="{{ stack.id }}">
-              <button class="btn btn-sm btn-outline-danger" type="submit" name="delete_stack">Delete</button>
+              <button class="btn btn-sm btn-outline-danger cp-btn-delete" type="submit" name="delete_stack">Delete</button>
             </form>
           </div>
         </div>

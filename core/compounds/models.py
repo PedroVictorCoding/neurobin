@@ -1,3 +1,6 @@
+import html
+import re
+
 from django.db import models
 from django.utils.text import slugify
 from django.conf import settings
@@ -33,6 +36,54 @@ class TargetType(models.Model):
     
     def __str__(self):
         return self.display_name or self.name
+
+
+def normalize_target_name(raw: str | None) -> str:
+    """Normalize target names for consistent storage/display."""
+    if raw is None:
+        return ""
+
+    text = html.unescape(str(raw)).strip()
+    # Keep subscript content, drop the tag wrappers.
+    text = re.sub(r"</?\s*sub\b[^>]*>", "", text, flags=re.IGNORECASE)
+    # Drop any other HTML tags that might leak from external datasets.
+    text = re.sub(r"<[^>]+>", "", text)
+    text = " ".join(text.split())
+    if not text:
+        return ""
+
+    # Normalize common serotonin receptor naming variants.
+    text = re.sub(r"(?i)\b5-ht\b", "5-HT", text)
+    text = re.sub(
+        r"(?i)\b5-HT\s+(\d+[a-zA-Z]?)\b",
+        lambda match: f"5-HT{match.group(1).upper()}",
+        text,
+    )
+    text = re.sub(
+        r"(?i)\b5-HT(\d+[a-zA-Z]?)\s+receptor\b",
+        lambda match: f"5-HT{match.group(1).upper()} receptor",
+        text,
+    )
+    return text
+
+
+def normalize_compound_name(raw: str | None) -> str:
+    """Normalize compound names for storage and matching."""
+    if raw is None:
+        return ""
+
+    text = html.unescape(str(raw)).strip()
+    text = re.sub(r"<[^>]+>", "", text)
+    text = text.replace("–", "-").replace("—", "-")
+    text = " ".join(text.split())
+    return text
+
+
+def normalize_compound_lookup_key(raw: str | None) -> str:
+    """Aggressive normalization key used for approximate matching."""
+    text = normalize_compound_name(raw).lower()
+    # Drop punctuation/spacing to match variants like 'N,N-DMT' vs 'N N DMT'.
+    return re.sub(r"[^a-z0-9]+", "", text)
 
 
 class CompoundCategories(models.Model):
@@ -109,6 +160,9 @@ class Target(models.Model):
         return self.name
     
     def save(self, *args, **kwargs):
+        if self.name:
+            self.name = normalize_target_name(self.name)
+
         # Sync target_type with type field for backward compatibility
         if not self.target_type or self.target_type == 'unknown':
             self.target_type = self.type
@@ -207,6 +261,20 @@ class Compound(models.Model):
     )
 
     def save(self, *args, **kwargs):
+        if self.name:
+            self.name = normalize_compound_name(self.name)
+        if self.aliases:
+            cleaned_aliases = [normalize_compound_name(part) for part in self.aliases.split(",")]
+            cleaned_aliases = [part for part in cleaned_aliases if part]
+            deduped = []
+            seen = set()
+            for alias in cleaned_aliases:
+                key = alias.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                deduped.append(alias)
+            self.aliases = ", ".join(deduped)
         if not self.slug:
             self.slug = slugify(self.name)
         super().save(*args, **kwargs)
@@ -697,6 +765,13 @@ class CompoundTargetInteractionEvidence(models.Model):
         help_text="Source-native interaction identifier",
     )
     source_url = models.URLField(blank=True)
+    source_row_uid = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        unique=True,
+        help_text="Stable row fingerprint for fast resume/skip across reruns",
+    )
     evidence_uid = models.CharField(
         max_length=64,
         unique=True,
@@ -723,6 +798,31 @@ class CompoundTargetInteractionEvidence(models.Model):
         default='unknown',
     )
     evidence_weight = models.FloatField(default=0.5)
+    affinity_type = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text="Reported affinity metric (e.g., Ki, Kd, IC50, EC50)",
+    )
+    affinity_relation = models.CharField(
+        max_length=10,
+        blank=True,
+        help_text="Reported relation/operator (e.g., =, <, >, ~)",
+    )
+    affinity_raw_value = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text="Original raw affinity value from source record",
+    )
+    affinity_units = models.CharField(
+        max_length=32,
+        blank=True,
+        help_text="Original affinity units from source record",
+    )
+    affinity_value_nm = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Normalized affinity value in nM for cross-source comparisons",
+    )
 
     notes = models.TextField(blank=True)
     imported_at = models.DateTimeField(auto_now_add=True)
@@ -739,8 +839,10 @@ class CompoundTargetInteractionEvidence(models.Model):
         indexes = [
             models.Index(fields=['compound', 'target'], name='cti_ev_compound_target_idx'),
             models.Index(fields=['source'], name='cti_ev_source_idx'),
+            models.Index(fields=['source_row_uid'], name='cti_ev_row_uid_idx'),
             models.Index(fields=['canonical_mechanism'], name='cti_ev_mechanism_idx'),
             models.Index(fields=['evidence_level'], name='cti_ev_level_idx'),
+            models.Index(fields=['affinity_value_nm'], name='cti_ev_affinity_nm_idx'),
         ]
 
     def __str__(self):

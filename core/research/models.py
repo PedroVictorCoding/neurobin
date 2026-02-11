@@ -84,7 +84,9 @@ class ResearchSnippet(models.Model):
     # User tracking
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, 
-        on_delete=models.CASCADE, 
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name='submitted_snippets'
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -253,7 +255,7 @@ class SnippetTagging(models.Model):
     tag = models.ForeignKey(SnippetTag, on_delete=models.CASCADE)
     tagged_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, 
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         null=True, 
         blank=True
     )

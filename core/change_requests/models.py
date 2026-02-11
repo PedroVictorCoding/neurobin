@@ -129,3 +129,44 @@ class AppliedChange(models.Model):
     
     def __str__(self):
         return f"Applied: {self.change_request.title}"
+
+
+class FeatureRequest(models.Model):
+    REQUEST_TYPE_CHOICES = [
+        ('feature', 'Feature Request'),
+        ('consideration', 'Consideration'),
+    ]
+    STATUS_CHOICES = [
+        ('new', 'New'),
+        ('reviewed', 'Reviewed'),
+        ('planned', 'Planned'),
+        ('done', 'Done'),
+        ('rejected', 'Rejected'),
+    ]
+
+    request_type = models.CharField(max_length=20, choices=REQUEST_TYPE_CHOICES, default='feature')
+    title = models.CharField(max_length=200)
+    details = models.TextField()
+    display_name = models.CharField(max_length=100, blank=True)
+    contact_email = models.EmailField(blank=True)
+    submitted_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='feature_requests',
+    )
+    source_page = models.CharField(max_length=255, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='new')
+    admin_notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Feature Request'
+        verbose_name_plural = 'Feature Requests'
+
+    def __str__(self):
+        return f"[{self.request_type}] {self.title}"

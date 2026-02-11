@@ -428,6 +428,213 @@ a:hover {
   border-top: var(--cp-border-w) dashed rgba(242, 234, 223, 0.14) !important;
 }
 
+/* Stacks: color hierarchy + stronger status distinction */
+.stack-page .stack-card {
+  background: linear-gradient(180deg, rgba(12, 14, 20, 0.94), rgba(9, 11, 16, 0.96)) !important;
+  border-color: rgba(112, 125, 176, 0.52) !important;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.stack-page .stack-card-header {
+  background: linear-gradient(180deg, rgba(18, 22, 34, 0.95), rgba(13, 16, 26, 0.9)) !important;
+  border-bottom-color: rgba(123, 132, 166, 0.45) !important;
+}
+
+.stack-page .stack-card-footer {
+  background: linear-gradient(180deg, rgba(13, 16, 26, 0.9), rgba(9, 11, 18, 0.94)) !important;
+  border-top: 1px dashed rgba(123, 132, 166, 0.34) !important;
+}
+
+.stack-page .stack-card.stack-risk-low {
+  border-color: rgba(109, 216, 93, 0.58) !important;
+}
+
+.stack-page .stack-card.stack-risk-moderate {
+  border-color: rgba(255, 179, 74, 0.62) !important;
+}
+
+.stack-page .stack-card.stack-risk-high {
+  border-color: rgba(255, 91, 135, 0.62) !important;
+}
+
+.stack-page .stack-card.stack-risk-unknown {
+  border-color: rgba(125, 132, 150, 0.5) !important;
+}
+
+.stack-page .cp-stack-state {
+  color: #f5f8ff !important;
+  border: 1px solid transparent !important;
+  letter-spacing: 0.08em;
+}
+
+.stack-page .cp-stack-state-active {
+  background: linear-gradient(180deg, rgba(44, 87, 34, 0.85), rgba(28, 56, 22, 0.85)) !important;
+  border-color: rgba(139, 237, 96, 0.56) !important;
+}
+
+.stack-page .cp-stack-state-inactive {
+  background: linear-gradient(180deg, rgba(53, 58, 70, 0.8), rgba(38, 42, 52, 0.82)) !important;
+  border-color: rgba(140, 150, 170, 0.45) !important;
+  color: rgba(226, 232, 245, 0.9) !important;
+}
+
+.stack-page .cp-risk-badge {
+  color: #f9fbff !important;
+  border: 1px solid transparent !important;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.stack-page .cp-risk-low {
+  background: linear-gradient(180deg, rgba(59, 116, 42, 0.85), rgba(36, 76, 26, 0.88)) !important;
+  border-color: rgba(152, 245, 112, 0.55) !important;
+}
+
+.stack-page .cp-risk-moderate {
+  background: linear-gradient(180deg, rgba(136, 83, 20, 0.88), rgba(103, 60, 12, 0.9)) !important;
+  border-color: rgba(255, 196, 91, 0.58) !important;
+}
+
+.stack-page .cp-risk-high {
+  background: linear-gradient(180deg, rgba(143, 40, 74, 0.9), rgba(108, 25, 53, 0.92)) !important;
+  border-color: rgba(255, 122, 158, 0.62) !important;
+}
+
+.stack-page .cp-risk-unknown {
+  background: linear-gradient(180deg, rgba(61, 68, 84, 0.82), rgba(43, 48, 61, 0.86)) !important;
+  border-color: rgba(151, 160, 181, 0.5) !important;
+}
+
+.stack-page .cp-visibility-badge {
+  border: 1px solid transparent !important;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.stack-page .cp-visibility-public {
+  background: linear-gradient(180deg, rgba(0, 124, 168, 0.86), rgba(0, 93, 128, 0.9)) !important;
+  border-color: rgba(99, 220, 255, 0.6) !important;
+  color: #ecfaff !important;
+}
+
+.stack-page .cp-visibility-unlisted {
+  background: linear-gradient(180deg, rgba(126, 88, 16, 0.86), rgba(90, 63, 11, 0.9)) !important;
+  border-color: rgba(242, 190, 97, 0.58) !important;
+  color: #fff9ec !important;
+}
+
+.stack-page .cp-visibility-private {
+  background: linear-gradient(180deg, rgba(56, 62, 75, 0.86), rgba(39, 44, 56, 0.9)) !important;
+  border-color: rgba(163, 173, 194, 0.48) !important;
+  color: #edf2ff !important;
+}
+
+.stack-page .cp-btn-review {
+  background: linear-gradient(180deg, #b96cff, #9552dd) !important;
+  border-color: rgba(216, 169, 255, 0.66) !important;
+  color: #120d1f !important;
+}
+
+.stack-page .cp-btn-review:hover {
+  background: linear-gradient(180deg, #ca8bff, #a362ea) !important;
+}
+
+.stack-page .cp-btn-share {
+  border-color: rgba(56, 216, 255, 0.75) !important;
+  color: rgba(116, 233, 255, 0.95) !important;
+}
+
+.stack-page .cp-btn-share:hover {
+  background: rgba(0, 182, 230, 0.16) !important;
+}
+
+.stack-page .cp-btn-run {
+  border-color: rgba(152, 245, 112, 0.75) !important;
+  color: rgba(190, 255, 163, 0.98) !important;
+}
+
+.stack-page .cp-btn-stop {
+  border-color: rgba(255, 122, 158, 0.72) !important;
+  color: rgba(255, 178, 203, 0.98) !important;
+}
+
+.stack-page .cp-btn-save {
+  border-color: rgba(161, 172, 194, 0.68) !important;
+  color: rgba(220, 227, 245, 0.95) !important;
+}
+
+.stack-page .cp-btn-delete {
+  border-color: rgba(255, 122, 158, 0.72) !important;
+  color: rgba(255, 190, 211, 0.98) !important;
+}
+
+/* Individual stack detail: compact character/recommendation panels */
+.stack-page .stack-compact-card {
+  max-width: 980px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.stack-page .stack-compact-card .card-header,
+.stack-page .stack-compact-card .card-body {
+  color: #f7f7fb !important;
+}
+
+.stack-page .stack-compact-card .small,
+.stack-page .stack-compact-card .text-muted,
+.stack-page .stack-compact-card .text-secondary,
+.stack-page .stack-compact-card .text-info,
+.stack-page .stack-compact-card .text-warning,
+.stack-page .stack-compact-card .text-danger,
+.stack-page .stack-compact-card .form-label,
+.stack-page .stack-compact-card .form-check-label,
+.stack-page .stack-compact-card li,
+.stack-page .stack-compact-card label {
+  color: #f7f7fb !important;
+}
+
+.stack-page .stack-compact-card .card-body {
+  padding: 0.9rem 1rem !important;
+}
+
+.stack-page .stack-compact-card .form-control-sm,
+.stack-page .stack-compact-card .form-select-sm {
+  font-size: 0.78rem !important;
+  padding: 0.28rem 0.45rem !important;
+}
+
+.stack-page .stack-compact-card .form-check-input {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.stack-page .stack-compact-card .btn {
+  font-size: 0.76rem !important;
+  padding: 0.34rem 0.62rem !important;
+}
+
+.stack-page .stack-character-card .progress {
+  height: 5px;
+}
+
+.stack-page .stack-character-card .badge {
+  font-size: 0.62rem;
+}
+
+/* Force white typography for Character Sheet panel */
+.stack-page .stack-character-card,
+.stack-page .stack-character-card *:not(.progress-bar) {
+  color: #ffffff !important;
+}
+
+.stack-page .stack-character-card .stack-character-label,
+.stack-page .stack-character-card .stack-character-heading,
+.stack-page .stack-character-card .stack-character-score,
+.stack-page .stack-character-card .stack-character-meta {
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
 /* Stacks: mobile-friendly layout helpers */
 @media (max-width: 576px) {
   .stack-page .stack-card-footer {

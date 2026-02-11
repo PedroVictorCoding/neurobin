@@ -3,7 +3,7 @@
 {% block title %}Credits & Acknowledgments - Neurobin{% endblock %}
 
 {% block content %}
-<div class="container py-5">
+<div class="container py-5 credits-page">
     <div class="row">
         <div class="col-12">
             <!-- Header -->
@@ -218,7 +218,7 @@
                                 <div class="col-md-3 mb-4">
                                     <div class="text-center">
                                         <div class="bg-warning rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
-                                            <i class="fas fa-chart-network fa-lg text-dark"></i>
+                                            <i class="fas fa-chart-network fa-lg text-white"></i>
                                         </div>
                                         <h6>D3.js</h6>
                                         <p class="small text-muted mb-2">Data visualization</p>
@@ -467,6 +467,34 @@
 <style>
 .bg-gradient-primary {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.credits-page {
+    color: #fff;
+}
+
+.credits-page .card,
+.credits-page .card-body,
+.credits-page .card-header,
+.credits-page p,
+.credits-page li,
+.credits-page h1,
+.credits-page h2,
+.credits-page h3,
+.credits-page h4,
+.credits-page h5,
+.credits-page h6 {
+    color: #fff;
+}
+
+.credits-page .text-muted {
+    color: rgba(255, 255, 255, 0.82) !important;
+}
+
+.credits-page .alert {
+    color: #fff;
+    background-color: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.22);
 }
 
 .card-header h2 {

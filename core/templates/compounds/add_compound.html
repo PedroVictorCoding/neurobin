@@ -20,7 +20,46 @@
 <div class="container" style="max-width: 600px;">
   <h2 class="mb-4">Add a New Compound</h2>
 
-  <form method="post" enctype="multipart/form-data" class="card bg-neurobin-card p-4 shadow">
+  <div class="card bg-neurobin-card p-4 shadow mb-3">
+    <h5 class="text-light mb-2">Quick Import from CHEMBL</h5>
+    <p class="text-secondary small mb-3">Enter a CHEMBL ID and import it using the existing importer command.</p>
+
+    {% if chembl_import_message %}
+      <div class="alert alert-{{ chembl_import_message_type }} py-2">
+        {{ chembl_import_message }}
+      </div>
+    {% endif %}
+
+    {% if chembl_import_output %}
+      <details class="mb-3">
+        <summary class="text-info small" style="cursor:pointer;">Import log</summary>
+        <pre class="bg-dark text-light p-2 mt-2 rounded small" style="max-height: 220px; overflow:auto;">{{ chembl_import_output }}</pre>
+      </details>
+    {% endif %}
+
+    <form method="post" class="row g-2 align-items-end">
+      {% csrf_token %}
+      <div class="col-12 col-md-8">
+        <label for="chembl_import_id" class="form-label text-light mb-1">CHEMBL ID</label>
+        <input
+          type="text"
+          id="chembl_import_id"
+          name="chembl_import_id"
+          value="{{ chembl_import_id }}"
+          class="form-control bg-dark text-light"
+          placeholder="CHEMBL25"
+          autocomplete="off"
+        >
+      </div>
+      <div class="col-12 col-md-4 d-grid">
+        <button type="submit" name="quick_import_chembl" value="1" class="btn btn-outline-info">
+          Import CHEMBL
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <form id="mainCompoundForm" method="post" enctype="multipart/form-data" class="card bg-neurobin-card p-4 shadow">
     {% csrf_token %}
     {% for field in form.visible_fields %}
       <div class="mb-3">
@@ -234,7 +273,7 @@
 // Save form data to localStorage
 function saveFormData() {
     const formData = {};
-    const form = document.querySelector('form[method="post"]');
+    const form = document.getElementById('mainCompoundForm');
     
     // Save text inputs
     form.querySelectorAll('input[type="text"], input[type="url"], textarea').forEach(input => {
@@ -269,7 +308,7 @@ function restoreFormData() {
     if (!savedData) return;
     
     const formData = JSON.parse(savedData);
-    const form = document.querySelector('form[method="post"]');
+    const form = document.getElementById('mainCompoundForm');
     
     // Restore text inputs
     Object.keys(formData).forEach(key => {
@@ -673,7 +712,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // Clear saved data when form is successfully submitted
-document.querySelector('form[method="post"]').addEventListener('submit', function() {
+document.getElementById('mainCompoundForm').addEventListener('submit', function() {
     clearSavedFormData();
 });
 

@@ -8,13 +8,21 @@
       <div class="d-flex flex-column align-items-center text-center">
         <div>
           <h1 class="text-white mb-1">Research Snippets</h1>
-          <p class="text-muted mb-0">Community-contributed research findings and data</p>
+          <p class="text-muted mb-0">Community-contributed findings with confidence and source context</p>
         </div>
         {% if user.is_authenticated and settings.public_submissions_enabled %}
           <a href="{% url 'research:create_snippet' %}" class="btn btn-info mt-3">
-            <i class="fas fa-plus"></i> Add Research
+            <i class="fas fa-plus"></i> Submit Research Evidence
           </a>
         {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="row mb-3">
+    <div class="col-12">
+      <div class="alert alert-secondary py-2 mb-0">
+        <div class="small">High-trust mode: review confidence levels, source links, and review votes before accepting any claim.</div>
       </div>
     </div>
   </div>
@@ -76,6 +84,10 @@
         {% if settings.ai_summaries_enabled and user.is_authenticated %}
           <a href="{% url 'research:ai_analysis' %}" class="btn btn-sm btn-outline-info">
             <i class="fas fa-robot"></i> AI Analysis
+          </a>
+        {% elif not user.is_authenticated %}
+          <a href="{% url 'register' %}" class="btn btn-sm btn-outline-info">
+            <i class="fas fa-save"></i> Save Research Workflow
           </a>
         {% endif %}
       </div>
@@ -151,7 +163,7 @@
             <div class="card-footer-info">
               <div class="d-flex justify-content-between align-items-center text-light small">
                 <div>
-                  <i class="fas fa-user text-info"></i> {{ snippet.created_by.username }}
+                  <i class="fas fa-user text-info"></i> {{ snippet.created_by.username|default:"Deleted user" }}
                   <span class="ms-2">
                     <i class="fas fa-calendar text-info"></i> {{ snippet.created_at|date:"M d" }}
                   </span>

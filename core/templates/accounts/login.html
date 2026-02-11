@@ -7,7 +7,7 @@
       <div class="card border-0 shadow-lg bg-dark text-light">
         <div class="card-body p-4 p-md-5">
           <h2 class="h4 fw-bold mb-1 text-white">Welcome back</h2>
-          <p class="text-muted mb-4">Log in to manage stacks and track intake.</p>
+          <p class="text-muted mb-4">Return to your stack reviews, intake logs, and evidence workflow.</p>
 
           {% if form.non_field_errors %}
             <div class="alert alert-danger py-2">
@@ -33,6 +33,11 @@
             </div>
             <button type="submit" class="btn btn-primary w-100">Log In</button>
           </form>
+
+          <div class="mt-3 small text-muted">
+            <div><i class="fas fa-history me-1 text-info"></i>Continue where you left off with recent stack history.</div>
+            <div><i class="fas fa-shield-halved me-1 text-info"></i>High-trust UX: explicit confidence and uncertainty context.</div>
+          </div>
 
           <div class="text-center mt-4">
             <span class="text-muted">Don’t have an account?</span>

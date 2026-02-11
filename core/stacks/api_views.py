@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import json
 
 from django.db.models import Count
 from django.utils import timezone
@@ -11,6 +12,7 @@ from rest_framework.views import APIView
 from .models import Stack, StackItem
 from .serializers import PublicStackSerializer, StackSerializer, StackItemSerializer
 from .services import get_schedule_window, iter_upcoming_occurrences, take_stack_item
+from .trait_engine import analyze_stack_character_sheet, recommend_stack_builds
 
 
 class StackViewSet(viewsets.ModelViewSet):
@@ -192,3 +194,104 @@ class StackScheduleAPIView(APIView):
                 for o in occurrences
             ]
         )
+
+
+class StackRecommendationAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        stack_id = request.query_params.get("stack_id")
+        if not stack_id:
+            return Response(
+                {"detail": "Provide stack_id query parameter for stack analysis."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            stack_id = int(stack_id)
+        except ValueError:
+            return Response({"detail": "stack_id must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+
+        stack = Stack.objects.filter(id=stack_id, user=request.user).first()
+        if not stack:
+            return Response({"detail": "Stack not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        goals = request.query_params.get("goals")
+        max_traits = request.query_params.get("max_traits")
+        try:
+            goals_data = {} if not goals else json.loads(goals)
+            max_traits_data = {} if not max_traits else json.loads(max_traits)
+        except Exception:
+            return Response(
+                {"detail": "goals and max_traits must be valid JSON objects."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        compound_ids = list(
+            StackItem.objects.filter(stack_id=stack.id).values_list("compound_id", flat=True)
+        )
+        payload = analyze_stack_character_sheet(
+            compound_ids=compound_ids,
+            goals=goals_data,
+            constraints={
+                "max_traits": max_traits_data,
+                "no_cyp3a4_conflicts": str(request.query_params.get("no_cyp3a4_conflicts", "0")).lower()
+                in {"1", "true", "yes"},
+                "required_route": request.query_params.get("required_route", ""),
+            },
+            min_evidence_confidence=(request.query_params.get("min_confidence") or "low"),
+            desired_context={
+                "species": request.query_params.get("species", ""),
+                "assay_type": request.query_params.get("assay_type", ""),
+                "route": request.query_params.get("route", ""),
+            },
+        )
+        payload["stack_id"] = stack.id
+        payload["stack_name"] = stack.name
+        return Response(payload)
+
+    def post(self, request):
+        data = request.data or {}
+        goals = data.get("goals") or {}
+        constraints = data.get("constraints") or {}
+        candidate_ids = data.get("candidate_compound_ids") or None
+        output_mode = str(data.get("output_mode") or data.get("mode") or "ranked")
+        include_distribution_raw = data.get("include_distribution")
+        if include_distribution_raw is None:
+            include_distribution = None
+        elif isinstance(include_distribution_raw, bool):
+            include_distribution = include_distribution_raw
+        else:
+            include_distribution = str(include_distribution_raw).strip().lower() in {"1", "true", "yes", "on"}
+        base_compound_ids = []
+        stack_id = data.get("stack_id")
+        if stack_id is not None:
+            try:
+                stack_id = int(stack_id)
+            except (TypeError, ValueError):
+                return Response({"detail": "stack_id must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+            stack = Stack.objects.filter(id=stack_id, user=request.user).first()
+            if not stack:
+                return Response({"detail": "Stack not found."}, status=status.HTTP_404_NOT_FOUND)
+            base_compound_ids = list(
+                StackItem.objects.filter(stack_id=stack.id).values_list("compound_id", flat=True)
+            )
+
+        try:
+            payload = recommend_stack_builds(
+                goals=goals,
+                constraints=constraints,
+                candidate_compound_ids=candidate_ids,
+                base_compound_ids=base_compound_ids or None,
+                max_stack_size=int(data.get("max_stack_size", 4)),
+                beam_width=int(data.get("beam_width", 12)),
+                top_k=int(data.get("top_k", 5)),
+                min_evidence_confidence=str(data.get("min_evidence_confidence", "medium")),
+                desired_context=data.get("desired_context") or {},
+                candidate_limit=int(data.get("candidate_limit", 220)),
+                output_mode=output_mode,
+                include_distribution=include_distribution,
+            )
+        except (TypeError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(payload, status=status.HTTP_200_OK)

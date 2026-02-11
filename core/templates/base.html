@@ -11,9 +11,9 @@
   <meta property="og:description" content="{% block og_description %}{% block meta_description2 %}Neurobin: Explore compounds, mechanisms, and research.{% endblock %}{% endblock %}">
   <meta property="og:image" content="{% block og_image %}{{ STATIC_URL }}img/neurobin-og.png{% endblock %}">
   <meta property="og:url" content="{{ request.build_absolute_uri|default:'' }}">
-  <meta property="og:type" content="website">
+  <meta property="og:type" content="{% block og_type %}website{% endblock %}">
   <!-- Twitter Card -->
-  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:card" content="{% block twitter_card %}summary_large_image{% endblock %}">
   <meta name="twitter:title" content="{% block twitter_title %}{% block title_tt %}Neurobin{% endblock title_tt %}{% endblock %}">
   <meta name="twitter:description" content="{% block twitter_description %}{% block meta_description3 %}Neurobin: Explore compounds, mechanisms, and research.{% endblock meta_description3 %}{% endblock %}">
   <meta name="twitter:image" content="{% block twitter_image %}{{ STATIC_URL }}img/neurobin-og.png{% endblock %}">
@@ -391,6 +391,16 @@
     }
     
     /* ===== COMPONENT STYLES ===== */
+    .app-shell {
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    @media (min-width: 992px) {
+      .app-shell {
+        max-width: 1500px;
+      }
+    }
     
     /* Cards & Containers */
     .bg-neurobin-dark { 
@@ -776,7 +786,7 @@
   <!-- Select2 for searchable dropdowns -->
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
   <!-- Brutalist cyberpunk theme overrides -->
-  <link href="{% static 'css/cyberpunk.css' %}?v=20260203" rel="stylesheet" />
+  <link href="{% static 'css/cyberpunk.css' %}?v=20260208" rel="stylesheet" />
 </head>
 
 <body id="body" class="text-light" style="background-color: var(--bg-primary);">
@@ -819,42 +829,43 @@
                 <!-- Primary Links Section -->
                 <li><h6 class="dropdown-header text-white fw-bold">Quick Links</h6></li>
                 <li><a class="dropdown-item ps-4" href="{% url 'compound_list' %}">Browse Compounds</a></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'stack_schedule' %}">Intake Schedule</a></li>
+                <li><h6 class="dropdown-header"></h6></li>
+
+                
+                <li><h6 class="dropdown-header text-white fw-bold">Community</h6></li>
                 <li><a class="dropdown-item ps-4" href="{% url 'research:snippet_list' %}">Browse Research</a></li>
-                {% if user.is_autheticated %}
-                <li><a class="dropdown-item ps-4" href="">Add Research</a></li>
+                {% if user.is_authenticated %}
+                <li><a class="dropdown-item ps-4" href="{% url 'research:create_snippet' %}">Add Research</a></li>
                 <li><h6 class="dropdown-header"></h6></li>
                 {% endif %}
-
+                
                 {% if user.is_authenticated %}
-                <li><h6 class="dropdown-header text-white fw-bold">Logs</h6></li>
-                <li><a class="dropdown-item ps-4" href="{% url 'log_intake' %}">Log Intake</a></li>
-                <li><a class="dropdown-item ps-4" href="{% url 'analytics_dashboard' %}">Logs Dashboard</a></li>
-
                 <li><h6 class="dropdown-header text-white fw-bold">Stacks</h6></li>
                 <li><a class="dropdown-item ps-4" href="{% url 'my_stacks' %}">My Stacks</a></li>
-                <li><a class="dropdown-item ps-4" href="{% url 'stack_schedule' %}">Stack Schedule</a></li>
                 <li><a class="dropdown-item ps-4" href="{% url 'explore_stacks' %}">Explore Stacks</a></li>
-
+                
                 {% endif %}
-
+                
                 {% if user.is_staff %}
-                  <!-- Admin Section -->
-                  <li><hr class="dropdown-divider"></li>
-                  <li><h6 class="dropdown-header text-white fw-bold">Admin</h6></li>
-                  <li><a class="dropdown-item ps-4" href="{% url 'add_compound' %}">Add Compounds</a></li>
-                  <li><a class="dropdown-item ps-4" href="{% url 'add_mechanism' %}">Add Mechanisms</a></li>
+                <!-- Admin Section -->
+                <li><hr class="dropdown-divider"></li>
+                <li><h6 class="dropdown-header text-white fw-bold">Admin</h6></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'add_compound' %}">Add Compounds</a></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'add_mechanism' %}">Add Mechanisms</a></li>
                 {% endif %}
                 
                 <!-- Profile Section -->
                 <li><hr class="dropdown-divider"></li>
                 <li><h6 class="dropdown-header text-white fw-bold">Profile</h6></li>
                 {% if user.is_authenticated %}
-                  <li><a class="dropdown-item ps-4" href="{% url 'profile_dashboard' %}">
-                    <i class="fas fa-user me-2"></i>Profile Dashboard
-                  </a></li>
-                  <li><a class="dropdown-item ps-4" href="{% url 'logout' %}">
-                    <i class="fas fa-sign-out-alt me-2"></i>Logout
-                  </a></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'profile_dashboard' %}">
+                  <i class="fas fa-user me-2"></i>Profile Dashboard
+                </a></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'change_requests:feature_request' %}">Feature Request</a></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'logout' %}">
+                  <i class="fas fa-sign-out-alt me-2"></i>Logout
+                </a></li>
                 {% else %}
                   <li><a class="dropdown-item ps-4" href="{% url 'login' %}">
                     <i class="fas fa-sign-in-alt me-2"></i>Login
@@ -899,22 +910,16 @@
               <li><a class="dropdown-item ps-4" href="{% url 'research:snippet_list' %}">
                 <i class="fas fa-flask me-2"></i>Browse Research
               </a></li>
-              {% if user.is_autheticated %}
-              <li><a class="dropdown-item ps-4" href="">
+              <li><a class="dropdown-item ps-4" href="{% url 'change_requests:feature_request' %}">
+                <i class="fas fa-lightbulb me-2"></i>Feature Request
+              </a></li>
+              {% if user.is_authenticated %}
+              <li><a class="dropdown-item ps-4" href="{% url 'research:create_snippet' %}">
                 <i class="fas fa-plus me-2"></i>Add Research
               </a></li>
               {% endif %}
 
               {% if user.is_authenticated %}
-              <!-- Logs Section -->
-              <li><hr class="dropdown-divider"></li>
-              <li><h6 class="dropdown-header text-white fw-bold">Logs</h6></li>
-              <li><a class="dropdown-item ps-4" href="{% url 'log_intake' %}">
-                <i class="fas fa-plus-circle me-2"></i>Log Intake
-              </a></li>
-              <li><a class="dropdown-item ps-4" href="{% url 'analytics_dashboard' %}">
-                <i class="fas fa-chart-bar me-2"></i>Logs Dashboard
-              </a></li>
               <li><h6 class="dropdown-header text-white fw-bold">Stacks</h6></li>
               <li><a class="dropdown-item ps-4" href="{% url 'my_stacks' %}">My Stacks</a></li>
               <li><a class="dropdown-item ps-4" href="{% url 'stack_schedule' %}">Stack Schedule</a></li>
@@ -961,7 +966,7 @@
     </div>
   </nav>
 
-  <main class="container-fluid px-3 py-4">
+  <main class="app-shell px-3 py-4">
     {% if user.is_authenticated and not user.email %}
       <div class="alert alert-info py-2 mb-3">
         <i class="fas fa-envelope me-2"></i>
@@ -969,7 +974,13 @@
         <a class="alert-link ms-2" href="{% url 'edit_profile' %}">Add email</a>
       </div>
     {% endif %}
+    {% include "includes/high_trust_experience_bar.html" %}
     {% block content %}{% endblock %}
+    <div class="text-center mt-4">
+      <small class="text-muted">
+        Research platform only. Verify source evidence and confidence labels before acting.
+      </small>
+    </div>
   </main>
 
   <!-- Mobile bottom bar -->
@@ -981,11 +992,10 @@
 
       <div class="dropup">
         <button class="btn cp-bottom-item dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-          <i class="fas fa-plus me-2"></i>Log
+          <i class="fas fa-plus me-2"></i>Menu
         </button>
         <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
           {% if user.is_authenticated %}
-            <li><a class="dropdown-item" href="{% url 'log_intake' %}">Log Intake</a></li>
             <li><a class="dropdown-item" href="{% url 'my_stacks' %}">Stacks</a></li>
             <li><a class="dropdown-item" href="{% url 'research:snippet_list' %}">Research</a></li>
           {% else %}

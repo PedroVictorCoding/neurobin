@@ -1,10 +1,12 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.views import redirect_to_login
 from django.contrib.auth.models import User
 from django.contrib import messages
-from django.db.models import Count, Q, Avg
+from django.db.models import Count, Q
 from research.models import ResearchSnippet, SnippetReview, SnippetComment
+from stacks.models import Stack
 from .models import UserProfile
 from .forms import StyledUserCreationForm, UserProfileForm
 
@@ -33,29 +35,32 @@ def custom_logout(request):
         messages.success(request, 'You have been successfully logged out.')
         return redirect('home')
 
-@login_required
 def profile_dashboard(request, username=None):
     """
     User profile dashboard with research statistics and activity.
     """
-    # Get the target user (current user if no username specified)
+    # Get the target user (current user if no username specified).
     if username:
         profile_user = get_object_or_404(User, username=username)
-        is_own_profile = request.user == profile_user
+        is_own_profile = request.user.is_authenticated and request.user == profile_user
     else:
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
         profile_user = request.user
         is_own_profile = True
-    
-    # Ensure user has a profile
-    profile, created = UserProfile.objects.get_or_create(user=profile_user)
-    
-    # Get user's submitted research snippets
-    user_snippets = ResearchSnippet.objects.filter(
-        created_by=profile_user,
-        visibility='public'
-    ).select_related('compound').prefetch_related('reviews', 'comments')
-    
-    # Calculate approval statistics for user's own research
+
+    # Ensure user has a profile (create lazily only for own profile).
+    profile = UserProfile.objects.filter(user=profile_user).first()
+    if not profile:
+        profile = UserProfile.objects.create(user=profile_user) if is_own_profile else UserProfile(user=profile_user)
+
+    # Build snippet queryset (own profile sees all; other viewers see only public).
+    user_snippets = ResearchSnippet.objects.filter(created_by=profile_user)
+    if not is_own_profile:
+        user_snippets = user_snippets.filter(visibility='public')
+    user_snippets = user_snippets.select_related('compound').prefetch_related('reviews', 'comments')
+
+    # Calculate approval statistics for visible snippets.
     user_snippet_ids = user_snippets.values_list('id', flat=True)
     approval_stats = SnippetReview.objects.filter(
         snippet_id__in=user_snippet_ids
@@ -71,18 +76,56 @@ def profile_dashboard(request, username=None):
     rejections = approval_stats['rejections'] or 0
     approval_rating = (approvals / total_reviews * 100) if total_reviews > 0 else 0
     
-    # Get user's comments on all research (including their own)
+    # Get user's comments on all research (including their own).
     all_comments = SnippetComment.objects.filter(
         author=profile_user
-    ).select_related('snippet', 'snippet__compound', 'snippet__created_by').order_by('-created_at')
-    
-    # Get user's reviews given to others
+    )
+    if not is_own_profile:
+        all_comments = all_comments.filter(snippet__visibility='public')
+    all_comments = all_comments.select_related('snippet', 'snippet__compound', 'snippet__created_by').order_by('-created_at')
+
+    # Get user's reviews given to others.
     reviews_given = SnippetReview.objects.filter(
         reviewer=profile_user
     ).exclude(
         snippet__created_by=profile_user
-    ).select_related('snippet', 'snippet__compound', 'snippet__created_by').order_by('-created_at')
-    
+    )
+    if not is_own_profile:
+        reviews_given = reviews_given.filter(snippet__visibility='public')
+    reviews_given = reviews_given.select_related('snippet', 'snippet__compound', 'snippet__created_by').order_by('-created_at')
+
+    # Build visible stack listing for profile.
+    visible_stacks = Stack.objects.filter(user=profile_user)
+    if not is_own_profile:
+        visible_stacks = visible_stacks.filter(visibility='public')
+    stack_total_count = visible_stacks.count()
+
+    stack_query = (request.GET.get('stack_q') or '').strip()
+    if stack_query:
+        visible_stacks = visible_stacks.filter(name__icontains=stack_query)
+    visible_stacks = (
+        visible_stacks
+        .annotate(compound_count=Count('items', distinct=True))
+        .select_related('risk_assessment')
+        .order_by('-is_active', '-created')
+    )
+
+    # Analytics are only shown for your own profile.
+    has_analytics = is_own_profile and request.user.is_authenticated
+    analytics_context = {}
+    if has_analytics:
+        from logs.views import build_analytics_dashboard_context
+        analytics_context = build_analytics_dashboard_context(request.user)
+
+    allowed_tabs = {'research', 'comments', 'reviews', 'stacks'}
+    default_tab = 'stacks'
+    if has_analytics:
+        allowed_tabs.add('analytics')
+        default_tab = 'analytics'
+    active_tab = (request.GET.get('tab') or default_tab).strip().lower()
+    if active_tab not in allowed_tabs:
+        active_tab = default_tab
+
     # Get user activity summary
     activity_summary = {
         'snippets_posted': user_snippets.count(),
@@ -92,19 +135,25 @@ def profile_dashboard(request, username=None):
         'reviews_given': reviews_given.count(),
         'verified_snippets': user_snippets.filter(status='verified').count(),
         'draft_snippets': user_snippets.filter(status='draft').count(),
+        'stacks_count': stack_total_count,
     }
-    
+
     context = {
         'profile_user': profile_user,
         'user_profile': profile,
         'is_own_profile': is_own_profile,
+        'active_tab': active_tab,
         'user_snippets': user_snippets[:10],  # Show latest 10
         'activity_summary': activity_summary,
         'approval_stats': approval_stats,
         'all_comments': all_comments[:15],  # Show latest 15
         'reviews_given': reviews_given[:15],  # Show latest 15
+        'profile_stacks': list(visible_stacks[:30]),
+        'stack_query': stack_query,
+        'has_analytics': has_analytics,
     }
-    
+    context.update(analytics_context)
+
     return render(request, 'accounts/profile_dashboard.html', context)
 
 @login_required

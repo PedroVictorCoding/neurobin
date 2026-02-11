@@ -62,7 +62,8 @@ def get_molprop_unavailable_reason() -> str:
         return ""
     return (
         "MolProp not configured. Copy core/config/molprop_bridge.example.json to "
-        "core/config/molprop_bridge.json and set MOLPROP_BRIDGE_ENABLED=1, "
+        "core/config/molprop_bridge.json (or run `manage.py generate_molprop_bridge_config`) "
+        "and set MOLPROP_BRIDGE_ENABLED=1, "
         "or set MOLPROP_PREDICT_CMD."
     )
 

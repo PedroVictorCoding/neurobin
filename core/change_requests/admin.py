@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import ChangeRequest, ChangeRequestComment, AppliedChange
+from .models import AppliedChange, ChangeRequest, ChangeRequestComment, FeatureRequest
 
 
 @admin.register(ChangeRequest)
@@ -42,3 +42,11 @@ class AppliedChangeAdmin(admin.ModelAdmin):
     list_filter = ['applied_at']
     readonly_fields = ['applied_at']
     search_fields = ['change_request__title', 'applied_by__username']
+
+
+@admin.register(FeatureRequest)
+class FeatureRequestAdmin(admin.ModelAdmin):
+    list_display = ['title', 'request_type', 'status', 'display_name', 'submitted_by', 'created_at']
+    list_filter = ['request_type', 'status', 'created_at']
+    search_fields = ['title', 'details', 'display_name', 'contact_email', 'submitted_by__username']
+    readonly_fields = ['created_at', 'updated_at', 'source_page', 'user_agent']

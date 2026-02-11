@@ -1,19 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ snippet.title }} — Research — Neurobin{% endblock %}
-
-<meta name="description" content="{% block meta_description1 %}Neurobin: Explore compounds, mechanisms, and research.{% endblock %}">
-<!-- Open Graph / Discord / Facebook -->
-<meta property="og:title" content="{% block og_title %}{% block title_name %}{{ snippet.title }} - Neurobin{% endblock title_name %}{% endblock %}">
-<meta property="og:description" content="{% block og_description %}{% block meta_description2 %}{{ snippet.description|default:'Explore compounds, mechanisms, and research.' }}{% endblock %}{% endblock %}">
-<meta property="og:image" content="{% block og_image %}{{ STATIC_URL }}img/neurobin-og.png{% endblock %}">
-<meta property="og:url" content="{{ request.build_absolute_uri|default:'' }}">
-<meta property="og:type" content="website">
-<!-- Twitter Card -->
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="{% block twitter_title %}{% block title_tt %}{{ snippet.title }} - Neurobin{% endblock title_tt %}{% endblock %}">
-<meta name="twitter:description" content="{% block twitter_description %}{% block meta_description3 %}{{ snippet.description|default:'Explore compounds, mechanisms, and research.' }}{% endblock meta_description3 %}{% endblock %}">
-<meta name="twitter:image" content="{% block twitter_image %}{{ STATIC_URL }}img/neurobin-og.png{% endblock %}">
-  
+{% block meta_description1 %}Research snapshot on {{ snippet.compound.name }}. Open for the key finding and source link.{% endblock %}
+{% block og_title %}{{ snippet.compound.name }}: Research Snapshot{% endblock %}
+{% block og_description %}{{ snippet.ai_summary|default:snippet.title|striptags|truncatechars:120 }}{% endblock %}
+{% block og_type %}article{% endblock %}
+{% block twitter_card %}summary{% endblock %}
+{% block twitter_title %}{{ snippet.compound.name }}: Research Snapshot{% endblock %}
+{% block twitter_description %}{{ snippet.ai_summary|default:snippet.title|striptags|truncatechars:120 }}{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -114,6 +107,11 @@
               <i class="fas fa-pills"></i> {{ snippet.compound.name }}
             </a>
           </div>
+          <div class="alert alert-secondary py-2 mb-0">
+            <div class="small">
+              Review pattern: source -> confidence level -> community feedback. Treat this as research signal, not medical advice.
+            </div>
+          </div>
         </div>
 
         <div class="card-body">
@@ -171,7 +169,7 @@
         <div class="card-footer bg-transparent">
           <div class="row text-secondary small">
             <div class="col-md-6">
-              <i class="fas fa-user"></i> {{ snippet.created_by.username }}
+              <i class="fas fa-user"></i> {{ snippet.created_by.username|default:"Deleted user" }}
               {% if snippet.confidence_score %}
                 <span class="ms-3">
                   <i class="fas fa-star"></i> Confidence: {{ snippet.confidence_score }}/5
@@ -189,6 +187,22 @@
       </div>
     </div>
   </div>
+
+  {% if not user.is_authenticated %}
+    <div class="row justify-content-center mb-4">
+      <div class="col-12 col-lg-8">
+        <div class="card bg-neurobin-card">
+          <div class="card-body d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2">
+            <div>
+              <div class="fw-semibold text-white">Want this review trail when you come back?</div>
+              <div class="small text-muted">Create an account to save your recent snippets and stack workflows.</div>
+            </div>
+            <a class="btn btn-sm btn-outline-info" href="{% url 'register' %}">Create Free Account</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
 
   <!-- Sidebar Cards - Now Below Main Content -->
   <div class="row justify-content-center">

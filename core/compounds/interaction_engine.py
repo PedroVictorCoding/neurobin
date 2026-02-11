@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
 from time import perf_counter
 
-from .models import CompoundTargetInteraction, CompoundToCompoundTargetInteraction
+from django.db.models import Q
+
+from .models import (
+    CompoundTargetContextConsensus,
+    CompoundTargetInteraction,
+    CompoundTargetInteractionEvidence,
+    CompoundToCompoundTargetInteraction,
+)
 
 
 _ACTION_PATTERN = re.compile(r"Action:\s*([^;]+)", re.IGNORECASE)
@@ -91,6 +99,35 @@ _INHIBITING_MECHANISMS = {"antagonist", "inverse_agonist", "inhibitor", "blocker
 _MODULATORY_MECHANISMS = {"modulator"}
 _METABOLIC_MECHANISMS = {"substrate"}
 _BINDING_MECHANISMS = {"binder"}
+_EVIDENCE_LEVEL_WEIGHTS = {
+    "high": 1.0,
+    "medium": 0.75,
+    "low": 0.5,
+    "unknown": 0.6,
+}
+_SOURCE_WEIGHTS = {
+    "iuphar": 1.0,
+    "drugbank": 0.95,
+    "pharmgkb": 0.9,
+    "bindingdb": 0.8,
+    "dgidb": 0.75,
+    "chembl": 0.85,
+}
+
+
+def affinity_level_from_nm(value_nm: float | None) -> str:
+    """Map normalized nM affinity to CompoundTargetInteraction affinity levels."""
+    if value_nm is None:
+        return "unknown"
+    if value_nm <= 10:
+        return "very_high"
+    if value_nm <= 100:
+        return "high"
+    if value_nm <= 1000:
+        return "medium"
+    if value_nm <= 10000:
+        return "low"
+    return "very_low"
 
 
 def _normalize_text(raw: str | None) -> str:
@@ -159,6 +196,359 @@ def canonicalize_mechanism(
         if mapped != "unknown":
             return mapped
     return "unknown"
+
+
+def normalize_context_value(value: str | None) -> str:
+    return _normalize_text(value) or "unspecified"
+
+
+def build_interaction_context_key(
+    *,
+    species: str | None = None,
+    tissue_or_cell_line: str | None = None,
+    assay_type: str | None = None,
+    dose_concentration: str | None = None,
+    exposure_time: str | None = None,
+    route: str | None = None,
+) -> str:
+    parts = [
+        normalize_context_value(species),
+        normalize_context_value(tissue_or_cell_line),
+        normalize_context_value(assay_type),
+        normalize_context_value(dose_concentration),
+        normalize_context_value(exposure_time),
+        normalize_context_value(route),
+    ]
+    return "|".join(parts)
+
+
+def compute_evidence_weight(
+    *,
+    source: str | None,
+    evidence_level: str | None,
+    assay_type: str | None = None,
+) -> float:
+    source_weight = _SOURCE_WEIGHTS.get(_normalize_text(source), 0.65)
+    level_weight = _EVIDENCE_LEVEL_WEIGHTS.get(_normalize_text(evidence_level), 0.6)
+
+    assay = _normalize_text(assay_type)
+    assay_bonus = 0.0
+    if "clinical" in assay:
+        assay_bonus = 0.15
+    elif "in vivo" in assay:
+        assay_bonus = 0.08
+    elif "in vitro" in assay:
+        assay_bonus = 0.03
+
+    weight = source_weight * level_weight + assay_bonus
+    return max(0.2, min(weight, 1.5))
+
+
+def build_evidence_uid(
+    *,
+    source: str,
+    source_record_id: str | None,
+    compound_id: int,
+    target_id: int,
+    canonical_mechanism: str,
+    context_key: str,
+    notes: str | None = None,
+) -> str:
+    payload = "|".join([
+        source.strip().lower(),
+        (source_record_id or "").strip().lower(),
+        str(compound_id),
+        str(target_id),
+        canonical_mechanism.strip().lower(),
+        context_key.strip().lower(),
+        (notes or "").strip().lower()[:200],
+    ])
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def compute_context_consensus(
+    evidences: Iterable[CompoundTargetInteractionEvidence],
+) -> dict[str, object]:
+    evidence_list = list(evidences)
+    if not evidence_list:
+        return {
+            "consensus_mechanism": "unknown",
+            "consensus_confidence": "low",
+            "has_conflict": False,
+            "unresolved_reason": "no_evidence_rows",
+            "evidence_count": 0,
+            "total_weight": 0.0,
+            "mechanism_weights": {},
+            "source_breakdown": {},
+        }
+
+    mechanism_weights: Counter[str] = Counter()
+    source_breakdown: Counter[str] = Counter()
+
+    for evidence in evidence_list:
+        weight = evidence.evidence_weight or compute_evidence_weight(
+            source=evidence.source,
+            evidence_level=evidence.evidence_level,
+            assay_type=evidence.assay_type,
+        )
+        mechanism = (evidence.canonical_mechanism or "unknown").strip() or "unknown"
+        mechanism_weights[mechanism] += float(weight)
+        source_breakdown[(evidence.source or "unknown").strip() or "unknown"] += float(weight)
+
+    non_unknown_weights = {k: v for k, v in mechanism_weights.items() if k != "unknown"}
+    total_weight = float(sum(mechanism_weights.values()))
+    if not non_unknown_weights:
+        return {
+            "consensus_mechanism": "unknown",
+            "consensus_confidence": "low",
+            "has_conflict": False,
+            "unresolved_reason": "only_unknown_mechanisms",
+            "evidence_count": len(evidence_list),
+            "total_weight": total_weight,
+            "mechanism_weights": dict(mechanism_weights),
+            "source_breakdown": dict(source_breakdown),
+        }
+
+    ranked = sorted(non_unknown_weights.items(), key=lambda item: item[1], reverse=True)
+    winner, winner_weight = ranked[0]
+    second_weight = ranked[1][1] if len(ranked) > 1 else 0.0
+    non_unknown_total = float(sum(non_unknown_weights.values()))
+    winner_share = winner_weight / non_unknown_total if non_unknown_total else 0.0
+
+    has_conflict = len(ranked) > 1 and second_weight > 0 and (second_weight / winner_weight) >= 0.45
+    if winner_share >= 0.75 and len(evidence_list) >= 2 and not has_conflict:
+        confidence = "high"
+    elif winner_share >= 0.55:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    unresolved_reason = ""
+    if has_conflict and confidence == "low":
+        unresolved_reason = "high_competition_between_mechanisms"
+    elif confidence == "low":
+        unresolved_reason = "weak_consensus"
+
+    return {
+        "consensus_mechanism": winner,
+        "consensus_confidence": confidence,
+        "has_conflict": has_conflict,
+        "unresolved_reason": unresolved_reason,
+        "evidence_count": len(evidence_list),
+        "total_weight": total_weight,
+        "mechanism_weights": dict(mechanism_weights),
+        "source_breakdown": dict(source_breakdown),
+    }
+
+
+def rebuild_context_consensus(
+    *,
+    pair_ids: set[tuple[int, int]] | None = None,
+    progress_every: int = 0,
+    progress: Callable[[str], None] | None = None,
+    sync_cti: bool = True,
+    generated_source: str = "multi_source_consensus",
+) -> dict[str, int]:
+    """
+    Recompute consensus mechanisms per compound-target-context from evidence rows.
+
+    Optionally sync high/medium consensus results into CompoundTargetInteraction.
+    """
+    progress_every = max(0, progress_every)
+    pair_filter = set(pair_ids or set())
+    pair_context_seen: dict[tuple[int, int], set[str]] = defaultdict(set)
+    pair_mechanism_context_counts: dict[tuple[int, int], Counter[str]] = defaultdict(Counter)
+    pair_mechanism_affinity_values: dict[tuple[int, int], dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+
+    evidence_qs = CompoundTargetInteractionEvidence.objects.order_by(
+        "compound_id",
+        "target_id",
+        "context_key",
+        "id",
+    )
+    if pair_filter:
+        compound_ids = sorted({compound_id for compound_id, _ in pair_filter})
+        target_ids = sorted({target_id for _, target_id in pair_filter})
+        evidence_qs = evidence_qs.filter(compound_id__in=compound_ids, target_id__in=target_ids)
+
+    grouped: dict[tuple[int, int, str], list[CompoundTargetInteractionEvidence]] = defaultdict(list)
+    processed_rows = 0
+    for evidence in evidence_qs.iterator():
+        processed_rows += 1
+        pair_key = (evidence.compound_id, evidence.target_id)
+        if pair_filter and pair_key not in pair_filter:
+            continue
+        grouped[(evidence.compound_id, evidence.target_id, evidence.context_key)].append(evidence)
+        if progress and progress_every and processed_rows % progress_every == 0:
+            progress(f"[p] Consensus grouping rows={processed_rows}")
+
+    stats = {
+        "contexts_created": 0,
+        "contexts_updated": 0,
+        "contexts_deleted": 0,
+        "contexts_total": 0,
+        "low_confidence": 0,
+        "unknown_consensus": 0,
+        "conflicts": 0,
+        "cti_created": 0,
+        "cti_updated": 0,
+        "cti_deleted": 0,
+        "cti_skipped_existing": 0,
+    }
+
+    for (compound_id, target_id, context_key), evidences in grouped.items():
+        summary = compute_context_consensus(evidences)
+        exemplar = evidences[0]
+        pair_key = (compound_id, target_id)
+        pair_context_seen[pair_key].add(context_key)
+
+        obj, created = CompoundTargetContextConsensus.objects.update_or_create(
+            compound_id=compound_id,
+            target_id=target_id,
+            context_key=context_key,
+            defaults={
+                "species": exemplar.species,
+                "tissue_or_cell_line": exemplar.tissue_or_cell_line,
+                "assay_type": exemplar.assay_type,
+                "dose_concentration": exemplar.dose_concentration,
+                "exposure_time": exemplar.exposure_time,
+                "route": exemplar.route,
+                "consensus_mechanism": summary["consensus_mechanism"],
+                "consensus_confidence": summary["consensus_confidence"],
+                "has_conflict": summary["has_conflict"],
+                "unresolved_reason": summary["unresolved_reason"],
+                "evidence_count": summary["evidence_count"],
+                "total_weight": summary["total_weight"],
+                "mechanism_weights": summary["mechanism_weights"],
+                "source_breakdown": summary["source_breakdown"],
+            },
+        )
+        if created:
+            stats["contexts_created"] += 1
+        else:
+            stats["contexts_updated"] += 1
+        stats["contexts_total"] += 1
+
+        if summary["consensus_confidence"] == "low":
+            stats["low_confidence"] += 1
+        if summary["consensus_mechanism"] == "unknown":
+            stats["unknown_consensus"] += 1
+        if summary["has_conflict"]:
+            stats["conflicts"] += 1
+        if summary["consensus_mechanism"] != "unknown" and summary["consensus_confidence"] != "low":
+            winner = summary["consensus_mechanism"]
+            pair_mechanism_context_counts[pair_key][winner] += 1
+            winner_affinities = [
+                float(ev.affinity_value_nm)
+                for ev in evidences
+                if ev.canonical_mechanism == winner and ev.affinity_value_nm is not None
+            ]
+            if winner_affinities:
+                pair_mechanism_affinity_values[pair_key][winner].append(min(winner_affinities))
+
+    touched_pairs = pair_filter or set(pair_context_seen.keys())
+    for compound_id, target_id in touched_pairs:
+        valid_contexts = pair_context_seen.get((compound_id, target_id), set())
+        stale_qs = CompoundTargetContextConsensus.objects.filter(
+            compound_id=compound_id,
+            target_id=target_id,
+        )
+        if valid_contexts:
+            stale_qs = stale_qs.exclude(context_key__in=valid_contexts)
+        deleted_count, _ = stale_qs.delete()
+        stats["contexts_deleted"] += deleted_count
+
+    if sync_cti and touched_pairs:
+        cti_stats = sync_cti_from_context_consensus(
+            pair_mechanism_context_counts=pair_mechanism_context_counts,
+            pair_mechanism_affinity_values=pair_mechanism_affinity_values,
+            touched_pairs=touched_pairs,
+            source=generated_source,
+        )
+        stats.update(cti_stats)
+
+    return stats
+
+
+def sync_cti_from_context_consensus(
+    *,
+    pair_mechanism_context_counts: dict[tuple[int, int], Counter[str]],
+    pair_mechanism_affinity_values: dict[tuple[int, int], dict[str, list[float]]] | None = None,
+    touched_pairs: set[tuple[int, int]],
+    source: str = "multi_source_consensus",
+) -> dict[str, int]:
+    """Sync high/medium context consensus mechanisms into CompoundTargetInteraction rows."""
+    stats = {
+        "cti_created": 0,
+        "cti_updated": 0,
+        "cti_deleted": 0,
+        "cti_skipped_existing": 0,
+        "cti_affinity_updated": 0,
+    }
+    affinity_values = pair_mechanism_affinity_values or {}
+    for compound_id, target_id in touched_pairs:
+        wanted = pair_mechanism_context_counts.get((compound_id, target_id), Counter())
+        wanted_mechanisms = set(wanted.keys())
+
+        generated_qs = CompoundTargetInteraction.objects.filter(
+            compound_id=compound_id,
+            target_id=target_id,
+            source=source,
+        )
+        stale_qs = generated_qs.exclude(mechanism__in=wanted_mechanisms)
+        stale_deleted, _ = stale_qs.delete()
+        stats["cti_deleted"] += stale_deleted
+
+        for mechanism in sorted(wanted_mechanisms):
+            note = (
+                "Consensus from non-ChEMBL evidence "
+                f"(contexts={wanted[mechanism]}, min_confidence=medium)"
+            )
+            mechanism_affinities = affinity_values.get((compound_id, target_id), {}).get(mechanism, [])
+            affinity_level = affinity_level_from_nm(min(mechanism_affinities)) if mechanism_affinities else "unknown"
+            obj, created = CompoundTargetInteraction.objects.get_or_create(
+                compound_id=compound_id,
+                target_id=target_id,
+                mechanism=mechanism,
+                defaults={
+                    "source": source,
+                    "affinity_level": affinity_level,
+                    "notes": note,
+                },
+            )
+            if created:
+                stats["cti_created"] += 1
+                continue
+            if obj.source == source:
+                fields_to_update = []
+                if obj.notes != note:
+                    obj.notes = note
+                    fields_to_update.append("notes")
+                if obj.affinity_level != affinity_level:
+                    obj.affinity_level = affinity_level
+                    fields_to_update.append("affinity_level")
+                    stats["cti_affinity_updated"] += 1
+                if fields_to_update:
+                    obj.save(update_fields=fields_to_update)
+                    stats["cti_updated"] += 1
+            elif obj.source != source:
+                stats["cti_skipped_existing"] += 1
+    return stats
+
+
+def get_context_review_rows(*, limit: int = 100) -> list[CompoundTargetContextConsensus]:
+    """Rows that require curation review (low confidence, unknown, or conflicting)."""
+    queryset = (
+        CompoundTargetContextConsensus.objects
+        .select_related("compound", "target")
+        .filter(
+            Q(consensus_confidence="low")
+            | Q(consensus_mechanism="unknown")
+            | Q(has_conflict=True)
+        )
+        .order_by("-has_conflict", "consensus_confidence", "-evidence_count", "compound__name")
+    )
+    return list(queryset[: max(1, limit)])
 
 
 def infer_interaction_type(mechanism1: str, mechanism2: str) -> str:

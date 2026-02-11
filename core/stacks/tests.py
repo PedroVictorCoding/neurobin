@@ -1,15 +1,24 @@
 from datetime import datetime, timedelta
+from io import StringIO
 
 from django.contrib.auth.models import User
+from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 from dateutil.relativedelta import relativedelta
 
-from compounds.models import Compound
-from compounds.models import CompoundADMETPrediction
+from compounds.models import (
+    Compound,
+    CompoundADMETPrediction,
+    CompoundCategories,
+    CompoundTargetInteraction,
+    CompoundTargetInteractionEvidence,
+    Target,
+)
 from logs.models import IntakeLog
-from stacks.models import Stack, StackItem
+from stacks.models import Stack, StackDangerousPairRule, StackItem
+from stacks.trait_engine import grouping_preset_options
 
 
 class StackSharingAndScheduleTests(TestCase):
@@ -338,3 +347,440 @@ class StackSharingAndScheduleTests(TestCase):
             resp = self.client.post(f'/stacks/{stack.id}/risk/refresh/', data={'next': f'/stacks/{stack.id}/'})
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(CompoundADMETPrediction.objects.filter(compound=compound2).exists())
+
+
+class StackTraitRecommendationTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(username='trait_user', password='pw')
+        self.client.force_authenticate(user=self.user)
+
+        call_command('sync_stack_trait_defaults', stdout=StringIO())
+
+        self.compound_ampk = Compound.objects.create(name='AMPK Activator X')
+        self.compound_ar = Compound.objects.create(name='AR Agonist Y')
+        self.compound_gaba = Compound.objects.create(name='GABA Agent Z')
+        self.target_ampk = Target.objects.create(name='AMPK alpha 1')
+        self.target_ar = Target.objects.create(name='Androgen receptor')
+        self.target_gaba = Target.objects.create(name='GABA-A receptor alpha 1')
+
+        CompoundTargetInteractionEvidence.objects.create(
+            compound=self.compound_ampk,
+            target=self.target_ampk,
+            source='IUPHAR',
+            source_record_id='AMPK-1',
+            evidence_uid='ev_ampk_1',
+            canonical_mechanism='activator',
+            evidence_level='high',
+            evidence_weight=1.0,
+            context_key='ctx::human::oral',
+            species='Homo sapiens',
+            route='oral',
+        )
+        CompoundTargetInteractionEvidence.objects.create(
+            compound=self.compound_ar,
+            target=self.target_ar,
+            source='IUPHAR',
+            source_record_id='AR-1',
+            evidence_uid='ev_ar_1',
+            canonical_mechanism='agonist',
+            evidence_level='high',
+            evidence_weight=1.0,
+            context_key='ctx::human::oral',
+            species='Homo sapiens',
+            route='oral',
+        )
+        CompoundTargetInteractionEvidence.objects.create(
+            compound=self.compound_gaba,
+            target=self.target_gaba,
+            source='IUPHAR',
+            source_record_id='GABA-1',
+            evidence_uid='ev_gaba_1',
+            canonical_mechanism='agonist',
+            evidence_level='medium',
+            evidence_weight=0.9,
+            context_key='ctx::human::oral',
+            species='Homo sapiens',
+            route='oral',
+        )
+
+    def test_recommend_api_returns_character_sheet_and_disclaimer(self):
+        resp = self.client.post(
+            '/api/stacks/recommend/',
+            data={
+                'goals': {'longevity': 1.0, 'anabolism': 1.0},
+                'constraints': {'max_traits': {'cardio_risk': 3.0}},
+                'candidate_compound_ids': [
+                    self.compound_ampk.id,
+                    self.compound_ar.id,
+                    self.compound_gaba.id,
+                ],
+                'max_stack_size': 2,
+                'beam_width': 8,
+                'top_k': 3,
+                'min_evidence_confidence': 'medium',
+                'desired_context': {'route': 'oral'},
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertIn('not medical advice', body.get('disclaimer', '').lower())
+        self.assertGreaterEqual(len(body.get('recommendations', [])), 1)
+        first = body['recommendations'][0]
+        self.assertIn('character_sheet', first)
+        self.assertIn('traits', first['character_sheet'])
+        self.assertGreater(len(first['character_sheet']['traits']), 0)
+
+    def test_curated_dangerous_pair_rule_blocks_combo(self):
+        a_id = min(self.compound_ampk.id, self.compound_ar.id)
+        b_id = max(self.compound_ampk.id, self.compound_ar.id)
+        StackDangerousPairRule.objects.create(
+            compound_a_id=a_id,
+            compound_b_id=b_id,
+            severity='critical',
+            reason='Known unsafe pair for test',
+            source='unit-test',
+            is_active=True,
+        )
+
+        resp = self.client.post(
+            '/api/stacks/recommend/',
+            data={
+                'goals': {'longevity': 1.0, 'anabolism': 1.0},
+                'candidate_compound_ids': [self.compound_ampk.id, self.compound_ar.id],
+                'max_stack_size': 2,
+                'top_k': 5,
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        recs = resp.json().get('recommendations', [])
+        for rec in recs:
+            rec_ids = {item['id'] for item in rec.get('compounds', [])}
+            self.assertFalse({self.compound_ampk.id, self.compound_ar.id}.issubset(rec_ids))
+
+    def test_recommend_get_analyzes_user_stack(self):
+        stack = Stack.objects.create(user=self.user, name='Trait Stack', visibility='private')
+        StackItem.objects.create(stack=stack, compound=self.compound_ampk, recurrence_interval=1, recurrence_unit='daily')
+
+        resp = self.client.get(f'/api/stacks/recommend/?stack_id={stack.id}')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body.get('stack_id'), stack.id)
+        self.assertIn('character_sheet', body)
+        self.assertIn('traits', body['character_sheet'])
+
+    def test_recommend_command_outputs_json(self):
+        out = StringIO()
+        call_command(
+            'recommend_stacks',
+            goal=['longevity=1.0'],
+            candidate_id=[self.compound_ampk.id],
+            top_k=1,
+            json=True,
+            stdout=out,
+        )
+        self.assertIn('"recommendations"', out.getvalue())
+
+    def test_post_recommend_with_stack_id_uses_stack_as_base(self):
+        stack = Stack.objects.create(user=self.user, name='Base Stack', visibility='private')
+        StackItem.objects.create(stack=stack, compound=self.compound_ampk, recurrence_interval=1, recurrence_unit='daily')
+
+        resp = self.client.post(
+            '/api/stacks/recommend/',
+            data={
+                'stack_id': stack.id,
+                'goals': {'anabolism': 1.0},
+                'candidate_compound_ids': [self.compound_ar.id, self.compound_ampk.id],
+                'max_stack_size': 1,
+                'top_k': 2,
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body['meta']['base_compound_count'], 1)
+        for rec in body.get('recommendations', []):
+            add_ids = {row['id'] for row in rec.get('compounds', [])}
+            self.assertNotIn(self.compound_ampk.id, add_ids)
+            full_ids = {row['id'] for row in rec.get('full_stack_compounds', [])}
+            self.assertIn(self.compound_ampk.id, full_ids)
+
+    def test_recommend_can_filter_candidates_by_focus_group(self):
+        resp = self.client.post(
+            '/api/stacks/recommend/',
+            data={
+                'goals': {'anabolism': 1.0},
+                'constraints': {
+                    'focus_groups': ['ar'],
+                    'min_group_score': 0.5,
+                },
+                'candidate_compound_ids': [
+                    self.compound_ampk.id,
+                    self.compound_ar.id,
+                    self.compound_gaba.id,
+                ],
+                'min_evidence_confidence': 'low',
+                'max_stack_size': 1,
+                'top_k': 3,
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        recs = resp.json().get('recommendations', [])
+        self.assertGreaterEqual(len(recs), 1)
+        for rec in recs:
+            added_ids = {row['id'] for row in rec.get('compounds', [])}
+            self.assertEqual(added_ids, {self.compound_ar.id})
+
+    def test_recommend_payload_exposes_group_signal_metadata(self):
+        resp = self.client.post(
+            '/api/stacks/recommend/',
+            data={
+                'goals': {'anabolism': 1.0},
+                'constraints': {'focus_groups': ['anabolism_ar'], 'min_group_score': 0.2},
+                'candidate_compound_ids': [self.compound_ar.id],
+                'min_evidence_confidence': 'low',
+                'max_stack_size': 1,
+                'top_k': 1,
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        recs = resp.json().get('recommendations', [])
+        self.assertGreaterEqual(len(recs), 1)
+        added = recs[0]['compounds'][0]
+        self.assertIn('group_signals', added)
+        self.assertTrue(any(row.get('slug') == 'anabolism_ar' for row in added['group_signals']))
+
+    def test_stack_detail_selector_toggles_drive_recommendations(self):
+        stack = Stack.objects.create(user=self.user, name='Selector Stack', visibility='private')
+        StackItem.objects.create(
+            stack=stack,
+            compound=self.compound_ampk,
+            recurrence_interval=1,
+            recurrence_unit='daily',
+        )
+        self.client.force_login(self.user)
+
+        resp = self.client.post(
+            f'/stacks/{stack.id}/',
+            data={
+                'recommend_stack_additions': '1',
+                'focus_group_anabolism_ar': 'on',
+                'min_group_score': '0.2',
+                'min_confidence': 'low',
+                'max_stack_size': '1',
+                'top_k': '3',
+                'beam_width': '8',
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.context['stack_recommendation_result']
+        self.assertIsNotNone(result)
+        recs = result.get('recommendations', [])
+        self.assertGreaterEqual(len(recs), 1)
+        first_ids = {row['id'] for row in recs[0].get('compounds', [])}
+        self.assertIn(self.compound_ar.id, first_ids)
+
+    def test_grouping_presets_cover_requested_trait_categories(self):
+        trait_slugs = {row.get('trait_slug') for row in grouping_preset_options()}
+        self.assertTrue(
+            {
+                'anabolism',
+                'longevity',
+                'sleep',
+                'cognition',
+                'anti_inflammatory',
+                'metabolic_health',
+                'anxiety_relief',
+                'oncoprotection_hypothesis',
+            }.issubset(trait_slugs)
+        )
+
+    def test_category_labeled_compound_is_counted_for_focus_group(self):
+        labeled = Compound.objects.create(name='Longevity Label Only')
+        category = CompoundCategories.objects.create(name='Longevity - AMPK')
+        labeled.categories.add(category)
+
+        resp = self.client.post(
+            '/api/stacks/recommend/',
+            data={
+                'goals': {'longevity': 1.0},
+                'constraints': {'focus_groups': ['longevity_ampk'], 'min_group_score': 0.5},
+                'candidate_compound_ids': [labeled.id],
+                'min_evidence_confidence': 'high',
+                'max_stack_size': 1,
+                'top_k': 1,
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        recs = resp.json().get('recommendations', [])
+        self.assertGreaterEqual(len(recs), 1)
+        ids = {row['id'] for row in recs[0].get('compounds', [])}
+        self.assertEqual(ids, {labeled.id})
+
+    def test_recommendation_payload_includes_evidence_profile_and_radar(self):
+        resp = self.client.post(
+            '/api/stacks/recommend/',
+            data={
+                'goals': {'longevity': 1.0},
+                'candidate_compound_ids': [self.compound_ampk.id],
+                'min_evidence_confidence': 'low',
+                'max_stack_size': 1,
+                'top_k': 1,
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        recs = resp.json().get('recommendations', [])
+        self.assertGreaterEqual(len(recs), 1)
+        rec = recs[0]
+        self.assertIn('evidence_profile', rec)
+        self.assertIn('posterior_confidence', rec['evidence_profile'])
+        self.assertIn('contradiction_radar', rec)
+        self.assertIn('rows', rec['contradiction_radar'])
+
+    def test_recommend_cloud_mode_returns_distribution_points(self):
+        resp = self.client.post(
+            '/api/stacks/recommend/',
+            data={
+                'goals': {'longevity': 1.0, 'anabolism': 1.0},
+                'candidate_compound_ids': [
+                    self.compound_ampk.id,
+                    self.compound_ar.id,
+                    self.compound_gaba.id,
+                ],
+                'output_mode': 'cloud',
+                'max_stack_size': 1,
+                'top_k': 2,
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body['meta']['output_mode'], 'cloud')
+        self.assertTrue(body['meta']['distribution_included'])
+        distribution = body.get('distribution') or {}
+        self.assertEqual(distribution.get('mode'), 'compound_cloud')
+        self.assertGreaterEqual(distribution.get('point_count', 0), 1)
+        first = (distribution.get('points') or [])[0]
+        self.assertIn('goal_score', first)
+        self.assertIn('risk_load', first)
+        self.assertIn('net_score', first)
+
+    def test_contradiction_radar_detects_opposed_mechanisms_on_same_target(self):
+        conflict_compound = Compound.objects.create(name='Conflict Molecule Q')
+        target = Target.objects.create(name='Dopamine receptor D2')
+        CompoundTargetInteractionEvidence.objects.create(
+            compound=conflict_compound,
+            target=target,
+            source='IUPHAR',
+            source_record_id='CONFLICT-1',
+            evidence_uid='ev_conflict_1',
+            canonical_mechanism='agonist',
+            evidence_level='high',
+            evidence_weight=1.0,
+            context_key='ctx::human::oral',
+            species='Homo sapiens',
+            route='oral',
+        )
+        CompoundTargetInteractionEvidence.objects.create(
+            compound=conflict_compound,
+            target=target,
+            source='BindingDB',
+            source_record_id='CONFLICT-2',
+            evidence_uid='ev_conflict_2',
+            canonical_mechanism='antagonist',
+            evidence_level='high',
+            evidence_weight=1.0,
+            context_key='ctx::human::oral',
+            species='Homo sapiens',
+            route='oral',
+        )
+
+        resp = self.client.post(
+            '/api/stacks/recommend/',
+            data={
+                'goals': {'cognition': 1.0},
+                'candidate_compound_ids': [conflict_compound.id],
+                'min_evidence_confidence': 'low',
+                'max_stack_size': 1,
+                'top_k': 1,
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        recs = resp.json().get('recommendations', [])
+        self.assertGreaterEqual(len(recs), 1)
+        evidence_profile = recs[0].get('evidence_profile') or {}
+        self.assertGreater(float(evidence_profile.get('contradiction_index') or 0.0), 0.0)
+        radar_rows = (recs[0].get('contradiction_radar') or {}).get('rows') or []
+        self.assertTrue(any((row.get('target') or '') == target.name for row in radar_rows))
+
+    def test_legacy_interaction_fallback_scores_anabolism_when_evidence_missing(self):
+        legacy_compound = Compound.objects.create(name='Legacy Testosterone Enanthate')
+        CompoundTargetInteraction.objects.create(
+            compound=legacy_compound,
+            target=self.target_ar,
+            mechanism='agonist',
+            source='legacy-fixture',
+        )
+
+        resp = self.client.post(
+            '/api/stacks/recommend/',
+            data={
+                'goals': {'anabolism': 1.0},
+                'candidate_compound_ids': [legacy_compound.id],
+                'min_evidence_confidence': 'low',
+                'max_stack_size': 1,
+                'top_k': 1,
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        recs = resp.json().get('recommendations', [])
+        self.assertGreaterEqual(len(recs), 1)
+        traits = recs[0].get('character_sheet', {}).get('traits', [])
+        anabolism = next((row for row in traits if row.get('slug') == 'anabolism'), None)
+        self.assertIsNotNone(anabolism)
+        self.assertGreater(float(anabolism['score']), 0.0)
+
+    def test_androgenic_name_heuristic_is_low_confidence_and_respects_confidence_floor(self):
+        heuristic_compound = Compound.objects.create(name='METHENOLONE ENANTHATE Heuristic')
+
+        low_resp = self.client.post(
+            '/api/stacks/recommend/',
+            data={
+                'goals': {'anabolism': 1.0},
+                'candidate_compound_ids': [heuristic_compound.id],
+                'min_evidence_confidence': 'low',
+                'max_stack_size': 1,
+                'top_k': 1,
+            },
+            format='json',
+        )
+        self.assertEqual(low_resp.status_code, 200)
+        low_recs = low_resp.json().get('recommendations', [])
+        self.assertGreaterEqual(len(low_recs), 1)
+        low_traits = low_recs[0].get('character_sheet', {}).get('traits', [])
+        low_anabolism = next((row for row in low_traits if row.get('slug') == 'anabolism'), None)
+        self.assertIsNotNone(low_anabolism)
+        self.assertGreater(float(low_anabolism['score']), 0.0)
+
+        high_resp = self.client.post(
+            '/api/stacks/recommend/',
+            data={
+                'goals': {'anabolism': 1.0},
+                'candidate_compound_ids': [heuristic_compound.id],
+                'min_evidence_confidence': 'high',
+                'max_stack_size': 1,
+                'top_k': 1,
+            },
+            format='json',
+        )
+        self.assertEqual(high_resp.status_code, 200)
+        high_recs = high_resp.json().get('recommendations', [])
+        self.assertEqual(high_recs, [])

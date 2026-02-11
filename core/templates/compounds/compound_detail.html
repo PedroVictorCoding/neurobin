@@ -236,6 +236,9 @@
           {% endfor %}
           <span class="rating-number ms-2 fw-bold text-info">({{ avg_rating|floatformat:1 }}/5)</span>
         </div>
+        <div class="small text-muted mb-2">
+          Evidence handling: review mechanism confidence, ADMET/MolProp coverage, and source links before using this in decisions.
+        </div>
       </div>
       <div class="col-12 col-md-4 d-flex justify-content-md-end justify-content-center mt-4 mt-md-0">
         <div class="bg-dark rounded molecule-container"
@@ -301,7 +304,7 @@
       {% endif %}
 <!-- Action Buttons for Authenticated Users -->
   {% if user.is_authenticated %}
-  <div class="text-center mb-3 card-body>
+  <div class="text-center mb-3 card-body">
     <div class="d-flex gap-2 justify-content-center flex-wrap">
       <!-- Log Intake Button -->
       <a href="{% url 'log_intake' %}?compound={{ compound.id }}" 
@@ -317,6 +320,41 @@
         <i class="fas fa-edit"></i> Request Changes
       </button>
       -->
+
+      {% if user.is_staff %}
+      <form method="post" action="{% url 'compound_queue_research_import' compound.slug %}" class="w-100">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button type="submit"
+                class="btn btn-sm btn-outline-warning py-1 px-2 mt-1"
+                style="width: 100%;"
+                title="Queue research import for {{ compound.name }}">
+          <i class="fas fa-flask"></i> Queue Research Import
+        </button>
+      </form>
+      {% endif %}
+    </div>
+    {% if user.is_staff and research_import_status %}
+      <small class="d-block mt-2 {% if research_import_status == 'queued' %}text-success{% elif research_import_status == 'exists' %}text-warning{% else %}text-danger{% endif %}">
+        {% if research_import_status == 'queued' %}
+          Research import job queued.
+        {% elif research_import_status == 'exists' %}
+          A queued or running research import job already exists.
+        {% else %}
+          Could not queue research import job.
+        {% endif %}
+      </small>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="card-body mb-3">
+    <div class="border rounded p-3">
+      <div class="fw-semibold text-white mb-1">Save this compound workflow</div>
+      <div class="small text-muted mb-2">Create an account to log intake, save stack decisions, and return to this page history.</div>
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-sm btn-outline-info" href="{% url 'register' %}">Create Free Account</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'login' %}">Log In</a>
+      </div>
     </div>
   </div>
   {% endif %}
@@ -453,7 +491,7 @@
                 </p>
                 
                 <small class="text-muted">
-                  <i class="fas fa-user text-info"></i> {{ snippet.created_by.username }} •
+                  <i class="fas fa-user text-info"></i> {{ snippet.created_by.username|default:"Deleted user" }} •
                   <i class="fas fa-calendar text-info"></i> {{ snippet.created_at|date:"M d, Y" }}
                 </small>
               </div>

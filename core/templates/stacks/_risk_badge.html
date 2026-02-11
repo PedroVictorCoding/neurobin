@@ -1,14 +1,13 @@
 {% if risk %}
   {% if risk.risk_level == "high" %}
-    <span class="badge bg-danger" title="Stack risk based on ADMET-AI endpoints">Risk: High</span>
+    <span class="badge bg-danger cp-risk-badge cp-risk-high" title="Stack risk based on ADMET-AI endpoints">Risk: High</span>
   {% elif risk.risk_level == "moderate" %}
-    <span class="badge bg-warning" title="Stack risk based on ADMET-AI endpoints">Risk: Moderate</span>
+    <span class="badge bg-warning cp-risk-badge cp-risk-moderate" title="Stack risk based on ADMET-AI endpoints">Risk: Moderate</span>
   {% elif risk.risk_level == "low" %}
-    <span class="badge bg-success" title="Stack risk based on ADMET-AI endpoints">Risk: Low</span>
+    <span class="badge bg-success cp-risk-badge cp-risk-low" title="Stack risk based on ADMET-AI endpoints">Risk: Low</span>
   {% else %}
-    <span class="badge bg-secondary" title="Stack risk based on ADMET-AI endpoints">Risk: Unknown</span>
+    <span class="badge bg-secondary cp-risk-badge cp-risk-unknown" title="Stack risk based on ADMET-AI endpoints">Risk: Unknown</span>
   {% endif %}
 {% else %}
-  <span class="badge bg-secondary" title="No cached risk assessment yet">Risk: Unknown</span>
+  <span class="badge bg-secondary cp-risk-badge cp-risk-unknown" title="No cached risk assessment yet">Risk: Unknown</span>
 {% endif %}
-

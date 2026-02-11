@@ -53,6 +53,16 @@ class ChEMBLImporter:
         # Initialize standard types on first use
         self._action_types_initialized = False
         self._target_types_initialized = False
+
+    @staticmethod
+    def _as_dict(value) -> Dict:
+        """Return value if dict-like, else an empty dict."""
+        return value if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _as_list(value) -> List:
+        """Return value if list-like, else an empty list."""
+        return value if isinstance(value, list) else []
     
     def ensure_action_types(self):
         """Ensure standard ActionType entries exist."""
@@ -202,10 +212,13 @@ class ChEMBLImporter:
         url = f"{self.BASE_URL}/mechanism.json"
         params = {'molecule_chembl_id': chembl_id, 'limit': 50}
         
-        data = self.fetch_with_retry(url, params)
+        data = self._as_dict(self.fetch_with_retry(url, params))
         if data:
-            explicit_mechanisms = data.get('mechanisms', [])
+            explicit_mechanisms = self._as_list(data.get('mechanisms'))
             for mech in explicit_mechanisms:
+                mech = self._as_dict(mech)
+                if not mech:
+                    continue
                 # Only include mechanisms with actual mechanism_of_action data
                 mechanism_action = mech.get('mechanism_of_action', '').strip()
                 if mechanism_action and mechanism_action.lower() != 'unknown':
@@ -242,11 +255,11 @@ class ChEMBLImporter:
             'standard_type__in': 'IC50,EC50,Ki,Kd'
         }
         
-        data = self.fetch_with_retry(url, params)
+        data = self._as_dict(self.fetch_with_retry(url, params))
         if not data:
             return []
         
-        return data.get('activities', [])
+        return [row for row in self._as_list(data.get('activities')) if isinstance(row, dict)]
 
     def filter_activities_for_target(self, activities: List[Dict], target_chembl_id: str) -> List[Dict]:
         """Return only activities that match the target ChEMBL ID."""
@@ -261,6 +274,11 @@ class ChEMBLImporter:
         """Fetch detailed target information."""
         url = f"{self.BASE_URL}/target/{target_chembl_id}.json"
         
+        return self.fetch_with_retry(url)
+
+    def get_compound_data(self, chembl_id: str) -> Optional[Dict]:
+        """Fetch a single compound payload from ChEMBL."""
+        url = f"{self.BASE_URL}/molecule/{chembl_id}.json"
         return self.fetch_with_retry(url)
     
     def normalize_mechanism(self, mechanism: str) -> str:
@@ -319,14 +337,14 @@ class ChEMBLImporter:
             'limit': 5  # Get top 5 matches
         }
         
-        data = self.fetch_with_retry(url, params)
+        data = self._as_dict(self.fetch_with_retry(url, params))
         if not data or not data.get('molecules'):
             # Try alternative search by preferred name
             params = {
                 'pref_name__iexact': name,
                 'limit': 5
             }
-            data = self.fetch_with_retry(url, params)
+            data = self._as_dict(self.fetch_with_retry(url, params))
         
         if not data or not data.get('molecules'):
             # Try fuzzy search
@@ -334,12 +352,15 @@ class ChEMBLImporter:
                 'molecule_synonyms__molecule_synonym__icontains': name,
                 'limit': 10
             }
-            data = self.fetch_with_retry(url, params)
+            data = self._as_dict(self.fetch_with_retry(url, params))
         
         if data and data.get('molecules'):
-            molecules = data['molecules']
+            molecules = self._as_list(data.get('molecules'))
+            if not molecules:
+                return None
             # Return the first match's ChEMBL ID
-            return molecules[0].get('molecule_chembl_id')
+            first = self._as_dict(molecules[0])
+            return first.get('molecule_chembl_id')
         
         return None
     
@@ -401,12 +422,12 @@ class ChEMBLImporter:
             print(f"[→] Fetching compounds {offset + 1}-{offset + page_size}...")
             
             try:
-                data = self.fetch_with_retry(url, params)
+                data = self._as_dict(self.fetch_with_retry(url, params))
                 if not data or 'molecules' not in data:
                     print("[!] No more compounds found")
                     break
                 
-                molecules = data['molecules']
+                molecules = self._as_list(data.get('molecules'))
                 if not molecules:
                     print("[!] No compounds in this batch")
                     break
@@ -414,6 +435,9 @@ class ChEMBLImporter:
                 # Extract ChEMBL IDs from the molecules
                 batch_ids = []
                 for molecule in molecules:
+                    molecule = self._as_dict(molecule)
+                    if not molecule:
+                        continue
                     chembl_id = molecule.get('molecule_chembl_id')
                     if chembl_id:
                         batch_ids.append(chembl_id)
@@ -463,9 +487,9 @@ class ChEMBLImporter:
         params = {'molecule_chembl_id': chembl_id, 'limit': 20}
         
         try:
-            data = self.fetch_with_retry(url, params)
+            data = self._as_dict(self.fetch_with_retry(url, params))
             if data and 'drug_indications' in data:
-                indications = data['drug_indications']
+                indications = [row for row in self._as_list(data.get('drug_indications')) if isinstance(row, dict)]
                 # Sort by max phase (higher phases are more advanced/important)
                 def get_phase_value(indication):
                     phase = indication.get('max_phase_for_ind', 0)
@@ -493,11 +517,14 @@ class ChEMBLImporter:
         params = {'molecule_chembl_id': chembl_id, 'limit': 10}
         
         try:
-            data = self.fetch_with_retry(url, params)
+            data = self._as_dict(self.fetch_with_retry(url, params))
             if data and 'drugs' in data and data['drugs']:
                 # Get the first drug entry (should be only one for specific ChEMBL ID)
-                drug_data = data['drugs'][0]
-                atc_classifications = drug_data.get('atc_classification', [])
+                drug_rows = self._as_list(data.get('drugs'))
+                if not drug_rows:
+                    return []
+                drug_data = self._as_dict(drug_rows[0])
+                atc_classifications = self._as_list(drug_data.get('atc_classification'))
                 return atc_classifications
             return []
         except Exception as e:
@@ -660,6 +687,9 @@ class ChEMBLImporter:
         }
         
         for atc_data in atc_codes:
+            atc_data = self._as_dict(atc_data)
+            if not atc_data:
+                continue
             atc_code = atc_data.get('code', '')
             description = atc_data.get('description', '')
             
@@ -714,6 +744,11 @@ class Command(BaseCommand):
             action='store_true',
             default=True,
             help='Create compound-to-compound interactions for shared targets'
+        )
+        parser.add_argument(
+            '--skip-compound-interactions',
+            action='store_true',
+            help='Skip rebuilding compound-to-compound interactions at the end of import'
         )
         parser.add_argument(
             '--batch-size',
@@ -782,6 +817,9 @@ class Command(BaseCommand):
         chembl_ids, search_name_mapping = self.get_chembl_ids(options)
         
         if not chembl_ids:
+            if options.get('skip_existing'):
+                self.stdout.write(self.style.WARNING('[i] Nothing to process after skip-existing filter.'))
+                return
             raise CommandError("No ChEMBL IDs specified. Use --compounds, --file, or --all-compounds")
         
         if options['slow_mode']:
@@ -837,16 +875,27 @@ class Command(BaseCommand):
         
         for i in range(0, len(chembl_ids), batch_size):
             batch = chembl_ids[i:i + batch_size]
-            self.process_batch(importer, batch, slow_mode, update_existing, match_by_name, options['keep_search_names'], search_name_mapping, allowed_phases, blacklisted_targets, options.get('skip_existing', False))
+            api_work_count = self.process_batch(
+                importer,
+                batch,
+                slow_mode,
+                update_existing,
+                match_by_name,
+                options['keep_search_names'],
+                search_name_mapping,
+                allowed_phases,
+                blacklisted_targets,
+                options.get('skip_existing', False),
+            )
             
-            if i + batch_size < len(chembl_ids):
+            if i + batch_size < len(chembl_ids) and api_work_count > 0:
                 # Determine delay based on mode
                 delay = 10 if slow_mode else 2
                 self.stdout.write(f"[i] Processed {i + batch_size}/{len(chembl_ids)}, sleeping {delay}s...")
                 time.sleep(delay)  # Rate limiting
         
         # Create compound-to-compound interactions
-        if options['create_compound_interactions']:
+        if options['create_compound_interactions'] and not options.get('skip_compound_interactions'):
             self.create_compound_interactions()
         
         self.stdout.write(self.style.SUCCESS('[✓] Import completed successfully!'))
@@ -946,7 +995,32 @@ class Command(BaseCommand):
                     "CHEMBL2153138" # Psilocybin
                 ]
         
-        return chembl_ids, search_name_mapping
+        # Normalize IDs and preserve input order while removing duplicates.
+        normalized_ids = []
+        seen_ids: Set[str] = set()
+        for chembl_id in chembl_ids:
+            normalized = (chembl_id or '').strip().upper()
+            if not normalized or normalized in seen_ids:
+                continue
+            seen_ids.add(normalized)
+            normalized_ids.append(normalized)
+
+        # When skipping existing compounds, pre-filter at list-building time.
+        # This avoids local per-item checks and unnecessary inter-batch sleep cycles.
+        if options.get('skip_existing') and normalized_ids:
+            existing_ids = {
+                (value or '').strip().upper()
+                for value in Compound.objects.filter(chembl_id__isnull=False)
+                .exclude(chembl_id='')
+                .values_list('chembl_id', flat=True)
+            }
+            before_count = len(normalized_ids)
+            normalized_ids = [cid for cid in normalized_ids if cid not in existing_ids]
+            skipped_count = before_count - len(normalized_ids)
+            if skipped_count:
+                self.stdout.write(f"[i] Pre-filtered {skipped_count} existing compound(s) locally.")
+
+        return normalized_ids, search_name_mapping
     
     def process_batch(self, importer: ChEMBLImporter, chembl_ids: List[str], slow_mode: bool = False, update_existing: bool = False, match_by_name: bool = False, keep_search_names: bool = False, search_name_mapping: Dict[str, str] = None, allowed_phases: List[float] = None, blacklisted_targets: List[str] = None, skip_existing: bool = False):
         """Process a batch of compounds."""
@@ -957,12 +1031,27 @@ class Command(BaseCommand):
         if blacklisted_targets is None:
             blacklisted_targets = []
             
+        api_work_count = 0
         for chembl_id in chembl_ids:
             try:
                 search_name = search_name_mapping.get(chembl_id, None)
-                self.process_compound(importer, chembl_id, slow_mode, update_existing, match_by_name, keep_search_names, search_name, allowed_phases, blacklisted_targets, skip_existing)
+                did_api_work = self.process_compound(
+                    importer,
+                    chembl_id,
+                    slow_mode,
+                    update_existing,
+                    match_by_name,
+                    keep_search_names,
+                    search_name,
+                    allowed_phases,
+                    blacklisted_targets,
+                    skip_existing,
+                )
+                if did_api_work:
+                    api_work_count += 1
             except Exception as e:
                 self.stdout.write(f"[✗] Error processing {chembl_id}: {e}")
+        return api_work_count
     
     def process_compound(self, importer: ChEMBLImporter, chembl_id: str, slow_mode: bool = False, update_existing: bool = False, match_by_name: bool = False, keep_search_names: bool = False, search_name: str = None, allowed_phases: List[float] = None, blacklisted_targets: List[str] = None, skip_existing: bool = False):
         """Process a single compound."""
@@ -976,14 +1065,14 @@ class Command(BaseCommand):
             existing_compound = Compound.objects.filter(chembl_id=chembl_id).first()
             if existing_compound:
                 self.stdout.write(f"  [!] Skipping {chembl_id}: already exists as '{existing_compound.name}'")
-                return
+                return False
         
         # Check phase filter if specified
         if allowed_phases:
             indications = importer.get_drug_indications(chembl_id)
             if not self._matches_phase_filter(indications, allowed_phases):
                 # Get the compound name for better logging
-                molecule = importer.get_compound_data(chembl_id)
+                molecule = importer._as_dict(importer.get_compound_data(chembl_id))
                 compound_name = molecule.get('pref_name', chembl_id) if molecule else chembl_id
                 
                 # Show phases found for this compound
@@ -1000,13 +1089,13 @@ class Command(BaseCommand):
                     self.stdout.write(f"  [!] Skipping {compound_name}: phases {set(found_phases)} don't match filter {allowed_phases}")
                 else:
                     self.stdout.write(f"  [!] Skipping {compound_name}: no phase data available")
-                return
+                return True
         
         # Get or create compound from ChEMBL data
         compound = self.get_or_create_compound(importer, chembl_id, slow_mode, update_existing, match_by_name, keep_search_names, search_name)
         if not compound:
             self.stdout.write(f"[!] Could not fetch/create compound {chembl_id} from ChEMBL")
-            return
+            return True
         
         # Add delay in slow mode before API calls
         if slow_mode:
@@ -1023,7 +1112,7 @@ class Command(BaseCommand):
         
         if not mechanisms:
             self.stdout.write(f"[!] No mechanisms found for {chembl_id}")
-            return
+            return True
         
         # Process each mechanism
         interactions_created = 0
@@ -1035,6 +1124,7 @@ class Command(BaseCommand):
                     time.sleep(1)
         
         self.stdout.write(f"[✓] Created {interactions_created} interactions for {compound.name}")
+        return True
     
     def _normalize_compound_name(self, name: str) -> str:
         """Normalize compound name to proper capitalization."""
@@ -1193,6 +1283,8 @@ class Command(BaseCommand):
             return True  # No filter means all phases allowed
             
         for indication in indications:
+            if not isinstance(indication, dict):
+                continue
             phase = indication.get('max_phase_for_ind')
             if phase is not None:
                 try:
@@ -1216,7 +1308,7 @@ class Command(BaseCommand):
         # Fetch compound data from ChEMBL
         try:
             url = f"{importer.BASE_URL}/molecule/{chembl_id}.json"
-            data = importer.fetch_with_retry(url)
+            data = importer._as_dict(importer.fetch_with_retry(url))
             
             if not data:
                 return None
@@ -1227,9 +1319,10 @@ class Command(BaseCommand):
             name = molecule.get('pref_name', f"Compound {chembl_id}")
             if not name or name == 'null':
                 # Try synonyms
-                synonyms = molecule.get('molecule_synonyms', [])
+                synonyms = importer._as_list(molecule.get('molecule_synonyms'))
                 if synonyms:
-                    name = synonyms[0].get('molecule_synonym', f"Compound {chembl_id}")
+                    first_synonym = importer._as_dict(synonyms[0])
+                    name = first_synonym.get('molecule_synonym', f"Compound {chembl_id}")
                 else:
                     name = f"Compound {chembl_id}"
             
@@ -1249,18 +1342,21 @@ class Command(BaseCommand):
                     self.stdout.write(f"  [i] Found compound by name match: {compound.name} → will update with ChEMBL data")
             
             # Get SMILES structure if available
-            structure = molecule.get('molecule_structures', {})
+            structure = importer._as_dict(molecule.get('molecule_structures'))
             smiles = ''
             if structure:
-                smiles = structure.get('canonical_smiles', '')
+                smiles = structure.get('canonical_smiles', '') or ''
             
             # Build comprehensive description
             description = self._build_enhanced_description(molecule, chembl_id, importer)
             
             # Get aliases from synonyms
             aliases = []
-            synonyms = molecule.get('molecule_synonyms', [])
+            synonyms = importer._as_list(molecule.get('molecule_synonyms'))
             for syn in synonyms[:5]:  # Limit to first 5 synonyms
+                syn = importer._as_dict(syn)
+                if not syn:
+                    continue
                 synonym_name = syn.get('molecule_synonym', '')
                 if synonym_name and synonym_name != name:
                     aliases.append(synonym_name)
@@ -1358,6 +1454,10 @@ class Command(BaseCommand):
     
     def _build_enhanced_description(self, molecule: Dict, chembl_id: str, importer: ChEMBLImporter) -> str:
         """Build enhanced description from molecule data."""
+        molecule = importer._as_dict(molecule)
+        if not molecule:
+            return f"A compound with ChEMBL identifier {chembl_id}."
+
         description_parts = []
         
         # Add primary name and common names if different
@@ -1385,7 +1485,7 @@ class Command(BaseCommand):
             description_parts.append("used for therapeutic purposes")
         
         # Add drug-like properties context
-        props = molecule.get('molecule_properties', {})
+        props = importer._as_dict(molecule.get('molecule_properties'))
         if props:
             mw = props.get('mw_freebase')
             if isinstance(mw, (int, float)) and mw > 0:
@@ -1434,6 +1534,9 @@ class Command(BaseCommand):
         from compounds.models import CompoundCategories
         
         try:
+            if not isinstance(molecule_data, dict):
+                molecule_data = {}
+
             categories_to_add = []
             
             # Add category based on molecule type
@@ -1455,7 +1558,7 @@ class Command(BaseCommand):
                 categories_to_add.append('Therapeutic')
             
             # Add categories based on properties
-            props = molecule_data.get('molecule_properties', {})
+            props = importer._as_dict(molecule_data.get('molecule_properties')) if importer else molecule_data.get('molecule_properties') or {}
             if props:
                 mw = props.get('mw_freebase', 0)
                 if isinstance(mw, (int, float)) and mw > 0:
@@ -1473,6 +1576,8 @@ class Command(BaseCommand):
             if importer and compound.chembl_id:
                 indications = importer.get_drug_indications(compound.chembl_id)
                 for indication_data in indications:
+                    if not isinstance(indication_data, dict):
+                        continue
                     # Get indication name from available fields
                     indication = (
                         indication_data.get('efo_term', '') or
@@ -1898,6 +2003,8 @@ class Command(BaseCommand):
             target_types = {}
             
             for mechanism_data in mechanisms:
+                if not isinstance(mechanism_data, dict):
+                    continue
                 mechanism = mechanism_data.get('mechanism_of_action', '').lower()
                 normalized = importer.normalize_mechanism(mechanism)
                 
@@ -1909,6 +2016,7 @@ class Command(BaseCommand):
                 target_chembl_id = mechanism_data.get('target_chembl_id')
                 if target_chembl_id:
                     target_data = importer.get_target_details(target_chembl_id)
+                    target_data = importer._as_dict(target_data)
                     if target_data:
                         target_type = target_data.get('target_type', '').lower()
                         if target_type not in target_types:

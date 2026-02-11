@@ -2,56 +2,135 @@
 {% load static %}
 {% block title %}Neurobin — Research, Track, Stay Safe{% endblock %}
 {% block content %}
-<div class="d-flex flex-column align-items-center justify-content-center mt-5" style="min-height: 60vh;">
-  <div class="text-center">
-    <h1 class="fw-bold mb-3">Research, Track<br>Stay Safe</h1>
-    <p class="lead text-secondary mb-4" style="max-width: 400px; margin: 0 auto;">
-      Discover, document, and share compound research. Neurobin helps you track mechanisms, targets, and safety — all in one place.
-    </p>
-    <div class="d-flex flex-column flex-sm-row justify-content-center gap-3 mt-4">
-      <a href="{% url 'compound_list' %}" class="btn btn-primary btn-lg px-4">Browse Compounds</a>
-      {% if user.is_authenticated %}
-        <a href="{% url 'analytics_dashboard' %}" class="btn btn-outline-secondary btn-lg px-4">Log Compound</a>
-      {% endif %}
-    </div>
-  </div>
-  
-  <!-- Data Statistics Section -->
-  <div class="mt-5 pt-4 border-top">
-    <div class="row text-center">
-      <div class="col-md-4 mb-3">
-        <div class="p-3 h-100 d-flex flex-column justify-content-center">
-          <div class="display-4 fw-bold text-primary mb-1 counter" data-target="{{ compound_count }}">0</div>
-          <div class="text-muted text-uppercase small letter-spacing">Compounds</div>
-          <div class="mt-1">
-            <i class="fas fa-flask text-primary opacity-50"></i>
+<div class="container py-3" style="max-width: 1100px;">
+  <div class="row g-4 align-items-stretch">
+    <div class="col-12 col-lg-7">
+      <div class="card h-100 bg-neurobin-card border-0">
+        <div class="card-body p-4">
+          <h1 class="fw-bold mb-3">Evidence-first biotech workflow</h1>
+          <p class="text-secondary mb-3">
+            Explore compounds, evaluate stack tradeoffs, and track intake with confidence and uncertainty shown explicitly.
+          </p>
+          <div class="small text-muted mb-4">
+            Research use only. Do not treat recommendation outputs as clinical instructions.
           </div>
-        </div>
-      </div>
-      <div class="col-md-4 mb-3">
-        <div class="p-3 h-100 d-flex flex-column justify-content-center">
-          <div class="display-4 fw-bold text-success mb-1 counter" data-target="{{ mechanism_count }}">0</div>
-          <div class="text-muted text-uppercase small letter-spacing">Mechanisms</div>
-          <div class="mt-1">
-            <i class="fas fa-cogs text-success opacity-50"></i>
-          </div>
-        </div>
-      </div>
-      <div class="col-md-4 mb-3">
-        <div class="p-3 h-100 d-flex flex-column justify-content-center">
-          <div class="display-4 fw-bold text-warning mb-1 counter" data-target="{{ target_count }}">0</div>
-          <div class="text-muted text-uppercase small letter-spacing">Targets</div>
-          <div class="mt-1">
-            <i class="fas fa-bullseye text-warning opacity-50"></i>
+          <div class="d-flex flex-wrap gap-2">
+            <a href="{% url 'compound_list' %}" class="btn btn-info">Browse Compounds</a>
+            <a href="{% url 'research:snippet_list' %}" class="btn btn-outline-secondary">Review Research</a>
+            {% if user.is_authenticated %}
+              <a href="{% url 'my_stacks' %}" class="btn btn-outline-secondary">Resume My Stacks</a>
+            {% else %}
+              <a href="{% url 'register' %}" class="btn btn-outline-secondary">Create Free Account</a>
+            {% endif %}
           </div>
         </div>
       </div>
     </div>
 
+    <div class="col-12 col-lg-5">
+      <div class="card h-100 bg-neurobin-card border-0">
+        <div class="card-body p-4">
+          <h2 class="h5 text-white mb-3">Trust Signals</h2>
+          <div class="small text-muted mb-2">Confidence labels are visible on risk and research outputs.</div>
+          <div class="small text-muted mb-2">Source links and provenance are shown where available.</div>
+          <div class="small text-muted mb-2">Versioned change requests support auditability.</div>
+          <div class="small text-muted">No high-pressure prompts. You can explore before creating an account.</div>
+        </div>
+      </div>
+    </div>
   </div>
-  <!--<div class="mt-5">
-    <img src="{% static 'img/brain-wireframe.png' %}" alt="Brain wireframe" style="width: 320px; opacity: 0.15;">
-  </div>-->
+
+  <div class="mt-4 pt-3 border-top">
+    <div class="row text-center g-3">
+      <div class="col-6 col-lg-2">
+        <div class="display-6 fw-bold text-primary counter" data-target="{{ compound_count }}">0</div>
+        <div class="text-muted text-uppercase small">Compounds</div>
+      </div>
+      <div class="col-6 col-lg-2">
+        <div class="display-6 fw-bold text-success counter" data-target="{{ mechanism_count }}">0</div>
+        <div class="text-muted text-uppercase small">Mechanisms</div>
+      </div>
+      <div class="col-6 col-lg-2">
+        <div class="display-6 fw-bold text-warning counter" data-target="{{ target_count }}">0</div>
+        <div class="text-muted text-uppercase small">Targets</div>
+      </div>
+      <div class="col-6 col-lg-2">
+        <div class="display-6 fw-bold text-info counter" data-target="{{ public_stack_count }}">0</div>
+        <div class="text-muted text-uppercase small">Public Stacks</div>
+      </div>
+      <div class="col-6 col-lg-2">
+        <div class="display-6 fw-bold text-primary counter" data-target="{{ public_snippet_count }}">0</div>
+        <div class="text-muted text-uppercase small">Public Snippets</div>
+      </div>
+      <div class="col-6 col-lg-2">
+        <div class="display-6 fw-bold text-success counter" data-target="{{ verified_snippet_count }}">0</div>
+        <div class="text-muted text-uppercase small">Verified Snippets</div>
+      </div>
+    </div>
+  </div>
+
+  {% if recent_compounds or recent_snippets or recent_stacks %}
+    <div class="card bg-neurobin-card border-0 mt-4">
+      <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+          <h2 class="h5 text-white mb-0">Continue Where You Left Off</h2>
+          {% if user.is_authenticated %}
+            <a href="{% url 'my_stacks' %}" class="btn btn-sm btn-outline-secondary">Return to Workspace</a>
+          {% else %}
+            <a href="{% url 'register' %}" class="btn btn-sm btn-outline-secondary">Save This History</a>
+          {% endif %}
+        </div>
+        <div class="row g-3">
+          {% if recent_stacks %}
+            <div class="col-12 col-lg-4">
+              <div class="small text-muted mb-2">Recent stacks</div>
+              <div class="d-flex flex-column gap-2">
+                {% for row in recent_stacks %}
+                  <a href="{% url 'stack_detail' row.id %}" class="text-decoration-none">
+                    <div class="border rounded p-2 d-flex justify-content-between align-items-center">
+                      <span class="text-light">{{ row.name }}</span>
+                      {% if row.is_active %}
+                        <span class="badge bg-success">Active</span>
+                      {% endif %}
+                    </div>
+                  </a>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+
+          {% if recent_compounds %}
+            <div class="col-12 col-lg-4">
+              <div class="small text-muted mb-2">Recent compounds</div>
+              <div class="d-flex flex-column gap-2">
+                {% for row in recent_compounds %}
+                  <a href="{% url 'compound_detail' row.slug %}" class="text-decoration-none">
+                    <div class="border rounded p-2 text-light">{{ row.name }}</div>
+                  </a>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+
+          {% if recent_snippets %}
+            <div class="col-12 col-lg-4">
+              <div class="small text-muted mb-2">Recent research</div>
+              <div class="d-flex flex-column gap-2">
+                {% for row in recent_snippets %}
+                  <a href="{% url 'research:snippet_detail' row.id %}" class="text-decoration-none">
+                    <div class="border rounded p-2">
+                      <div class="text-light small fw-semibold">{{ row.title|truncatechars:58 }}</div>
+                      <div class="text-muted small">{{ row.compound_name }}</div>
+                    </div>
+                  </a>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
 </div>
 
 <footer>
@@ -60,49 +139,21 @@
       <i class="fas fa-database me-1"></i>
       Curated from ChEMBL and scientific databases
       <span class="mx-2">•</span>
-      <a href="{% url 'about' %}" class="text-muted text-decoration-none">
-        About
-      </a>
+      <a href="{% url 'about' %}" class="text-muted text-decoration-none">About</a>
+      <span class="mx-2">•</span>
+      <a href="{% url 'change_requests:feature_request' %}" class="text-muted text-decoration-none">Feature Request</a>
     </small>
   </div>
 </footer>
 
-<style>
-.letter-spacing {
-  letter-spacing: 1px;
-}
-
-.counter {
-  transition: all 0.3s ease;
-}
-
-.opacity-50 {
-  opacity: 0.5;
-}
-
-/* Hover effects for stat cards */
-.col-md-4:hover .counter {
-  transform: scale(1.05);
-}
-
-.col-md-4:hover i {
-  opacity: 0.8 !important;
-  transform: scale(1.1);
-  transition: all 0.2s ease;
-}
-</style>
-
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  // Animate counters
   const counters = document.querySelectorAll('.counter');
-  
   const animateCounter = (counter) => {
     const target = parseInt(counter.getAttribute('data-target'));
-    const duration = 2000; // 2 seconds
-    const increment = target / (duration / 16); // 60fps
+    const duration = 1400;
+    const increment = target / (duration / 16);
     let current = 0;
-    
     const timer = setInterval(() => {
       current += increment;
       if (current >= target) {
@@ -112,8 +163,7 @@ document.addEventListener('DOMContentLoaded', function() {
       counter.textContent = Math.floor(current).toLocaleString();
     }, 16);
   };
-  
-  // Intersection Observer for triggering animation when visible
+
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       if (entry.isIntersecting) {
@@ -122,10 +172,8 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     });
   });
-  
-  counters.forEach(counter => {
-    observer.observe(counter);
-  });
+
+  counters.forEach(counter => observer.observe(counter));
 });
 </script>
 {% endblock %}

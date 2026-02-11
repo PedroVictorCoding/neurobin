@@ -31,6 +31,23 @@ from .forms import (
 from compounds.models import Compound
 
 
+def _push_recent_snippet(request, snippet):
+    recent = request.session.get("recent_snippets", [])
+    if not isinstance(recent, list):
+        recent = []
+    recent = [row for row in recent if row.get("id") != snippet.id]
+    recent.insert(
+        0,
+        {
+            "id": snippet.id,
+            "title": snippet.title,
+            "compound_slug": snippet.compound.slug,
+            "compound_name": snippet.compound.name,
+        },
+    )
+    request.session["recent_snippets"] = recent[:8]
+
+
 def snippet_list(request):
     """
     Display paginated list of research snippets with filtering.
@@ -125,6 +142,7 @@ def snippet_detail(request, pk):
     # Increment view count
     snippet.view_count += 1
     snippet.save(update_fields=['view_count'])
+    _push_recent_snippet(request, snippet)
     
     # Get user's existing review if any
     user_review = None

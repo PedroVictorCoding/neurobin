@@ -1,6 +1,7 @@
-from django.db import models
 from django.conf import settings
-from compounds.models import Compound
+from django.db import models
+
+from compounds.models import Compound, CompoundTargetInteraction
 
 class Stack(models.Model):
     VISIBILITY_CHOICES = [
@@ -92,3 +93,114 @@ class StackItem(models.Model):
 
     def __str__(self):
         return f"{self.compound.name} in {self.stack.name}"
+
+
+class StackTrait(models.Model):
+    TRAIT_TYPE_CHOICES = [
+        ('benefit', 'Benefit'),
+        ('risk', 'Risk'),
+    ]
+
+    slug = models.SlugField(max_length=64, unique=True)
+    label = models.CharField(max_length=120)
+    trait_type = models.CharField(max_length=16, choices=TRAIT_TYPE_CHOICES, default='benefit')
+    description = models.TextField(blank=True)
+    is_hypothesis = models.BooleanField(
+        default=False,
+        help_text="Marks hypothesis-only traits (for example oncoprotection hypotheses).",
+    )
+    min_score = models.FloatField(default=-5.0)
+    max_score = models.FloatField(default=5.0)
+    default_weight = models.FloatField(default=1.0)
+    display_order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['display_order', 'label']
+
+    def __str__(self):
+        return self.label
+
+
+class MechanismTraitRule(models.Model):
+    mechanism = models.CharField(
+        max_length=50,
+        choices=CompoundTargetInteraction.MECHANISM_CHOICES,
+        db_index=True,
+    )
+    trait = models.ForeignKey(
+        StackTrait,
+        on_delete=models.CASCADE,
+        related_name='mechanism_rules',
+    )
+    delta = models.FloatField(
+        help_text="Directional trait delta for this mechanism/rule. Typical range: -5..+5",
+    )
+    base_confidence = models.FloatField(
+        default=0.7,
+        help_text="Rule confidence multiplier in range 0..1.",
+    )
+    target_name_contains = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Optional substring filter to scope this rule to specific target families.",
+    )
+    species = models.CharField(max_length=255, blank=True)
+    assay_type = models.CharField(max_length=255, blank=True)
+    route = models.CharField(max_length=100, blank=True)
+    source = models.CharField(max_length=100, blank=True)
+    notes = models.TextField(blank=True)
+    priority = models.IntegerField(
+        default=100,
+        help_text="Lower numbers are evaluated first and treated as more specific rules.",
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['priority', 'id']
+        indexes = [
+            models.Index(fields=['mechanism', 'is_active'], name='st_rule_mech_active_idx'),
+            models.Index(fields=['trait', 'is_active'], name='st_rule_trait_active_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.mechanism} -> {self.trait.slug} ({self.delta:+.2f})"
+
+
+class StackDangerousPairRule(models.Model):
+    SEVERITY_CHOICES = [
+        ('moderate', 'Moderate'),
+        ('high', 'High'),
+        ('critical', 'Critical'),
+    ]
+
+    compound_a = models.ForeignKey(
+        Compound,
+        on_delete=models.CASCADE,
+        related_name='dangerous_pairs_as_a',
+    )
+    compound_b = models.ForeignKey(
+        Compound,
+        on_delete=models.CASCADE,
+        related_name='dangerous_pairs_as_b',
+    )
+    severity = models.CharField(max_length=16, choices=SEVERITY_CHOICES, default='high')
+    reason = models.CharField(max_length=255)
+    source = models.CharField(max_length=100, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('compound_a', 'compound_b')
+        indexes = [
+            models.Index(fields=['compound_a', 'compound_b'], name='st_danger_pair_idx'),
+            models.Index(fields=['is_active'], name='st_danger_active_idx'),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.compound_a_id and self.compound_b_id and self.compound_a_id > self.compound_b_id:
+            self.compound_a_id, self.compound_b_id = self.compound_b_id, self.compound_a_id
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.compound_a.name} + {self.compound_b.name} ({self.severity})"

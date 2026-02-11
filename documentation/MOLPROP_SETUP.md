@@ -23,6 +23,18 @@ cp core/config/molprop_bridge.example.json core/config/molprop_bridge.json
 
 Set `repo_dir`, `setup_json`, and `checkpoint_file` for each endpoint model.
 
+Or auto-generate a first pass from your local MolPROP checkout:
+
+```bash
+venv/bin/python core/manage.py generate_molprop_bridge_config \
+  --repo-dir /opt/MolPROP \
+  --out core/config/molprop_bridge.json \
+  --force
+```
+
+This discovers `setup*.json` + `*.pth` pairs. Review endpoint names and class direction
+(`positive_class_index`) before production use.
+
 ## 3) Enable bridge for Django
 
 Set environment variables before running Django:
@@ -44,6 +56,12 @@ export MOLPROP_ENDPOINT=BBB_Martins
 - Open a compound page with SMILES.
 - Click `MolProp`.
 - Predictions are cached in `CompoundMolPropPrediction`.
+
+Optional CLI smoke test:
+
+```bash
+venv/bin/python core/manage.py shell -c "from compounds.molprop import predict_molprop; print(predict_molprop('CCO')[0])"
+```
 
 ## Notes
 

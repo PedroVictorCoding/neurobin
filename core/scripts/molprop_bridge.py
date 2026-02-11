@@ -170,44 +170,52 @@ def _predict_endpoint(
     set_l = int(cfg.get("set_L") or training.get("set_L") or 1)
     fusion_size = int(cfg.get("fusion_size") or 320)
 
-    sys.path.insert(0, str((repo_dir / "src").resolve()))
-    from DataLoader import SuperSet_csv  # type: ignore
-    from DeepNetworks.SLEF import SLEFNet  # type: ignore
-    from utils import collateFunction  # type: ignore
+    prev_cwd = Path.cwd()
+    try:
+        os.chdir(repo_dir)
+        sys.path.insert(0, str((repo_dir / "src").resolve()))
+        from DataLoader import SuperSet_csv  # type: ignore
+        from DeepNetworks.SLEF import SLEFNet  # type: ignore
+        from utils import collateFunction  # type: ignore
 
-    model = SLEFNet(setup["network"])
-    checkpoint = torch.load(str(checkpoint_path), map_location=device_name)
-    state_dict = _state_dict_from_checkpoint(checkpoint)
-    consume_prefix_in_state_dict_if_present(state_dict, "module.")
-    model.load_state_dict(state_dict, strict=False)
-    model = model.to(device_name)
-    model.eval()
+        model = SLEFNet(setup["network"])
+        checkpoint = torch.load(str(checkpoint_path), map_location=device_name)
+        state_dict = _state_dict_from_checkpoint(checkpoint)
+        consume_prefix_in_state_dict_if_present(state_dict, "module.")
+        model.load_state_dict(state_dict, strict=False)
+        model = model.to(device_name)
+        model.eval()
 
-    rows = [{source_column: smiles, target_column: 0.0}]
-    data = pd.DataFrame(rows)
-    dataset = SuperSet_csv(data=data, X=source_column, y=target_column)
-    loader = DataLoader(
-        dataset,
-        batch_size=1,
-        shuffle=False,
-        num_workers=0,
-        collate_fn=collateFunction(setup=setup, set_L=set_l),
-        pin_memory=False,
-    )
-
-    batch = _load_batch(loader)
-    lrs, ens_attention_masks, alphas, tokens, attention_masks = _to_device(batch, device_name, torch)
-    with torch.no_grad():
-        output = model(
-            lrs,
-            ens_attention_masks,
-            alphas,
-            tokens,
-            attention_masks,
-            fusion_size=fusion_size,
+        rows = [{source_column: smiles, target_column: 0.0}]
+        data = pd.DataFrame(rows)
+        dataset = SuperSet_csv(data=data, X=source_column, y=target_column)
+        loader = DataLoader(
+            dataset,
+            batch_size=1,
+            shuffle=False,
+            num_workers=0,
+            collate_fn=collateFunction(setup=setup, set_L=set_l),
+            pin_memory=False,
         )
-    values = output.detach().cpu().numpy().reshape(-1).tolist()
-    return _predict_from_tensor(values, mode=mode, positive_class_index=positive_class_index)
+
+        batch = _load_batch(loader)
+        lrs, ens_attention_masks, alphas, tokens, attention_masks = _to_device(batch, device_name, torch)
+        with torch.no_grad():
+            output = model(
+                lrs,
+                ens_attention_masks,
+                alphas,
+                tokens,
+                attention_masks,
+                fusion_size=fusion_size,
+            )
+        values = output.detach().cpu().numpy().reshape(-1).tolist()
+        return _predict_from_tensor(values, mode=mode, positive_class_index=positive_class_index)
+    finally:
+        try:
+            os.chdir(prev_cwd)
+        except Exception:
+            pass
 
 
 def _parse_args() -> argparse.Namespace:

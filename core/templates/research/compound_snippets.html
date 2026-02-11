@@ -111,7 +111,7 @@
                     <div class="card-footer-info">
                       <div class="d-flex justify-content-between align-items-center text-secondary small">
                         <div>
-                          <i class="fas fa-user"></i> {{ snippet.created_by.username }}
+                          <i class="fas fa-user"></i> {{ snippet.created_by.username|default:"Deleted user" }}
                         </div>
                         <div>
                           <i class="fas fa-calendar"></i> {{ snippet.created_at|date:"M d" }}

@@ -3,14 +3,20 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.contenttypes.models import ContentType
 from django.contrib import messages
 from django.http import JsonResponse
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
 import json
 
 from compounds.models import Compound
-from .models import ChangeRequest, ChangeRequestComment, AppliedChange
-from .forms import CompoundChangeRequestForm, ChangeRequestCommentForm, ReviewChangeRequestForm
+from .models import AppliedChange, ChangeRequest, ChangeRequestComment
+from .forms import (
+    ChangeRequestCommentForm,
+    CompoundChangeRequestForm,
+    FeatureRequestForm,
+    ReviewChangeRequestForm,
+)
 
 
 @login_required
@@ -212,3 +218,29 @@ def apply_change_request(request, pk):
         messages.error(request, f"Error applying change request: {str(e)}")
     
     return redirect('change_requests:detail', pk=pk)
+
+
+def feature_request_page(request):
+    submitted = request.GET.get('submitted') == '1'
+
+    if request.method == 'POST':
+        form = FeatureRequestForm(request.POST)
+        if form.is_valid():
+            feature_request = form.save(commit=False)
+            if request.user.is_authenticated:
+                feature_request.submitted_by = request.user
+            feature_request.source_page = (request.POST.get('source_page') or request.META.get('HTTP_REFERER', ''))[:255]
+            feature_request.user_agent = (request.META.get('HTTP_USER_AGENT') or '')[:255]
+            feature_request.save()
+            return redirect(f"{reverse('change_requests:feature_request')}?submitted=1")
+    else:
+        form = FeatureRequestForm()
+
+    return render(
+        request,
+        'change_requests/feature_request.html',
+        {
+            'form': form,
+            'submitted': submitted,
+        },
+    )

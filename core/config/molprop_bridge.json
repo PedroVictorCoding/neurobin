@@ -1,0 +1,21 @@
+{
+  "device": "cpu",
+  "endpoints": {
+    "neurobin_bbb_martins": {
+      "checkpoint_file": "neurobin_models/bbb_martins/SLEF_validation.pth",
+      "enabled": true,
+      "mode": "discrete",
+      "setup_json": "neurobin_models/bbb_martins/setup.json",
+      "source_column": "ids",
+      "target_column": "y"
+    }
+  },
+  "meta": {
+    "checkpoint_glob": "**/*.pth",
+    "discovered_endpoints": 1,
+    "generated_by": "manage.py generate_molprop_bridge_config",
+    "setup_glob": "**/setup*.json",
+    "skipped_checkpoints": 0
+  },
+  "repo_dir": "/home/main/Dev/MolPROP"
+}

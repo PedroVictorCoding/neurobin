@@ -46,6 +46,7 @@ def api_root(request, format=None):
                 'stack_items': request.build_absolute_uri('/api/stacks/stackitem/'),
                 'public_stacks': request.build_absolute_uri('/api/stacks/public-stack/'),
                 'schedule': request.build_absolute_uri('/api/stacks/schedule/'),
+                'recommend': request.build_absolute_uri('/api/stacks/recommend/'),
             }
         },
         'documentation': 'See API_DOCUMENTATION.md for detailed usage information'

@@ -31,7 +31,7 @@
       <form method="post" class="m-0">
         {% csrf_token %}
         <button class="btn {% if stack.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %}" type="submit" name="toggle_stack_active">
-          {% if stack.is_active %}Stop{% else %}Run{% endif %}
+          {% if stack.is_active %}Pause Tracking{% else %}Start Tracking{% endif %}
         </button>
       </form>
       <form method="post" class="m-0 d-flex gap-1 align-items-center stack-actions-form">
@@ -48,6 +48,11 @@
         <button class="btn btn-outline-danger" type="submit" name="delete_stack">Delete</button>
       </form>
     </div>
+  </div>
+
+  <div class="alert alert-secondary py-2 mb-3">
+    <div class="small mb-1"><strong>High-trust mode:</strong> Recommendations are estimates, not directives.</div>
+    <div class="small text-muted">Use confidence levels, source context, and risk flags to verify before making decisions.</div>
   </div>
 
   <div class="card mb-3">
@@ -80,7 +85,7 @@
     {% include "stacks/_risk_panel.html" %}
   {% endif %}
 
-  <div class="card">
+  <div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center stack-card-header">
       <div class="fw-bold">Compounds</div>
       <div class="text-muted small">Count: {{ items|length }}</div>
@@ -149,5 +154,378 @@
       {% endfor %}
     </ul>
   </div>
+
+  <div class="card mb-3 stack-analysis-shell">
+    <div class="card-header d-flex justify-content-between align-items-center stack-card-header">
+      <div class="fw-bold">Stack Evaluation</div>
+      <button
+        class="btn btn-sm btn-outline-secondary"
+        type="button"
+        data-bs-toggle="collapse"
+        data-bs-target="#stackEvaluationCollapse"
+        aria-expanded="false"
+        aria-controls="stackEvaluationCollapse"
+      >
+        Toggle
+      </button>
+    </div>
+    <div class="collapse" id="stackEvaluationCollapse">
+      <div class="card-body">
+        <div class="row g-3 align-items-stretch stack-analysis-row">
+          <div class="col-12 col-lg-6 d-flex">
+            <div class="card mb-0 stack-compact-card stack-character-card h-100 w-100">
+              <div class="card-header d-flex justify-content-between align-items-center stack-card-header">
+                <div class="fw-bold stack-character-heading">Character Sheet</div>
+                <div class="small stack-character-heading">Evidence-weighted trait profile</div>
+              </div>
+              <div class="card-body">
+                {% if stack_trait_sheet %}
+                  <div class="small mb-3 stack-character-meta">{{ stack_trait_sheet.disclaimer }}</div>
+                  <div class="d-flex flex-column gap-1">
+                    {% for trait in stack_trait_sheet.character_sheet.traits %}
+                      <div class="d-flex justify-content-between align-items-center border-bottom pb-1">
+                        <div class="small">
+                          <span class="fw-semibold stack-character-label">{{ trait.label }}</span>
+                          {% if trait.is_hypothesis %}
+                            <span class="badge bg-secondary ms-1">hypothesis</span>
+                          {% endif %}
+                        </div>
+                        <div class="small fw-semibold {% if trait.score > 0 %}text-success{% elif trait.score < 0 %}text-danger{% else %}text-muted{% endif %}">
+                          {% if trait.score >= 0 %}+{% endif %}{{ trait.score|floatformat:2 }}
+                        </div>
+                      </div>
+                    {% endfor %}
+                  </div>
+
+                  <div class="row g-3 mt-2">
+                    <div class="col-12 col-lg-4">
+                      <div class="fw-semibold mb-1 stack-character-heading">Perks</div>
+                      <ul class="list-unstyled mb-0">
+                        {% for row in stack_trait_sheet.character_sheet.perks %}
+                          <li class="small stack-character-meta">+{{ row.score|floatformat:2 }} {{ row.label }}</li>
+                        {% empty %}
+                          <li class="small stack-character-meta">No strong positive perks yet.</li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                    <div class="col-12 col-lg-4">
+                      <div class="fw-semibold mb-1 stack-character-heading">Flaws</div>
+                      <ul class="list-unstyled mb-0">
+                        {% for row in stack_trait_sheet.character_sheet.flaws %}
+                          <li class="small stack-character-meta">{{ row.score|floatformat:2 }} {{ row.label }}</li>
+                        {% empty %}
+                          <li class="small stack-character-meta">No major flaws detected.</li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                    <div class="col-12 col-lg-4">
+                      <div class="fw-semibold mb-1 stack-character-heading">Risk Flags</div>
+                      <ul class="list-unstyled mb-0">
+                        {% for row in stack_trait_sheet.character_sheet.active_risks %}
+                          <li class="small stack-character-meta">+{{ row.score|floatformat:2 }} {{ row.label }}</li>
+                        {% empty %}
+                          <li class="small stack-character-meta">No strong active risk flags.</li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                  </div>
+                {% else %}
+                  <div class="small text-muted">Add compounds to this stack to generate a character sheet.</div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 col-lg-6 d-flex">
+            <div class="card mb-0 stack-compact-card stack-recommend-card h-100 w-100">
+              <div class="card-header d-flex justify-content-between align-items-center stack-card-header">
+                <div class="fw-bold">Evaluate Additions</div>
+                <div class="text-muted small">Configure constraints and run evaluation</div>
+              </div>
+              <div class="card-body">
+                <div class="small text-muted mb-3">
+                  Start broad, then narrow by risk ceilings and confidence floors. This favors transparent tradeoffs over aggressive optimization.
+                </div>
+                <form method="post" class="mb-0">
+                  {% csrf_token %}
+                  <div class="row g-3">
+                    <div class="col-12">
+                      <div class="small text-muted mb-1">Category Selector (toggles)</div>
+                      {% if grouping_sections %}
+                        <div class="row g-2">
+                          {% for section in grouping_sections %}
+                            <div class="col-12 col-lg-4">
+                              <div class="border rounded p-2 h-100">
+                                <div class="small fw-semibold mb-2">{{ section.trait_label }}</div>
+                                {% for option in section.options %}
+                                  <div class="form-check mb-1">
+                                    <input
+                                      class="form-check-input"
+                                      type="checkbox"
+                                      id="focus_{{ option.slug }}"
+                                      name="{{ option.field_name }}"
+                                      {% if option.selected %}checked{% endif %}
+                                    >
+                                    <label class="form-check-label small" for="focus_{{ option.slug }}">
+                                      {{ option.label }}
+                                    </label>
+                                  </div>
+                                {% endfor %}
+                              </div>
+                            </div>
+                          {% endfor %}
+                        </div>
+                      {% else %}
+                        <div class="small text-muted">No category presets are configured.</div>
+                      {% endif %}
+                    </div>
+
+                    <div class="col-12">
+                      <div class="small text-muted mb-1">Risk Ceilings (max allowed)</div>
+                      <div class="row g-2">
+                        {% for trait in recommendation_trait_rows %}
+                          {% if trait.trait_type == 'risk' %}
+                            <div class="col-12 col-md-6 col-lg-4">
+                              <label class="form-label mb-1 small">{{ trait.label }}</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                class="form-control form-control-sm"
+                                name="max_{{ trait.slug }}"
+                                value="{{ trait.max_value }}"
+                              >
+                            </div>
+                          {% endif %}
+                        {% endfor %}
+                      </div>
+                    </div>
+
+                    <div class="col-12 col-md-4">
+                      <label class="form-label mb-1 small">Max Added Compounds</label>
+                      <input type="number" class="form-control form-control-sm" min="1" max="6" name="max_stack_size" value="{{ stack_recommendation_form.max_stack_size }}">
+                    </div>
+                    <div class="col-12 col-md-4">
+                      <label class="form-label mb-1 small">Top K Results</label>
+                      <input type="number" class="form-control form-control-sm" min="1" max="12" name="top_k" value="{{ stack_recommendation_form.top_k }}">
+                    </div>
+                    <div class="col-12 col-md-4">
+                      <label class="form-label mb-1 small">Beam Width</label>
+                      <input type="number" class="form-control form-control-sm" min="2" max="48" name="beam_width" value="{{ stack_recommendation_form.beam_width }}">
+                    </div>
+
+                    <div class="col-12 col-md-4">
+                      <label class="form-label mb-1 small">Min Evidence Confidence</label>
+                      <select name="min_confidence" class="form-select form-select-sm">
+                        <option value="low" {% if stack_recommendation_form.min_confidence == 'low' %}selected{% endif %}>Low</option>
+                        <option value="medium" {% if stack_recommendation_form.min_confidence == 'medium' %}selected{% endif %}>Medium</option>
+                        <option value="high" {% if stack_recommendation_form.min_confidence == 'high' %}selected{% endif %}>High</option>
+                      </select>
+                    </div>
+                    <div class="col-12 col-md-4">
+                      <label class="form-label mb-1 small">Output Mode</label>
+                      <select name="output_mode" class="form-select form-select-sm">
+                        <option value="ranked" {% if stack_recommendation_form.output_mode == 'ranked' %}selected{% endif %}>Ranked</option>
+                        <option value="hybrid" {% if stack_recommendation_form.output_mode == 'hybrid' %}selected{% endif %}>Hybrid (Ranked + Cloud)</option>
+                        <option value="cloud" {% if stack_recommendation_form.output_mode == 'cloud' %}selected{% endif %}>Cloud</option>
+                      </select>
+                    </div>
+                    <div class="col-12 col-md-4">
+                      <label class="form-label mb-1 small">Required Route</label>
+                      <input type="text" class="form-control form-control-sm" name="required_route" value="{{ stack_recommendation_form.required_route }}" placeholder="oral / iv">
+                    </div>
+                    <div class="col-12 col-md-4 d-flex align-items-end">
+                      <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="noCyp" name="no_cyp3a4_conflicts" {% if stack_recommendation_form.no_cyp3a4_conflicts %}checked{% endif %}>
+                        <label class="form-check-label small" for="noCyp">Block CYP3A4 conflicts</label>
+                      </div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                      <label class="form-label mb-1 small">Min Group Signal</label>
+                      <input type="number" step="0.1" min="0" max="10" class="form-control form-control-sm" name="min_group_score" value="{{ stack_recommendation_form.min_group_score }}">
+                    </div>
+                    <div class="col-12 col-md-4 d-flex align-items-end">
+                      <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="includeDistribution" name="include_distribution" {% if stack_recommendation_form.include_distribution %}checked{% endif %}>
+                        <label class="form-check-label small" for="includeDistribution">Include cloud distribution output</label>
+                      </div>
+                    </div>
+                    <div class="col-12 col-md-4 d-flex align-items-end">
+                      <div class="small text-muted">
+                        Toggle one or more categories in each trait type. Goals are auto-derived from your selections.
+                      </div>
+                    </div>
+
+                    <div class="col-12 col-md-4">
+                      <label class="form-label mb-1 small">Species Context</label>
+                      <input type="text" class="form-control form-control-sm" name="species" value="{{ stack_recommendation_form.species }}">
+                    </div>
+                    <div class="col-12 col-md-4">
+                      <label class="form-label mb-1 small">Assay Type Context</label>
+                      <input type="text" class="form-control form-control-sm" name="assay_type" value="{{ stack_recommendation_form.assay_type }}">
+                    </div>
+                    <div class="col-12 col-md-4">
+                      <label class="form-label mb-1 small">Route Context</label>
+                      <input type="text" class="form-control form-control-sm" name="route" value="{{ stack_recommendation_form.route }}">
+                    </div>
+                  </div>
+
+                  {% if stack_recommendation_errors %}
+                    <div class="alert alert-danger mt-3 mb-0 py-2">
+                      {% for err in stack_recommendation_errors %}
+                        <div class="small">{{ err }}</div>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+
+                  <div class="mt-3">
+                    <button class="btn btn-outline-info" type="submit" name="recommend_stack_additions">Run Evidence Evaluation</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 d-flex">
+            <div class="card mb-0 stack-compact-card stack-recommend-card w-100">
+              <div class="card-header d-flex justify-content-between align-items-center stack-card-header">
+                <div class="fw-bold">Evidence Evaluation</div>
+                <div class="text-muted small">Recommendation output</div>
+              </div>
+              <div class="card-body">
+                {% if stack_recommendation_result %}
+                  <div class="small text-muted mb-2">{{ stack_recommendation_result.disclaimer }}</div>
+                  {% if stack_recommendation_meta %}
+                    <div class="small text-muted mb-3">
+                      Candidates: {{ stack_recommendation_meta.candidate_count }} |
+                      Confidence floor: {{ stack_recommendation_meta.min_evidence_confidence|title }} |
+                      Mode: {{ stack_recommendation_meta.output_mode|title }} |
+                      Beam: {{ stack_recommendation_meta.beam_width }} |
+                      Top K: {{ stack_recommendation_meta.top_k }}
+                      {% if stack_recommendation_meta.constraints_applied.focus_groups %}
+                        | Groups: {{ stack_recommendation_meta.constraints_applied.focus_groups|join:", " }}
+                      {% endif %}
+                    </div>
+                  {% endif %}
+                  {% if stack_recommendation_result.recommendations %}
+                    <div class="d-flex flex-column gap-2">
+                      {% for rec in stack_recommendation_result.recommendations %}
+                        <div class="border rounded p-3">
+                          <div class="d-flex justify-content-between align-items-center">
+                            <div class="fw-semibold">Build #{{ rec.rank }}</div>
+                            <div class="small">Score {{ rec.score|floatformat:2 }}</div>
+                          </div>
+                          <div class="small mt-1">
+                            Goal {{ rec.goal_score|floatformat:2 }} |
+                            Risk Penalty {{ rec.risk_penalty|floatformat:2 }} |
+                            Interaction Penalty {{ rec.interaction_penalty|floatformat:2 }}
+                          </div>
+                          {% if rec.evidence_profile %}
+                            <div class="small mt-1 text-muted">
+                              Posterior {{ rec.evidence_profile.posterior_confidence|floatformat:2 }} ({{ rec.evidence_profile.bayes_band }}) |
+                              Contradiction Index {{ rec.evidence_profile.contradiction_index|floatformat:2 }} |
+                              Conflict Rows {{ rec.evidence_profile.conflict_rows }}
+                            </div>
+                          {% endif %}
+                          <div class="small mt-2">
+                            <span class="text-muted">Add:</span>
+                            {% for comp in rec.compounds %}
+                              <a class="text-info text-decoration-none" href="{% url 'compound_detail' comp.slug %}">{{ comp.name }}</a>{% if not forloop.last %}, {% endif %}
+                            {% empty %}
+                              <span class="text-muted">No additions</span>
+                            {% endfor %}
+                          </div>
+                          {% if rec.warnings %}
+                            <div class="small text-warning mt-2">
+                            {% for w in rec.warnings|slice:":3" %}
+                                {{ w.interaction_type }} via {{ w.target }}{% if not forloop.last %} | {% endif %}
+                            {% endfor %}
+                            </div>
+                          {% endif %}
+                          {% if rec.compounds %}
+                            <div class="small text-muted mt-2">
+                              Confidence by added compound:
+                              {% for comp in rec.compounds %}
+                                {{ comp.name }}={{ comp.overall_confidence|floatformat:2 }}{% if not forloop.last %} | {% endif %}
+                              {% endfor %}
+                            </div>
+                            <div class="small text-muted mt-1">
+                              Group signals:
+                              {% for comp in rec.compounds %}
+                                {{ comp.name }}=
+                                {% if comp.group_signals %}
+                                  {{ comp.group_signals.0.slug }} {{ comp.group_signals.0.score|floatformat:2 }}
+                                {% else %}
+                                  none
+                                {% endif %}
+                                {% if not forloop.last %} | {% endif %}
+                              {% endfor %}
+                            </div>
+                          {% endif %}
+                          {% if rec.contradiction_radar.rows %}
+                            <div class="small text-warning mt-2">
+                              Contradiction Radar:
+                              {% for row in rec.contradiction_radar.rows|slice:":2" %}
+                                {{ row.target }}{% if row.compound_names %} ({{ row.compound_names|join:", " }}){% endif %}{% if not forloop.last %} | {% endif %}
+                              {% endfor %}
+                            </div>
+                          {% endif %}
+                          <div class="small text-muted mt-2">
+                            Why this build: maximizes goal score while minimizing risk and interaction penalties under your constraints.
+                          </div>
+                        </div>
+                      {% endfor %}
+                    </div>
+                    {% if stack_recommendation_result.distribution and stack_recommendation_result.distribution.points %}
+                      <div class="border rounded p-3 mt-3">
+                        <div class="fw-semibold">Compound Cloud</div>
+                        <div class="small text-muted">
+                          {{ stack_recommendation_result.distribution.point_count }} points |
+                          X={{ stack_recommendation_result.distribution.x_axis }} |
+                          Y={{ stack_recommendation_result.distribution.y_axis }}
+                        </div>
+                        <div class="small mt-2">
+                          Top by net score:
+                          {% for point in stack_recommendation_result.distribution.points|slice:":6" %}
+                            {{ point.compound_name }} ({{ point.net_score|floatformat:2 }}){% if not forloop.last %} | {% endif %}
+                          {% endfor %}
+                        </div>
+                      </div>
+                    {% endif %}
+                  {% elif stack_recommendation_result.baseline %}
+                    <div class="small text-muted">No add-ons passed constraints; showing baseline stack profile only.</div>
+                  {% else %}
+                    <div class="small text-muted">No recommendations matched current constraints.</div>
+                  {% endif %}
+                {% else %}
+                  <div class="small text-muted">No evaluation has been run yet. Configure options above and run evaluation.</div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center stack-card-header">
+      <div class="fw-bold">Recent Stack Activity</div>
+      <div class="text-muted small">Lightweight audit trail</div>
+    </div>
+    <ul class="list-group list-group-flush">
+      {% for event in stack_activity_events %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <div>
+            <div class="fw-semibold">{{ event.title }}</div>
+            <div class="small text-muted">{{ event.detail }}</div>
+          </div>
+          <div class="small text-muted">{{ event.ts|date:"M d, Y H:i" }}</div>
+        </li>
+      {% empty %}
+        <li class="list-group-item text-muted">No activity events yet.</li>
+      {% endfor %}
+    </ul>
+  </div>
+
 </div>
 {% endblock %}
