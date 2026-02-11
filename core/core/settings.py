@@ -61,6 +61,7 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'core.middleware.SiteQueryLoggingMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -200,3 +201,49 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
+
+# Request query logging
+REQUEST_LOG_DIR = BASE_DIR / 'request_logs'
+REQUEST_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'timestamped': {
+            'format': '%(asctime)s %(message)s',
+        },
+    },
+    'handlers': {
+        'site_queries_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(REQUEST_LOG_DIR / 'site_queries.log'),
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 10,
+            'formatter': 'timestamped',
+            'encoding': 'utf-8',
+            'level': 'INFO',
+        },
+        'robots_queries_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(REQUEST_LOG_DIR / 'robots_queries.log'),
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 10,
+            'formatter': 'timestamped',
+            'encoding': 'utf-8',
+            'level': 'INFO',
+        },
+    },
+    'loggers': {
+        'site_queries': {
+            'handlers': ['site_queries_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'robots_queries': {
+            'handlers': ['robots_queries_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}

@@ -1,3 +1,4 @@
+from django.http import HttpResponse
 from django.shortcuts import render
 
 
@@ -108,3 +109,11 @@ def credits(request):
 
 def about(request):
     return render(request, "core/about.html")
+
+
+def robots_txt(request):
+    # Explicitly disallow crawling/scraping for all user agents.
+    body = "User-agent: *\nDisallow: /\n"
+    response = HttpResponse(body, content_type="text/plain")
+    response["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+    return response

@@ -26,6 +26,7 @@ from . import views
 from .api_views import api_root
 
 urlpatterns = [
+    path('robots.txt', views.robots_txt, name='robots_txt'),
     path('admin/', admin.site.urls),
     path('', views.home, name='home'),
     path('about/', views.about, name='about'),

@@ -20,9 +20,18 @@ class StyledAuthenticationForm(AuthenticationForm):
 
 
 class StyledUserCreationForm(UserCreationForm):
+    email = forms.EmailField(
+        required=True,
+        widget=forms.EmailInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Email address',
+            'autocomplete': 'email',
+        }),
+    )
+
     class Meta(UserCreationForm.Meta):
         model = User
-        fields = ('username',)
+        fields = ('username', 'email')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -41,6 +50,12 @@ class StyledUserCreationForm(UserCreationForm):
             'placeholder': 'Confirm password',
             'autocomplete': 'new-password',
         })
+
+    def clean_email(self):
+        email = (self.cleaned_data.get('email') or '').strip().lower()
+        if not email:
+            raise forms.ValidationError("Email is required.")
+        return email
 
 
 class UserProfileForm(forms.ModelForm):

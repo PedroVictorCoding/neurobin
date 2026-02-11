@@ -214,3 +214,4 @@ __marimo__/
 /core/data/import_sources/
 /core/db.sqlite3.bak.*
 *.sqlite3.bak
+/core/request_logs/
