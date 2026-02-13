@@ -19,6 +19,7 @@ from django.views.decorators.http import require_POST
 from .forms import StackForm
 from .forms_add_compound import AddCompoundForm
 from .models import StackItem
+from .metrics import compute_enzymatic_overload
 from .models import StackRiskAssessment
 from .models import StackTrait
 from logs.models import IntakeLog
@@ -725,6 +726,7 @@ class StackDetailView(LoginRequiredMixin, TemplateView):
             )
         else:
             context['stack_trait_sheet'] = None
+        context['enzymatic_overload'] = compute_enzymatic_overload(stack_compound_ids)
 
         context['recommendation_traits'] = self._get_recommendation_traits()
         context['stack_recommendation_form'] = self._default_recommendation_form(context['recommendation_traits'])

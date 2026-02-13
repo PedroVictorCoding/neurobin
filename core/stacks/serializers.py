@@ -1,8 +1,11 @@
 from rest_framework import serializers
 from .models import Stack, StackItem
+from .metrics import compute_enzymatic_overload
 
 
 class StackSerializer(serializers.ModelSerializer):
+    enzymatic_overload = serializers.SerializerMethodField()
+
     class Meta:
         model = Stack
         fields = [
@@ -15,8 +18,16 @@ class StackSerializer(serializers.ModelSerializer):
             'copied_from',
             'copied_at',
             'created',
+            'enzymatic_overload',
         ]
         read_only_fields = ['user', 'copied_from', 'copied_at', 'created']
+
+    def get_enzymatic_overload(self, obj):
+        view = self.context.get('view')
+        if view and getattr(view, 'action', None) != 'retrieve':
+            return None
+        compound_ids = list(obj.items.values_list('compound_id', flat=True))
+        return compute_enzymatic_overload(compound_ids)
 
 
 class PublicStackItemSerializer(serializers.ModelSerializer):
