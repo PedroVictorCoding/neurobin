@@ -1,0 +1,971 @@
+{% extends "base.html" %}
+{% block title %}Compound Network Graph — Neurobin{% endblock %}
+{% block content %}
+<div class="container py-4">
+  <div class="card bg-neurobin-card text-light border-secondary shadow-sm">
+    <div class="card-body">
+      <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+          <h1 class="h4 mb-1">Compound Network Graph</h1>
+          <div class="text-muted small">Query-first mode: starts empty and only loads data for the compound you query.</div>
+        </div>
+        <a class="btn btn-sm btn-outline-info" href="{% url 'compound_knowledge_graph_query' %}">Knowledge Graph Query</a>
+      </div>
+
+      <div class="row g-2 align-items-end mb-3">
+        <div class="col-12 d-flex gap-2">
+          <button id="resetBtn" type="button" class="btn btn-outline-light">Reset</button>
+          <button id="fitBtn" type="button" class="btn btn-outline-light">Fit</button>
+        </div>
+      </div>
+
+      <div class="row g-2 align-items-end mb-3">
+        <div class="col-12 col-md-5 position-relative">
+          <label for="compoundSearchInput" class="form-label mb-1">Query Compound</label>
+          <input id="compoundSearchInput" type="text" class="form-control bg-dark text-light border-secondary" placeholder="Search compound by name or alias" autocomplete="off">
+          <div id="compoundSearchResults" class="list-group position-absolute w-100" style="z-index: 1050; display: none;"></div>
+        </div>
+        <div class="col-12 col-md-2">
+          <label for="queryDepthInput" class="form-label mb-1">Depth</label>
+          <select id="queryDepthInput" class="form-select bg-dark text-light border-secondary">
+            <option value="1" selected>1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+          </select>
+        </div>
+        <div class="col-12 col-md-5 d-flex gap-2">
+          <button id="queryCompoundBtn" type="button" class="btn btn-warning w-100">Focus + Load Selected Depth</button>
+        </div>
+      </div>
+
+      <div class="small mb-2" id="statsLine">Nodes: 0 | Edges: 0 | Loaded compounds: 0</div>
+      <div id="statusLine" class="small text-info mb-2"></div>
+
+      <div class="border border-secondary rounded bg-dark" style="height: 70vh; min-height: 420px; overflow: hidden;">
+        <svg id="networkSvg" width="100%" height="100%" viewBox="-600 -600 1200 1200" style="display: block; cursor: grab;">
+          <g id="edgeLayer"></g>
+          <g id="nodeLayer"></g>
+        </svg>
+      </div>
+
+      <div class="row g-2 mt-2">
+        <div class="col-12 col-md-6">
+          <div class="small">
+            <span class="badge" style="background:#34d1ff;">Compound</span>
+            <span class="badge" style="background:#ff8a3d;">Target</span>
+          </div>
+        </div>
+        <div class="col-12 col-md-6">
+          <div id="detailPanel" class="small text-muted border border-secondary rounded p-2">
+            Hover a node or edge to inspect details.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const searchApiUrl = "{{ compound_search_api_url|escapejs }}";
+  const subgraphApiTemplate = "{{ network_graph_subgraph_api_template|escapejs }}";
+  const targetSubgraphApiTemplate = "{{ network_graph_target_subgraph_api_template|escapejs }}";
+
+  const svg = document.getElementById("networkSvg");
+  const edgeLayer = document.getElementById("edgeLayer");
+  const nodeLayer = document.getElementById("nodeLayer");
+  const resetBtn = document.getElementById("resetBtn");
+  const fitBtn = document.getElementById("fitBtn");
+  const compoundSearchInput = document.getElementById("compoundSearchInput");
+  const compoundSearchResults = document.getElementById("compoundSearchResults");
+  const queryDepthInput = document.getElementById("queryDepthInput");
+  const queryCompoundBtn = document.getElementById("queryCompoundBtn");
+  const statsLine = document.getElementById("statsLine");
+  const statusLine = document.getElementById("statusLine");
+  const detailPanel = document.getElementById("detailPanel");
+
+  const state = {
+    loading: false,
+    nodes: new Map(),
+    edges: new Map(),
+    positions: new Map(),
+    loadedCompoundIds: new Set(),
+    hydratedSubgraphDepthByCompound: new Map(),
+    hydratedTargetIds: new Set(),
+    selectedCompound: null,
+    highlightedNodeId: "",
+    activeNodeId: "",
+    layoutDirty: true,
+    viewBox: { x: -600, y: -600, w: 1200, h: 1200 },
+  };
+
+  let pendingSearchAbort = null;
+  let searchTimer = null;
+
+  function esc(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function setStatus(msg, isError = false) {
+    statusLine.className = isError ? "small text-danger mb-2" : "small text-info mb-2";
+    statusLine.textContent = msg || "";
+  }
+
+  function updateStats() {
+    statsLine.textContent =
+      `Nodes: ${state.nodes.size} | Edges: ${state.edges.size} | Loaded compounds: ${state.loadedCompoundIds.size}`;
+  }
+
+  function mergePayload(payload) {
+    const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
+    const edges = Array.isArray(payload.edges) ? payload.edges : [];
+    let addedNodes = 0;
+    let addedEdges = 0;
+    for (const node of nodes) {
+      if (!node || !node.id) {
+        continue;
+      }
+      if (node.node_type === "mechanism") {
+        continue;
+      }
+      if (!state.nodes.has(node.id)) {
+        addedNodes += 1;
+      }
+      state.nodes.set(node.id, node);
+      if (node.node_type === "compound" && node.meta && node.meta.compound_id) {
+        state.loadedCompoundIds.add(Number(node.meta.compound_id));
+      }
+    }
+    for (const edge of edges) {
+      if (!edge || !edge.id) {
+        continue;
+      }
+      if (String(edge.source || "").startsWith("mechanism:") || String(edge.target || "").startsWith("mechanism:")) {
+        continue;
+      }
+      if (!state.edges.has(edge.id)) {
+        addedEdges += 1;
+      }
+      state.edges.set(edge.id, edge);
+    }
+    if (addedNodes > 0 || addedEdges > 0) {
+      state.layoutDirty = true;
+    }
+  }
+
+  function placeNodesByType() {
+    state.positions.clear();
+    const compoundNodes = [];
+    const targetNodes = [];
+
+    for (const node of state.nodes.values()) {
+      if (node.node_type === "target") {
+        targetNodes.push(node);
+      } else {
+        compoundNodes.push(node);
+      }
+    }
+
+    compoundNodes.sort((a, b) => String(a.label).localeCompare(String(b.label)));
+    targetNodes.sort((a, b) => String(a.label).localeCompare(String(b.label)));
+
+    const assignRing = (nodes, radius, offset) => {
+      const total = Math.max(nodes.length, 1);
+      for (let i = 0; i < nodes.length; i += 1) {
+        const angle = ((Math.PI * 2) * i) / total + offset;
+        state.positions.set(nodes[i].id, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
+      }
+    };
+
+    const outer = Math.max(280, Math.sqrt(compoundNodes.length || 1) * 95 + 180);
+    const mid = Math.max(180, Math.sqrt(targetNodes.length || 1) * 72 + 120);
+
+    assignRing(compoundNodes, outer, -Math.PI / 2);
+    assignRing(targetNodes, mid, Math.PI / 4);
+  }
+
+  function applyNodeRepulsion() {
+    const entries = Array.from(state.positions.entries());
+    const nodeCount = entries.length;
+    if (nodeCount < 2) {
+      return;
+    }
+
+    const iterations = nodeCount > 1800 ? 2 : nodeCount > 1000 ? 3 : nodeCount > 600 ? 4 : 5;
+    const baseIdealDistance = nodeCount > 1500 ? 42 : nodeCount > 1000 ? 46 : 52;
+    const minNodeSeparation = Math.max(34, baseIdealDistance * 0.72);
+    const interactionRadius = baseIdealDistance * 1.9;
+    const interactionRadiusSq = interactionRadius * interactionRadius;
+    const cellSize = Math.max(48, Math.round(baseIdealDistance * 1.35));
+    const maxStep = baseIdealDistance * 0.26;
+    const hardFloorMaxPush = baseIdealDistance * 0.4;
+    const neighborOffsets = [
+      [-1, -1], [0, -1], [1, -1],
+      [-1, 0], [0, 0], [1, 0],
+      [-1, 1], [0, 1], [1, 1],
+    ];
+    const edgeSprings = [];
+    for (const edge of state.edges.values()) {
+      if (!edge || !edge.source || !edge.target || edge.source === edge.target) {
+        continue;
+      }
+      const sourceNode = state.nodes.get(edge.source);
+      const targetNode = state.nodes.get(edge.target);
+      if (!sourceNode || !targetNode) {
+        continue;
+      }
+      const sourceType = String(sourceNode.node_type || "");
+      const targetType = String(targetNode.node_type || "");
+      let spring = 0.045;
+      let restLength = baseIdealDistance * 2.0;
+      if (
+        (sourceType === "compound" && targetType === "target")
+        || (sourceType === "target" && targetType === "compound")
+      ) {
+        spring = 0.115;
+        restLength = baseIdealDistance * 1.36;
+      } else if (sourceType === "compound" && targetType === "compound") {
+        spring = 0.055;
+        restLength = baseIdealDistance * 1.9;
+      } else if (sourceType === "target" && targetType === "target") {
+        spring = 0.06;
+        restLength = baseIdealDistance * 1.7;
+      }
+      edgeSprings.push({
+        source: edge.source,
+        target: edge.target,
+        spring,
+        restLength,
+        maxPull: baseIdealDistance * 0.34,
+      });
+    }
+
+    for (let iter = 0; iter < iterations; iter += 1) {
+      const grid = new Map();
+      const indexById = new Map();
+      for (let i = 0; i < entries.length; i += 1) {
+        const [nodeId, pos] = entries[i];
+        indexById.set(nodeId, i);
+        const cx = Math.floor(pos.x / cellSize);
+        const cy = Math.floor(pos.y / cellSize);
+        const key = `${cx},${cy}`;
+        const bucket = grid.get(key);
+        if (bucket) {
+          bucket.push(nodeId);
+        } else {
+          grid.set(key, [nodeId]);
+        }
+      }
+
+      const displacement = new Map();
+      for (const [nodeId] of entries) {
+        displacement.set(nodeId, { x: 0, y: 0 });
+      }
+
+      for (const [nodeId, pos] of entries) {
+        const cx = Math.floor(pos.x / cellSize);
+        const cy = Math.floor(pos.y / cellSize);
+        const nodeIndex = indexById.get(nodeId) ?? 0;
+        for (const [ox, oy] of neighborOffsets) {
+          const bucket = grid.get(`${cx + ox},${cy + oy}`);
+          if (!bucket) {
+            continue;
+          }
+          for (const otherId of bucket) {
+            const otherIndex = indexById.get(otherId) ?? 0;
+            if (otherIndex <= nodeIndex) {
+              continue;
+            }
+            const otherPos = state.positions.get(otherId);
+            if (!otherPos) {
+              continue;
+            }
+            const dx = pos.x - otherPos.x;
+            const dy = pos.y - otherPos.y;
+            const distSq = (dx * dx) + (dy * dy);
+            if (distSq > interactionRadiusSq) {
+              continue;
+            }
+            let dist = 0;
+            let nx = 0;
+            let ny = 0;
+            if (distSq <= 0.0001) {
+              const jitterAngle = (((nodeIndex + 1) * 73856093 + (otherIndex + 1) * 19349663) % 6283) / 1000;
+              nx = Math.cos(jitterAngle);
+              ny = Math.sin(jitterAngle);
+              dist = 0.001;
+            } else {
+              dist = Math.sqrt(distSq);
+              nx = dx / dist;
+              ny = dy / dist;
+            }
+
+            const overlapRatio = Math.max(0, (baseIdealDistance - dist) / baseIdealDistance);
+            const minGap = Math.max(0, minNodeSeparation - dist);
+            if (overlapRatio <= 0 && minGap <= 0) {
+              continue;
+            }
+
+            const softStrength = overlapRatio > 0 ? overlapRatio * 0.68 : 0;
+            const hardFloorStrength = minGap > 0
+              ? Math.min(hardFloorMaxPush, minGap * 0.58 + baseIdealDistance * 0.02)
+              : 0;
+            const strength = softStrength + hardFloorStrength;
+            const a = displacement.get(nodeId);
+            const b = displacement.get(otherId);
+            if (a) {
+              a.x += nx * strength;
+              a.y += ny * strength;
+            }
+            if (b) {
+              b.x -= nx * strength;
+              b.y -= ny * strength;
+            }
+          }
+        }
+      }
+
+      for (const springEdge of edgeSprings) {
+        const sourcePos = state.positions.get(springEdge.source);
+        const targetPos = state.positions.get(springEdge.target);
+        if (!sourcePos || !targetPos) {
+          continue;
+        }
+        const dx = targetPos.x - sourcePos.x;
+        const dy = targetPos.y - sourcePos.y;
+        const distSq = (dx * dx) + (dy * dy);
+        if (distSq <= 0.0001) {
+          continue;
+        }
+        const dist = Math.sqrt(distSq);
+        const delta = dist - springEdge.restLength;
+        if (delta <= 0) {
+          continue;
+        }
+        const pull = Math.min(springEdge.maxPull, delta * springEdge.spring);
+        if (pull <= 0) {
+          continue;
+        }
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const sourceDisp = displacement.get(springEdge.source);
+        const targetDisp = displacement.get(springEdge.target);
+        if (sourceDisp) {
+          sourceDisp.x += nx * pull * 0.5;
+          sourceDisp.y += ny * pull * 0.5;
+        }
+        if (targetDisp) {
+          targetDisp.x -= nx * pull * 0.5;
+          targetDisp.y -= ny * pull * 0.5;
+        }
+      }
+
+      for (const [nodeId, delta] of displacement.entries()) {
+        const pos = state.positions.get(nodeId);
+        if (!pos) {
+          continue;
+        }
+        const mag = Math.hypot(delta.x, delta.y);
+        if (mag > maxStep && mag > 0) {
+          const scale = maxStep / mag;
+          delta.x *= scale;
+          delta.y *= scale;
+        }
+        pos.x += delta.x;
+        pos.y += delta.y;
+      }
+
+      for (let i = 0; i < entries.length; i += 1) {
+        const [nodeId] = entries[i];
+        const pos = state.positions.get(nodeId);
+        if (pos) {
+          entries[i][1] = pos;
+        }
+      }
+    }
+
+    // Final hard pass: preserve a minimum visual gap even with strong edge attraction.
+    const spacingCell = Math.max(42, Math.round(minNodeSeparation * 1.35));
+    const spacingGrid = new Map();
+    const spacingIndex = new Map();
+    for (let i = 0; i < entries.length; i += 1) {
+      const [nodeId, pos] = entries[i];
+      spacingIndex.set(nodeId, i);
+      const cx = Math.floor(pos.x / spacingCell);
+      const cy = Math.floor(pos.y / spacingCell);
+      const key = `${cx},${cy}`;
+      const bucket = spacingGrid.get(key);
+      if (bucket) {
+        bucket.push(nodeId);
+      } else {
+        spacingGrid.set(key, [nodeId]);
+      }
+    }
+    for (const [nodeId, pos] of entries) {
+      const cx = Math.floor(pos.x / spacingCell);
+      const cy = Math.floor(pos.y / spacingCell);
+      const nodeIndex = spacingIndex.get(nodeId) ?? 0;
+      for (const [ox, oy] of neighborOffsets) {
+        const bucket = spacingGrid.get(`${cx + ox},${cy + oy}`);
+        if (!bucket) {
+          continue;
+        }
+        for (const otherId of bucket) {
+          const otherIndex = spacingIndex.get(otherId) ?? 0;
+          if (otherIndex <= nodeIndex) {
+            continue;
+          }
+          const otherPos = state.positions.get(otherId);
+          if (!otherPos) {
+            continue;
+          }
+          const dx = pos.x - otherPos.x;
+          const dy = pos.y - otherPos.y;
+          const distSq = (dx * dx) + (dy * dy);
+          let dist = 0;
+          let nx = 0;
+          let ny = 0;
+          if (distSq <= 0.0001) {
+            const jitterAngle = (((nodeIndex + 1) * 83492791 + (otherIndex + 1) * 15485863) % 6283) / 1000;
+            nx = Math.cos(jitterAngle);
+            ny = Math.sin(jitterAngle);
+            dist = 0.001;
+          } else {
+            dist = Math.sqrt(distSq);
+            if (dist >= minNodeSeparation) {
+              continue;
+            }
+            nx = dx / dist;
+            ny = dy / dist;
+          }
+          const push = Math.min(minNodeSeparation * 0.42, (minNodeSeparation - dist) * 0.5);
+          pos.x += nx * push;
+          pos.y += ny * push;
+          otherPos.x -= nx * push;
+          otherPos.y -= ny * push;
+        }
+      }
+    }
+  }
+
+  function ensureLayout() {
+    if (!state.layoutDirty && state.positions.size === state.nodes.size) {
+      return;
+    }
+    placeNodesByType();
+    applyNodeRepulsion();
+    state.layoutDirty = false;
+  }
+
+  function render() {
+    ensureLayout();
+
+    const hasActiveNode = Boolean(state.activeNodeId && state.nodes.has(state.activeNodeId));
+    const connectedNodeIds = new Set();
+    const connectedEdgeIds = new Set();
+    if (hasActiveNode) {
+      connectedNodeIds.add(state.activeNodeId);
+      for (const edge of state.edges.values()) {
+        if (!edge || !edge.id) {
+          continue;
+        }
+        if (edge.source === state.activeNodeId || edge.target === state.activeNodeId) {
+          connectedEdgeIds.add(edge.id);
+          connectedNodeIds.add(edge.source);
+          connectedNodeIds.add(edge.target);
+        }
+      }
+    }
+
+    const edgeHtml = [];
+    for (const edge of state.edges.values()) {
+      const sourcePos = state.positions.get(edge.source);
+      const targetPos = state.positions.get(edge.target);
+      if (!sourcePos || !targetPos) {
+        continue;
+      }
+      const isConnected = !hasActiveNode || connectedEdgeIds.has(edge.id);
+      const edgeStroke = hasActiveNode
+        ? (isConnected ? "rgba(255,232,120,0.95)" : "rgba(180,180,180,0.25)")
+        : "rgba(180,180,180,0.45)";
+      const edgeWidth = hasActiveNode && isConnected ? 1.9 : 1.1;
+      const edgeOpacity = hasActiveNode && !isConnected ? 0.16 : 1;
+      const labelFill = hasActiveNode
+        ? (isConnected ? "#fff5ba" : "rgba(130,130,130,0.35)")
+        : "#d8d8d8";
+      const mx = (sourcePos.x + targetPos.x) / 2;
+      const my = (sourcePos.y + targetPos.y) / 2;
+      edgeHtml.push(`
+        <g data-edge-id="${esc(edge.id)}" style="pointer-events:auto;" opacity="${edgeOpacity}">
+          <line x1="${sourcePos.x}" y1="${sourcePos.y}" x2="${targetPos.x}" y2="${targetPos.y}"
+                stroke="${edgeStroke}" stroke-width="${edgeWidth}"></line>
+          <text x="${mx}" y="${my}" fill="${labelFill}" font-size="9" text-anchor="middle"
+                paint-order="stroke" stroke="#101010" stroke-width="2">${esc(edge.relation_label || edge.relation_type)}</text>
+        </g>
+      `);
+    }
+    edgeLayer.innerHTML = edgeHtml.join("");
+
+    const nodeHtml = [];
+    for (const node of state.nodes.values()) {
+      const pos = state.positions.get(node.id);
+      if (!pos) {
+        continue;
+      }
+      let fill = "#34d1ff";
+      if (node.node_type === "target") {
+        fill = "#ff8a3d";
+      }
+      const isActive = hasActiveNode && state.activeNodeId === node.id;
+      const isConnectedNode = !hasActiveNode || connectedNodeIds.has(node.id);
+      const isDimmed = !isConnectedNode;
+      const isHighlighted = state.highlightedNodeId === node.id || isActive;
+      const strokeColor = isActive ? "#ffe35a" : (isHighlighted ? "#ffffff" : "#101010");
+      const strokeWidth = isActive ? 4.0 : (isHighlighted ? 3.2 : 1.4);
+      const radius = isActive ? 22 : (isHighlighted ? 20 : 16);
+      const nodeOpacity = isDimmed ? 0.18 : 1;
+      const textOpacity = isDimmed ? 0.35 : 1;
+      const textFill = isDimmed ? "#9a9a9a" : "#f0f0f0";
+      nodeHtml.push(`
+        <g data-node-id="${esc(node.id)}" style="pointer-events:auto;" opacity="${nodeOpacity}">
+          <circle cx="${pos.x}" cy="${pos.y}" r="${radius}" fill="${fill}" stroke="${strokeColor}" stroke-width="${strokeWidth}"></circle>
+          <text x="${pos.x}" y="${pos.y + 30}" fill="${textFill}" font-size="11" text-anchor="middle" opacity="${textOpacity}"
+                paint-order="stroke" stroke="#101010" stroke-width="2">${esc(node.label)}</text>
+        </g>
+      `);
+    }
+    nodeLayer.innerHTML = nodeHtml.join("");
+    updateStats();
+  }
+
+  function applyViewBox() {
+    svg.setAttribute("viewBox", `${state.viewBox.x} ${state.viewBox.y} ${state.viewBox.w} ${state.viewBox.h}`);
+  }
+
+  function fitViewToGraph() {
+    const coords = Array.from(state.positions.values());
+    if (!coords.length) {
+      return;
+    }
+    let minX = coords[0].x;
+    let maxX = coords[0].x;
+    let minY = coords[0].y;
+    let maxY = coords[0].y;
+    for (const p of coords) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const margin = 160;
+    const width = Math.max(420, (maxX - minX) + margin * 2);
+    const height = Math.max(420, (maxY - minY) + margin * 2);
+    state.viewBox = { x: minX - margin, y: minY - margin, w: width, h: height };
+    applyViewBox();
+  }
+
+  function focusNode(nodeId, options = {}) {
+    const pos = state.positions.get(nodeId);
+    if (!pos) {
+      return false;
+    }
+    if (options && options.setActive) {
+      state.activeNodeId = nodeId;
+    }
+    state.highlightedNodeId = nodeId;
+    render();
+    const width = Math.max(360, state.viewBox.w * 0.45);
+    const height = Math.max(360, state.viewBox.h * 0.45);
+    state.viewBox = { x: pos.x - width / 2, y: pos.y - height / 2, w: width, h: height };
+    applyViewBox();
+    return true;
+  }
+
+  function endpointForCompound(template, compoundId) {
+    return template.replace("/0/", `/${compoundId}/`);
+  }
+
+  function endpointForTarget(template, targetId) {
+    return template.replace("/0/", `/${targetId}/`);
+  }
+
+  async function hydrateDepthOneForNode(node) {
+    if (!node) {
+      return { loaded: false, cached: false, addedNodes: 0, addedEdges: 0 };
+    }
+
+    if (node.node_type === "compound" && node.meta && node.meta.compound_id) {
+      const compoundId = Number(node.meta.compound_id);
+      if (!Number.isFinite(compoundId) || compoundId <= 0) {
+        return { loaded: false, cached: false, addedNodes: 0, addedEdges: 0 };
+      }
+      const loadedDepth = state.hydratedSubgraphDepthByCompound.get(compoundId) || 0;
+      if (loadedDepth >= 1) {
+        return { loaded: false, cached: true, addedNodes: 0, addedEdges: 0 };
+      }
+
+      const nodesBefore = state.nodes.size;
+      const edgesBefore = state.edges.size;
+      const url = new URL(endpointForCompound(subgraphApiTemplate, compoundId), window.location.origin);
+      url.searchParams.set("depth", "1");
+      url.searchParams.set("compound_cap", "1200");
+      url.searchParams.set("edge_cap", "10000");
+
+      const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+
+      mergePayload(payload);
+      state.hydratedSubgraphDepthByCompound.set(compoundId, 1);
+      return {
+        loaded: true,
+        cached: false,
+        addedNodes: Math.max(0, state.nodes.size - nodesBefore),
+        addedEdges: Math.max(0, state.edges.size - edgesBefore),
+      };
+    }
+
+    if (node.node_type === "target" && node.meta && node.meta.target_id) {
+      const targetId = Number(node.meta.target_id);
+      if (!Number.isFinite(targetId) || targetId <= 0) {
+        return { loaded: false, cached: false, addedNodes: 0, addedEdges: 0 };
+      }
+      if (state.hydratedTargetIds.has(targetId)) {
+        return { loaded: false, cached: true, addedNodes: 0, addedEdges: 0 };
+      }
+
+      const nodesBefore = state.nodes.size;
+      const edgesBefore = state.edges.size;
+      const url = new URL(endpointForTarget(targetSubgraphApiTemplate, targetId), window.location.origin);
+      url.searchParams.set("compound_cap", "1200");
+      url.searchParams.set("edge_cap", "10000");
+
+      const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+
+      mergePayload(payload);
+      state.hydratedTargetIds.add(targetId);
+      return {
+        loaded: true,
+        cached: false,
+        addedNodes: Math.max(0, state.nodes.size - nodesBefore),
+        addedEdges: Math.max(0, state.edges.size - edgesBefore),
+      };
+    }
+
+    return { loaded: false, cached: false, addedNodes: 0, addedEdges: 0 };
+  }
+
+  function resetGraph() {
+    state.loading = false;
+    state.nodes.clear();
+    state.edges.clear();
+    state.positions.clear();
+    state.loadedCompoundIds.clear();
+    state.hydratedSubgraphDepthByCompound.clear();
+    state.hydratedTargetIds.clear();
+    state.highlightedNodeId = "";
+    state.activeNodeId = "";
+    state.layoutDirty = true;
+    edgeLayer.innerHTML = "";
+    nodeLayer.innerHTML = "";
+    updateStats();
+    setStatus("Graph reset. Query a compound to load its network.");
+  }
+
+  function hideSearchResults() {
+    compoundSearchResults.style.display = "none";
+    compoundSearchResults.innerHTML = "";
+  }
+
+  function renderSearchResults(results) {
+    if (!Array.isArray(results) || results.length === 0) {
+      hideSearchResults();
+      return;
+    }
+    compoundSearchResults.innerHTML = results.map((item) => (
+      `<button type="button" class="list-group-item list-group-item-action bg-dark text-light border-secondary" data-id="${item.id}" data-name="${esc(item.name)}" data-slug="${esc(item.slug)}">
+         <div class="fw-semibold">${esc(item.name)}</div>
+         <div class="small text-muted">${esc(item.aliases || "")}</div>
+       </button>`
+    )).join("");
+    compoundSearchResults.style.display = "block";
+  }
+
+  async function performSearch(query) {
+    if (pendingSearchAbort) {
+      pendingSearchAbort.abort();
+    }
+    pendingSearchAbort = new AbortController();
+    const url = new URL(searchApiUrl, window.location.origin);
+    url.searchParams.set("q", query);
+    url.searchParams.set("limit", "8");
+
+    const response = await fetch(url.toString(), {
+      signal: pendingSearchAbort.signal,
+      headers: { Accept: "application/json" },
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    renderSearchResults(payload.compounds || []);
+  }
+
+  async function querySelectedCompound() {
+    if (!state.selectedCompound || !state.selectedCompound.id) {
+      setStatus("Select a compound first.", true);
+      return;
+    }
+    let selectedDepth = Number.parseInt((queryDepthInput && queryDepthInput.value) || "1", 10);
+    if (!Number.isFinite(selectedDepth)) {
+      selectedDepth = 1;
+    }
+    selectedDepth = Math.max(1, Math.min(3, selectedDepth));
+
+    const compoundId = Number(state.selectedCompound.id);
+    const nodeId = `compound:${compoundId}`;
+    const hasExistingNode = state.nodes.has(nodeId);
+    if (hasExistingNode) {
+      focusNode(nodeId, { setActive: true });
+    }
+    const loadedDepth = state.hydratedSubgraphDepthByCompound.get(compoundId) || 0;
+    if (loadedDepth >= selectedDepth && hasExistingNode) {
+      setStatus(`Focused ${state.selectedCompound.name}. Depth-${selectedDepth} neighborhood already loaded.`);
+      return;
+    }
+
+    queryCompoundBtn.disabled = true;
+    setStatus(
+      hasExistingNode
+        ? `Loading missing depth-${selectedDepth} connections for ${state.selectedCompound.name}...`
+        : `Loading depth-${selectedDepth} subgraph for ${state.selectedCompound.name}...`
+    );
+    try {
+      const nodesBefore = state.nodes.size;
+      const edgesBefore = state.edges.size;
+      const url = new URL(endpointForCompound(subgraphApiTemplate, compoundId), window.location.origin);
+      url.searchParams.set("depth", String(selectedDepth));
+      url.searchParams.set("compound_cap", "1500");
+      url.searchParams.set("edge_cap", "10000");
+      const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+      mergePayload(payload);
+      state.hydratedSubgraphDepthByCompound.set(compoundId, Math.max(loadedDepth, selectedDepth));
+      render();
+      const anchorNodeId = payload.anchor_node_id || nodeId;
+      if (!focusNode(anchorNodeId, { setActive: true })) {
+        fitViewToGraph();
+      }
+      const addedNodes = Math.max(0, state.nodes.size - nodesBefore);
+      const addedEdges = Math.max(0, state.edges.size - edgesBefore);
+      setStatus(
+        `Hydrated ${state.selectedCompound.name} depth-${payload.depth || selectedDepth}: +${addedNodes} nodes, +${addedEdges} edges.`
+      );
+    } catch (error) {
+      setStatus(`Subgraph load failed: ${error.message}`, true);
+    } finally {
+      queryCompoundBtn.disabled = false;
+    }
+  }
+
+  searchInputHandlers();
+
+  function searchInputHandlers() {
+    compoundSearchInput.addEventListener("input", () => {
+      const query = compoundSearchInput.value.trim();
+      if (query.length < 2) {
+        hideSearchResults();
+        return;
+      }
+      if (searchTimer) {
+        clearTimeout(searchTimer);
+      }
+      searchTimer = setTimeout(async () => {
+        try {
+          await performSearch(query);
+        } catch (error) {
+          if (error.name !== "AbortError") {
+            hideSearchResults();
+          }
+        }
+      }, 220);
+    });
+
+    compoundSearchResults.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-id]");
+      if (!button) {
+        return;
+      }
+      state.selectedCompound = {
+        id: Number(button.dataset.id),
+        name: button.dataset.name,
+        slug: button.dataset.slug,
+      };
+      compoundSearchInput.value = state.selectedCompound.name;
+      hideSearchResults();
+      setStatus(`Selected ${state.selectedCompound.name}.`);
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!compoundSearchResults.contains(event.target) && event.target !== compoundSearchInput) {
+        hideSearchResults();
+      }
+    });
+  }
+
+  let dragState = null;
+  svg.addEventListener("mousedown", (event) => {
+    dragState = {
+      x: event.clientX,
+      y: event.clientY,
+      viewX: state.viewBox.x,
+      viewY: state.viewBox.y,
+    };
+    svg.style.cursor = "grabbing";
+  });
+  window.addEventListener("mouseup", () => {
+    dragState = null;
+    svg.style.cursor = "grab";
+  });
+  window.addEventListener("mousemove", (event) => {
+    if (!dragState) {
+      return;
+    }
+    const scaleX = state.viewBox.w / svg.clientWidth;
+    const scaleY = state.viewBox.h / svg.clientHeight;
+    const dx = (event.clientX - dragState.x) * scaleX;
+    const dy = (event.clientY - dragState.y) * scaleY;
+    state.viewBox.x = dragState.viewX - dx;
+    state.viewBox.y = dragState.viewY - dy;
+    applyViewBox();
+  });
+  svg.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const zoom = event.deltaY < 0 ? 0.9 : 1.1;
+    const cx = state.viewBox.x + state.viewBox.w / 2;
+    const cy = state.viewBox.y + state.viewBox.h / 2;
+    state.viewBox.w *= zoom;
+    state.viewBox.h *= zoom;
+    state.viewBox.x = cx - state.viewBox.w / 2;
+    state.viewBox.y = cy - state.viewBox.h / 2;
+    applyViewBox();
+  }, { passive: false });
+
+  svg.addEventListener("mouseover", (event) => {
+    const nodeEl = event.target.closest("[data-node-id]");
+    if (nodeEl) {
+      const node = state.nodes.get(nodeEl.getAttribute("data-node-id"));
+      if (node) {
+        detailPanel.innerHTML = `
+          <strong>Node</strong><br>
+          Type: ${esc(node.node_type)}<br>
+          Label: ${esc(node.label)}<br>
+          Note: ${esc(node.note || "-")}
+        `;
+      }
+      return;
+    }
+    const edgeEl = event.target.closest("[data-edge-id]");
+    if (edgeEl) {
+      const edge = state.edges.get(edgeEl.getAttribute("data-edge-id"));
+      if (edge) {
+        detailPanel.innerHTML = `
+          <strong>Edge</strong><br>
+          Relation type: ${esc(edge.relation_type)}<br>
+          Label: ${esc(edge.relation_label)}<br>
+          Note: ${esc(edge.note || "-")}
+        `;
+      }
+    }
+  });
+
+  svg.addEventListener("click", async (event) => {
+    const nodeEl = event.target.closest("[data-node-id]");
+    if (nodeEl) {
+      const nodeId = nodeEl.getAttribute("data-node-id");
+      if (!nodeId) {
+        return;
+      }
+      if (state.activeNodeId === nodeId) {
+        state.activeNodeId = "";
+        state.highlightedNodeId = nodeId;
+        render();
+        setStatus("Cleared node connection highlight.");
+        return;
+      }
+
+      const switchingNode = state.activeNodeId !== nodeId;
+      state.activeNodeId = nodeId;
+      state.highlightedNodeId = nodeId;
+      render();
+      const node = state.nodes.get(nodeId);
+      let hydrateResult = null;
+      let hydrateError = "";
+      if (switchingNode) {
+        try {
+          hydrateResult = await hydrateDepthOneForNode(node);
+          if (hydrateResult && hydrateResult.loaded && (hydrateResult.addedNodes > 0 || hydrateResult.addedEdges > 0)) {
+            render();
+          }
+        } catch (error) {
+          hydrateError = error && error.message ? String(error.message) : "unknown error";
+        }
+      }
+
+      let directEdgeCount = 0;
+      for (const edge of state.edges.values()) {
+        if (edge.source === nodeId || edge.target === nodeId) {
+          directEdgeCount += 1;
+        }
+      }
+      let statusMessage = `Highlighted ${node ? node.label : nodeId} and ${directEdgeCount} direct connection${directEdgeCount === 1 ? "" : "s"}.`;
+      if (hydrateResult && hydrateResult.loaded) {
+        statusMessage += ` Loaded depth-1 neighborhood (+${hydrateResult.addedNodes} nodes, +${hydrateResult.addedEdges} edges).`;
+      } else if (hydrateResult && hydrateResult.cached) {
+        statusMessage += " Depth-1 neighborhood already loaded.";
+      }
+      if (hydrateError) {
+        statusMessage += ` Expansion failed: ${hydrateError}.`;
+      }
+      setStatus(statusMessage, Boolean(hydrateError));
+      return;
+    }
+
+    const edgeEl = event.target.closest("[data-edge-id]");
+    if (edgeEl) {
+      return;
+    }
+  });
+
+  resetBtn.addEventListener("click", resetGraph);
+  fitBtn.addEventListener("click", () => {
+    fitViewToGraph();
+    setStatus("View fit to current graph.");
+  });
+  queryCompoundBtn.addEventListener("click", querySelectedCompound);
+  compoundSearchInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      querySelectedCompound();
+    }
+  });
+
+  updateStats();
+  setStatus("Graph is empty. Search and query a compound to load.");
+})();
+</script>
+{% endblock %}

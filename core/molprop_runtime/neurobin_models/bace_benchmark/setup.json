@@ -1,0 +1,31 @@
+{
+  "network": {
+    "encoder": {
+      "in_channels": 1,
+      "num_layers": 1,
+      "kernel_size": 3,
+      "n_hidden_fusion": 64
+    },
+    "transformer": {
+      "depth": 1,
+      "heads": 8,
+      "mlp_dim": 32,
+      "dropout": 0.1
+    },
+    "decoder": {
+      "kernel_size": 1
+    },
+    "language": {
+      "model": "chemberta-77m-mlm",
+      "graph": "GATv2",
+      "drop_rate": 0.1,
+      "freeze": true,
+      "freeze_layer_count": 3,
+      "mode": "discrete",
+      "num_predictions": 1
+    }
+  },
+  "training": {
+    "set_L": 1
+  }
+}

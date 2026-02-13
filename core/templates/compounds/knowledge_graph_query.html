@@ -1,0 +1,408 @@
+{% extends "base.html" %}
+{% block title %}Knowledge Graph Query — Neurobin{% endblock %}
+{% block content %}
+<div class="container py-4">
+  <div class="card bg-neurobin-card text-light border-secondary shadow-sm">
+    <div class="card-body">
+      <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+          <h1 class="h4 mb-1">Knowledge Graph Query</h1>
+          <div class="text-muted small">
+            Query existing/local graph runs and inspect moderated edges.
+            {% if user.is_authenticated and user.is_staff %}
+              Staff can also trigger enrichment.
+            {% else %}
+              Enrichment generation is admin-only.
+            {% endif %}
+          </div>
+        </div>
+        <a class="btn btn-sm btn-outline-info" href="{% url 'compound_network_graph_view' %}">Open Network Graph</a>
+        {% if initial_compound %}
+          <div class="badge text-bg-info">Preset: {{ initial_compound.name }}</div>
+        {% endif %}
+      </div>
+
+      <div class="row g-2 align-items-end">
+        <div class="col-12 col-lg-4 position-relative">
+          <label for="compoundSearchInput" class="form-label mb-1">Compound</label>
+          <input
+            id="compoundSearchInput"
+            type="text"
+            class="form-control bg-dark text-light border-secondary"
+            placeholder="Search by name or alias"
+            autocomplete="off"
+          >
+          <div id="compoundSearchResults" class="list-group position-absolute w-100" style="z-index: 1050; display: none;"></div>
+        </div>
+        <div class="col-6 col-lg-2">
+          <label for="runIdInput" class="form-label mb-1">Run ID</label>
+          <input id="runIdInput" type="text" class="form-control bg-dark text-light border-secondary" placeholder="Latest">
+        </div>
+        <div class="col-6 col-lg-2">
+          <label for="edgeLimitInput" class="form-label mb-1">Edge Limit</label>
+          <input id="edgeLimitInput" type="number" min="1" step="1" class="form-control bg-dark text-light border-secondary" placeholder="No limit">
+        </div>
+        <div class="col-12 col-lg-4 d-flex gap-2">
+          <button id="loadGraphBtn" type="button" class="btn btn-info flex-grow-1">Load Graph</button>
+          <a id="openCompoundBtn" class="btn btn-outline-light" href="#" style="display: none;">Open Compound</a>
+        </div>
+      </div>
+
+      <div class="mt-2 text-info small" id="selectedCompoundLabel">No compound selected.</div>
+
+      {% if user.is_authenticated and user.is_staff %}
+        <hr class="border-secondary my-3">
+        <div class="row g-2 align-items-end">
+          <div class="col-6 col-lg-2">
+            <label for="enrichMaxEdgesInput" class="form-label mb-1">Enrich Max Edges</label>
+            <input id="enrichMaxEdgesInput" type="number" min="1" max="60" value="25" class="form-control bg-dark text-light border-secondary">
+          </div>
+          <div class="col-6 col-lg-2">
+            <div class="form-check mt-4">
+              <input class="form-check-input" type="checkbox" value="" id="includeInternetInput" checked>
+              <label class="form-check-label" for="includeInternetInput">Internet</label>
+            </div>
+          </div>
+          <div class="col-6 col-lg-2">
+            <div class="form-check mt-4">
+              <input class="form-check-input" type="checkbox" value="" id="forceInput">
+              <label class="form-check-label" for="forceInput">Force</label>
+            </div>
+          </div>
+          <div class="col-12 col-lg-6">
+            <button id="enrichGraphBtn" type="button" class="btn btn-warning w-100">Generate / Refresh (Staff)</button>
+          </div>
+        </div>
+      {% endif %}
+
+      <div id="statusAlert" class="alert mt-3 mb-2 py-2 px-3" style="display: none;"></div>
+
+      <div id="runMeta" class="small text-muted mb-2" style="display: none;"></div>
+
+      <div class="table-responsive border border-secondary rounded" id="edgeTableWrap" style="display: none; max-height: 420px;">
+        <table class="table table-dark table-sm table-striped align-middle mb-0">
+          <thead class="sticky-top">
+            <tr>
+              <th>Subject</th>
+              <th>Predicate</th>
+              <th>Object</th>
+              <th>Confidence</th>
+              <th>DB Validation</th>
+              <th>Moderation</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody id="edgeTableBody"></tbody>
+        </table>
+      </div>
+
+      <div id="noEdgesMsg" class="text-muted small mt-2">Load a compound to query graph edges.</div>
+
+      <details class="mt-3">
+        <summary class="text-info">Raw JSON</summary>
+        <pre id="rawJsonBlock" class="bg-dark border border-secondary rounded p-3 mt-2 mb-0 small" style="max-height: 280px; overflow: auto;">{}</pre>
+      </details>
+    </div>
+  </div>
+</div>
+
+{{ initial_compound_payload|json_script:"kg-initial-compound" }}
+<script>
+(() => {
+  const searchApiUrl = "{{ compound_search_api_url|escapejs }}";
+  const graphApiTemplate = "{{ knowledge_graph_api_template|escapejs }}";
+  const enrichApiTemplate = "{{ knowledge_graph_enrich_api_template|escapejs }}";
+  const canEnrich = {{ user.is_authenticated|yesno:"true,false" }} && {{ user.is_staff|yesno:"true,false" }};
+  const initialCompound = JSON.parse(document.getElementById("kg-initial-compound").textContent || "{}");
+
+  const searchInput = document.getElementById("compoundSearchInput");
+  const searchResults = document.getElementById("compoundSearchResults");
+  const runIdInput = document.getElementById("runIdInput");
+  const edgeLimitInput = document.getElementById("edgeLimitInput");
+  const loadGraphBtn = document.getElementById("loadGraphBtn");
+  const openCompoundBtn = document.getElementById("openCompoundBtn");
+  const selectedLabel = document.getElementById("selectedCompoundLabel");
+  const runMeta = document.getElementById("runMeta");
+  const statusAlert = document.getElementById("statusAlert");
+  const edgeTableWrap = document.getElementById("edgeTableWrap");
+  const edgeTableBody = document.getElementById("edgeTableBody");
+  const noEdgesMsg = document.getElementById("noEdgesMsg");
+  const rawJsonBlock = document.getElementById("rawJsonBlock");
+  const enrichBtn = document.getElementById("enrichGraphBtn");
+  const includeInternetInput = document.getElementById("includeInternetInput");
+  const forceInput = document.getElementById("forceInput");
+  const enrichMaxEdgesInput = document.getElementById("enrichMaxEdgesInput");
+
+  let selectedCompound = null;
+  let pendingSearchAbort = null;
+  let searchTimer = null;
+
+  function endpointFor(template, compoundId) {
+    return template.replace("/0/", `/${compoundId}/`);
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function setStatus(message, level) {
+    if (!message) {
+      statusAlert.style.display = "none";
+      statusAlert.textContent = "";
+      statusAlert.className = "alert mt-3 mb-2 py-2 px-3";
+      return;
+    }
+    const css = level === "error" ? "alert-danger" : level === "warn" ? "alert-warning" : "alert-info";
+    statusAlert.className = `alert ${css} mt-3 mb-2 py-2 px-3`;
+    statusAlert.textContent = message;
+    statusAlert.style.display = "block";
+  }
+
+  function updateSelectedCompound(compound) {
+    selectedCompound = compound || null;
+    if (selectedCompound) {
+      selectedLabel.textContent = `Selected compound: ${selectedCompound.name} (id ${selectedCompound.id})`;
+      searchInput.value = selectedCompound.name;
+      openCompoundBtn.href = `/compounds/${selectedCompound.slug}/`;
+      openCompoundBtn.style.display = "inline-block";
+    } else {
+      selectedLabel.textContent = "No compound selected.";
+      openCompoundBtn.style.display = "none";
+    }
+  }
+
+  function renderEdges(edges) {
+    if (!Array.isArray(edges) || edges.length === 0) {
+      edgeTableWrap.style.display = "none";
+      edgeTableBody.innerHTML = "";
+      noEdgesMsg.style.display = "block";
+      noEdgesMsg.textContent = "No edges found for this query.";
+      return;
+    }
+
+    const rows = edges.map((edge) => {
+      const sourceTitle = edge.source_title || "Source";
+      const sourceUrl = edge.source_url || "";
+      const sourceCell = sourceUrl
+        ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(sourceTitle)}</a>`
+        : escapeHtml(sourceTitle);
+      const confidence = edge.confidence_score != null ? Number(edge.confidence_score).toFixed(3) : "-";
+      return `
+        <tr>
+          <td>${escapeHtml(edge.subject_label || "")}</td>
+          <td>${escapeHtml(edge.predicate || "")}</td>
+          <td>${escapeHtml(edge.object_label || "")}</td>
+          <td>${confidence}</td>
+          <td>${escapeHtml(edge.db_validation_status || "")}</td>
+          <td>${escapeHtml(edge.moderation_status || "")}</td>
+          <td>${sourceCell}</td>
+        </tr>
+      `;
+    }).join("");
+
+    edgeTableBody.innerHTML = rows;
+    edgeTableWrap.style.display = "block";
+    noEdgesMsg.style.display = "none";
+  }
+
+  function renderRunMeta(payload) {
+    const runData = payload && Object.prototype.hasOwnProperty.call(payload, "run")
+      ? payload.run
+      : payload;
+    const edges = payload && Array.isArray(payload.edges)
+      ? payload.edges
+      : (runData && Array.isArray(runData.edges) ? runData.edges : []);
+
+    rawJsonBlock.textContent = JSON.stringify(payload || {}, null, 2);
+
+    if (!runData || !runData.id) {
+      runMeta.style.display = "none";
+      renderEdges([]);
+      if (!canEnrich) {
+        setStatus("No local graph run found for this compound yet. Ask an admin to generate enrichment.", "warn");
+      }
+      return;
+    }
+
+    runMeta.style.display = "block";
+    runMeta.textContent =
+      `Run #${runData.id} | status=${runData.status || "unknown"} | model=${runData.model_name || "n/a"} | ` +
+      `created=${runData.created_at || "n/a"} | edges_created=${runData.edges_created ?? edges.length}`;
+    renderEdges(edges);
+  }
+
+  async function fetchGraph() {
+    if (!selectedCompound || !selectedCompound.id) {
+      setStatus("Choose a compound first.", "warn");
+      return;
+    }
+
+    setStatus("Loading graph...", "info");
+    loadGraphBtn.disabled = true;
+    try {
+      const url = new URL(endpointFor(graphApiTemplate, selectedCompound.id), window.location.origin);
+      if (runIdInput.value.trim()) {
+        url.searchParams.set("run_id", runIdInput.value.trim());
+      }
+      if (edgeLimitInput.value.trim()) {
+        url.searchParams.set("edge_limit", edgeLimitInput.value.trim());
+      }
+      const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+      renderRunMeta(payload);
+      const runData = payload && Object.prototype.hasOwnProperty.call(payload, "run")
+        ? payload.run
+        : payload;
+      if (runData && runData.id) {
+        setStatus("Graph query complete.", "info");
+      }
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.set("compound", String(selectedCompound.id));
+      history.replaceState({}, "", newUrl.toString());
+    } catch (error) {
+      setStatus(`Query failed: ${error.message}`, "error");
+    } finally {
+      loadGraphBtn.disabled = false;
+    }
+  }
+
+  async function enrichGraph() {
+    if (!selectedCompound || !selectedCompound.id) {
+      setStatus("Choose a compound before generating enrichment.", "warn");
+      return;
+    }
+    if (!enrichBtn) {
+      return;
+    }
+
+    enrichBtn.disabled = true;
+    setStatus("Submitting enrichment request...", "info");
+    try {
+      const response = await fetch(endpointFor(enrichApiTemplate, selectedCompound.id), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": (document.cookie.match(/(?:^|; )csrftoken=([^;]*)/) || [null, ""])[1],
+          "Accept": "application/json",
+        },
+        body: JSON.stringify({
+          include_internet: Boolean(includeInternetInput && includeInternetInput.checked),
+          force: Boolean(forceInput && forceInput.checked),
+          max_edges: parseInt((enrichMaxEdgesInput && enrichMaxEdgesInput.value) || "25", 10),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+      renderRunMeta(payload);
+      const hitMsg = payload.cache_hit ? " (cache hit)" : "";
+      setStatus(`Enrichment completed${hitMsg}.`, "info");
+    } catch (error) {
+      setStatus(`Enrichment failed: ${error.message}`, "error");
+    } finally {
+      enrichBtn.disabled = false;
+    }
+  }
+
+  function hideResults() {
+    searchResults.style.display = "none";
+    searchResults.innerHTML = "";
+  }
+
+  function renderSearchResults(results) {
+    if (!Array.isArray(results) || results.length === 0) {
+      hideResults();
+      return;
+    }
+    searchResults.innerHTML = results.map((item) => (
+      `<button type="button" class="list-group-item list-group-item-action bg-dark text-light border-secondary" data-id="${item.id}" data-name="${escapeHtml(item.name)}" data-slug="${escapeHtml(item.slug)}">
+         <div class="fw-semibold">${escapeHtml(item.name)}</div>
+         <div class="small text-muted">${escapeHtml(item.aliases || "")}</div>
+       </button>`
+    )).join("");
+    searchResults.style.display = "block";
+  }
+
+  async function performSearch(query) {
+    if (pendingSearchAbort) {
+      pendingSearchAbort.abort();
+    }
+    pendingSearchAbort = new AbortController();
+    try {
+      const url = new URL(searchApiUrl, window.location.origin);
+      url.searchParams.set("q", query);
+      url.searchParams.set("limit", "8");
+      const response = await fetch(url.toString(), {
+        signal: pendingSearchAbort.signal,
+        headers: { Accept: "application/json" },
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+      renderSearchResults(payload.compounds || []);
+    } catch (error) {
+      if (error.name !== "AbortError") {
+        hideResults();
+      }
+    }
+  }
+
+  searchInput.addEventListener("input", () => {
+    const value = searchInput.value.trim();
+    if (value.length < 2) {
+      hideResults();
+      return;
+    }
+    if (searchTimer) {
+      clearTimeout(searchTimer);
+    }
+    searchTimer = setTimeout(() => performSearch(value), 300);
+  });
+
+  searchResults.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-id]");
+    if (!button) {
+      return;
+    }
+    updateSelectedCompound({
+      id: Number(button.dataset.id),
+      name: button.dataset.name,
+      slug: button.dataset.slug,
+    });
+    hideResults();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!searchResults.contains(event.target) && event.target !== searchInput) {
+      hideResults();
+    }
+  });
+
+  loadGraphBtn.addEventListener("click", fetchGraph);
+  searchInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      fetchGraph();
+    }
+  });
+  if (enrichBtn) {
+    enrichBtn.addEventListener("click", enrichGraph);
+  }
+
+  if (initialCompound && initialCompound.id) {
+    updateSelectedCompound(initialCompound);
+    fetchGraph();
+  }
+})();
+</script>
+{% endblock %}
