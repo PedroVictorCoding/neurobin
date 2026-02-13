@@ -284,7 +284,7 @@
             {% if interaction.target %}
               <div class="d-flex align-items-center mb-2 mechanism-item" data-mechanism-id="{{ interaction.id }}">
                 <span class="badge rounded-pill bg-secondary text-dark me-2">
-                  {{ interaction.target.name }}
+                  <a href="{% url 'target_detail' interaction.target.id %}" class="text-dark text-decoration-none">{{ interaction.target.name }}</a>
                   {% if interaction.mechanism and interaction.mechanism != "unknown" %} ({{ interaction.get_mechanism_display }}){% endif %}
                   {% if interaction.affinity_level and interaction.affinity_level != "unknown" %}
                     <span class="badge bg-{% if interaction.affinity_level == 'very_high' %}danger{% elif interaction.affinity_level == 'high' %}warning{% elif interaction.affinity_level == 'medium' %}info{% else %}secondary{% endif %} ms-1 text-dark">
