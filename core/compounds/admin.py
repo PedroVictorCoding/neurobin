@@ -17,14 +17,28 @@ from .models import (
     CompoundKnowledgeGraphRun,
     CompoundKnowledgeGraphEdge,
     ActionType,
-    TargetType
+    TargetType,
+    CompoundSteroidRating,
 )
 from research.models import ResearchImportJob
 
 
+class CompoundSteroidRatingInline(admin.StackedInline):
+    model = CompoundSteroidRating
+    extra = 0
+    can_delete = True
+
+
 @admin.register(Compound)
 class CompoundAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug', 'chembl_id', 'anabolic_rating', 'androgenic_rating', 'smiles')
+    list_display = (
+        'name',
+        'slug',
+        'chembl_id',
+        'anabolic_rating_value',
+        'androgenic_rating_value',
+        'smiles',
+    )
     prepopulated_fields = {'slug': ('name',)}
     filter_horizontal = ('categories',)
     search_fields = ('name', 'aliases', 'description', 'chembl_id')
@@ -35,12 +49,25 @@ class CompoundAdmin(admin.ModelAdmin):
         'description',
         'aliases',
         'smiles',
-        'anabolic_rating',
-        'androgenic_rating',
         'categories',
         'mechanism_of_action',
     )
+    inlines = [CompoundSteroidRatingInline]
     actions = ['queue_research_import']
+
+    @admin.display(description="Anabolic rating")
+    def anabolic_rating_value(self, obj):
+        try:
+            return obj.steroid_ratings.anabolic_rating
+        except CompoundSteroidRating.DoesNotExist:
+            return None
+
+    @admin.display(description="Androgenic rating")
+    def androgenic_rating_value(self, obj):
+        try:
+            return obj.steroid_ratings.androgenic_rating
+        except CompoundSteroidRating.DoesNotExist:
+            return None
 
     def queue_research_import(self, request, queryset):
         created = 0

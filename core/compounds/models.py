@@ -245,20 +245,6 @@ class Compound(models.Model):
         blank=True,
         help_text="SMILES notation for molecular structure"
     )
-    anabolic_rating = models.DecimalField(
-        max_digits=7,
-        decimal_places=2,
-        blank=True,
-        null=True,
-        help_text="Relative anabolic rating (commonly testosterone=100 baseline).",
-    )
-    androgenic_rating = models.DecimalField(
-        max_digits=7,
-        decimal_places=2,
-        blank=True,
-        null=True,
-        help_text="Relative androgenic rating (commonly testosterone=100 baseline).",
-    )
     categories = models.ManyToManyField(
         CompoundCategories,
         related_name='compounds',
@@ -308,6 +294,31 @@ class Compound(models.Model):
         return CompoundToCompoundTargetInteraction.objects.filter(
             Q(compound_a=self) | Q(compound_b=self)
         ).select_related('compound_a', 'compound_b', 'target', 'created_by')
+
+
+class CompoundSteroidRating(models.Model):
+    compound = models.OneToOneField(
+        'Compound',
+        on_delete=models.CASCADE,
+        related_name='steroid_ratings',
+    )
+    anabolic_rating = models.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text="Relative anabolic rating (commonly testosterone=100 baseline).",
+    )
+    androgenic_rating = models.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text="Relative androgenic rating (commonly testosterone=100 baseline).",
+    )
+
+    def __str__(self):
+        return f"{self.compound.name} steroid ratings"
 
 
 class CompoundADMETPrediction(models.Model):

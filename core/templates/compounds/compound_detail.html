@@ -228,22 +228,18 @@
           </p>
         </div>
         <div class="mb-3 d-flex flex-wrap gap-2">
-          <span class="badge rounded-pill text-bg-dark border border-secondary">
-            Anabolic:
-            {% if compound.anabolic_rating is not None %}
-              {{ compound.anabolic_rating }}
-            {% else %}
-              N/A
-            {% endif %}
-          </span>
-          <span class="badge rounded-pill text-bg-dark border border-secondary">
-            Androgenic:
-            {% if compound.androgenic_rating is not None %}
-              {{ compound.androgenic_rating }}
-            {% else %}
-              N/A
-            {% endif %}
-          </span>
+          {% if steroid_ratings and steroid_ratings.anabolic_rating is not None %}
+            <span class="badge rounded-pill text-bg-dark border border-secondary">
+              Anabolic:
+              {{ steroid_ratings.anabolic_rating }}
+            </span>
+          {% endif %}
+          {% if steroid_ratings and steroid_ratings.androgenic_rating is not None %}
+            <span class="badge rounded-pill text-bg-dark border border-secondary">
+              Androgenic:
+              {{ steroid_ratings.androgenic_rating }}
+            </span>
+          {% endif %}
         </div>
         <div class="d-flex align-items-center mb-3 stars" data-compound-slug="{{ compound.slug }}">
           {% for i in "12345" %}

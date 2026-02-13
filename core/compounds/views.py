@@ -26,6 +26,7 @@ from .models import (
     EffectWindow,
     CompoundTargetInteraction,
     CompoundToCompoundTargetInteraction,
+    CompoundSteroidRating,
 )
 from .forms import CompoundForm, MechanismOfActionForm, CategoryForm, TargetForm
 
@@ -270,7 +271,11 @@ def _build_compound_depth1_graph(compound):
 
 
 def compound_detail(request, slug):
-    compound = get_object_or_404(Compound, slug=slug)
+    compound = get_object_or_404(Compound.objects.select_related('steroid_ratings'), slug=slug)
+    try:
+        steroid_ratings = compound.steroid_ratings
+    except CompoundSteroidRating.DoesNotExist:
+        steroid_ratings = None
     
     # Increment view count
     compound.increment_views()
@@ -428,6 +433,7 @@ def compound_detail(request, slug):
 
     context = {
         'compound': compound,
+        'steroid_ratings': steroid_ratings,
         'compound_has_effect_curves': compound_has_effect_curves,
         'compound_depth1_graph': _build_compound_depth1_graph(compound),
         'safety_report': safety_report,

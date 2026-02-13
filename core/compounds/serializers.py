@@ -11,6 +11,7 @@ from .models import (
     CompoundToCompoundTargetInteraction,
     CompoundKnowledgeGraphRun,
     CompoundKnowledgeGraphEdge,
+    CompoundSteroidRating,
 )
 
 
@@ -52,9 +53,16 @@ class CompoundMechanismOfActionSerializer(serializers.ModelSerializer):
         return instance
 
 
+class CompoundSteroidRatingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CompoundSteroidRating
+        fields = ('anabolic_rating', 'androgenic_rating')
+
+
 class CompoundSerializer(serializers.ModelSerializer):
     categories = CompoundCategoriesSerializer(many=True, read_only=True)
     mechanism_of_action = CompoundMechanismOfActionSerializer(many=True, read_only=True)
+    steroid_ratings = CompoundSteroidRatingSerializer(read_only=True)
     categories_ids = serializers.ListField(
         child=serializers.IntegerField(),
         write_only=True,
@@ -98,6 +106,12 @@ class CompoundSerializer(serializers.ModelSerializer):
             instance.mechanism_of_action.set(mechanism_ids)
             
         return instance
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if data.get('steroid_ratings') is None:
+            data.pop('steroid_ratings', None)
+        return data
 
 
 class CompoundRatingSerializer(serializers.ModelSerializer):
@@ -292,4 +306,3 @@ class CompoundKnowledgeGraphRunSerializer(serializers.ModelSerializer):
             'created_at',
             'edges',
         ]
-
