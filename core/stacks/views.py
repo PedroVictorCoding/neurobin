@@ -49,7 +49,7 @@ def _build_stack_embed_description(stack, items) -> str:
         dose = ""
         if item.dosage_amount:
             dose = f" {item.dosage_amount}{item.dosage_unit}"
-        cadence = f" / q{item.recurrence_interval}{item.recurrence_unit[:1]}"
+        cadence = f" / {item.recurrence_rate_label}"
         parts.append(f"{item.compound.name}{dose}{cadence}")
     compounds_part = " • ".join(parts)
     extra = "" if len(items) <= 6 else f" • +{len(items) - 6} more"

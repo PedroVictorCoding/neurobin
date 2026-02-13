@@ -198,6 +198,20 @@ a:hover {
   font-weight: 700 !important;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  transition: box-shadow 0.2s ease, filter 0.2s ease, transform 0.16s ease, border-color 0.2s ease;
+}
+
+.btn:hover,
+.btn:focus-visible {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+  box-shadow:
+    0 0 0 1px rgba(247, 247, 251, 0.08),
+    0 0 16px rgba(184, 107, 255, 0.22);
+}
+
+.btn:active {
+  transform: translateY(0);
 }
 
 .btn-primary,
@@ -633,6 +647,36 @@ a:hover {
 .stack-page .stack-character-card .stack-character-meta {
   color: #ffffff !important;
   opacity: 1 !important;
+}
+
+/* Stacks: avoid header action overflow on tablet/mobile */
+@media (max-width: 992px) {
+  .stack-page .stack-header {
+    align-items: flex-start !important;
+  }
+  .stack-page .stack-header .stack-actions {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .stack-page .stack-header .stack-actions > a,
+  .stack-page .stack-header .stack-actions > form {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .stack-page .stack-header .stack-actions .btn {
+    white-space: nowrap;
+  }
+  .stack-page .stack-header .stack-actions-form {
+    flex: 1 1 260px;
+    min-width: 0;
+  }
+  .stack-page .stack-header .stack-visibility-select {
+    width: 100% !important;
+    min-width: 0;
+  }
 }
 
 /* Stacks: mobile-friendly layout helpers */

@@ -59,6 +59,9 @@ class AddCompoundForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['recurrence_interval'].label = 'Frequency'
+        self.fields['recurrence_interval'].help_text = 'Times per selected period (for example: 4 + Weekly = 4x/week).'
+        self.fields['recurrence_unit'].label = 'Period'
         # This form is rendered many times on the stacks page. Loading all compounds
         # into the <select> is slow and generates huge HTML. Select2 (initialized in
         # base.html) fetches options via AJAX. We only include the currently selected

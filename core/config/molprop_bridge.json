@@ -1,21 +1,53 @@
 {
   "device": "cpu",
   "endpoints": {
-    "neurobin_bbb_martins": {
+    "bace_benchmark": {
+      "checkpoint_file": "neurobin_models/bace_benchmark/SLEF_validation.pth",
+      "enabled": true,
+      "mode": "discrete",
+      "setup_json": "neurobin_models/bace_benchmark/setup.json",
+      "source_column": "ids",
+      "target_column": "y"
+    },
+    "bbb_martins": {
       "checkpoint_file": "neurobin_models/bbb_martins/SLEF_validation.pth",
       "enabled": true,
       "mode": "discrete",
       "setup_json": "neurobin_models/bbb_martins/setup.json",
       "source_column": "ids",
       "target_column": "y"
+    },
+    "bbbp_benchmark": {
+      "checkpoint_file": "neurobin_models/bbbp_benchmark/SLEF_validation.pth",
+      "enabled": true,
+      "mode": "discrete",
+      "setup_json": "neurobin_models/bbbp_benchmark/setup.json",
+      "source_column": "ids",
+      "target_column": "y"
+    },
+    "clintox_benchmark": {
+      "checkpoint_file": "neurobin_models/clintox_benchmark/SLEF_validation.pth",
+      "enabled": true,
+      "mode": "discrete",
+      "setup_json": "neurobin_models/clintox_benchmark/setup.json",
+      "source_column": "ids",
+      "target_column": "y"
+    },
+    "lipo_benchmark": {
+      "checkpoint_file": "neurobin_models/lipo_benchmark/SLEF_validation.pth",
+      "enabled": true,
+      "mode": "continuous",
+      "setup_json": "neurobin_models/lipo_benchmark/setup.json",
+      "source_column": "ids",
+      "target_column": "y"
     }
   },
   "meta": {
     "checkpoint_glob": "**/*.pth",
-    "discovered_endpoints": 1,
+    "discovered_endpoints": 5,
     "generated_by": "manage.py generate_molprop_bridge_config",
     "setup_glob": "**/setup*.json",
     "skipped_checkpoints": 0
   },
-  "repo_dir": "/home/main/Dev/MolPROP"
+  "repo_dir": "/home/main/Dev/neurobin/core/molprop_runtime"
 }

@@ -14,6 +14,8 @@ from .models import (
     CompoundTargetInteraction,
     CompoundTargetInteractionEvidence,
     CompoundToCompoundTargetInteraction,
+    CompoundKnowledgeGraphRun,
+    CompoundKnowledgeGraphEdge,
     ActionType,
     TargetType
 )
@@ -22,11 +24,22 @@ from research.models import ResearchImportJob
 
 @admin.register(Compound)
 class CompoundAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug', 'chembl_id', 'smiles')
+    list_display = ('name', 'slug', 'chembl_id', 'anabolic_rating', 'androgenic_rating', 'smiles')
     prepopulated_fields = {'slug': ('name',)}
     filter_horizontal = ('categories',)
     search_fields = ('name', 'aliases', 'description', 'chembl_id')
-    fields = ('name', 'slug', 'chembl_id', 'description', 'aliases', 'smiles', 'categories', 'mechanism_of_action')
+    fields = (
+        'name',
+        'slug',
+        'chembl_id',
+        'description',
+        'aliases',
+        'smiles',
+        'anabolic_rating',
+        'androgenic_rating',
+        'categories',
+        'mechanism_of_action',
+    )
     actions = ['queue_research_import']
 
     def queue_research_import(self, request, queryset):
@@ -227,3 +240,57 @@ class TargetTypeAdmin(admin.ModelAdmin):
     search_fields = ('name', 'display_name', 'description', 'category')
     list_filter = ('category',)
     ordering = ('name',)
+
+
+@admin.register(CompoundKnowledgeGraphRun)
+class CompoundKnowledgeGraphRunAdmin(admin.ModelAdmin):
+    list_display = (
+        'compound',
+        'status',
+        'model_name',
+        'include_internet',
+        'edges_created',
+        'edges_rejected',
+        'edges_validated',
+        'created_at',
+    )
+    list_filter = ('status', 'include_internet', 'model_name')
+    search_fields = ('compound__name', 'request_hash', 'error_message')
+    readonly_fields = (
+        'request_hash',
+        'raw_response',
+        'parsed_output',
+        'created_at',
+        'started_at',
+        'finished_at',
+    )
+    autocomplete_fields = ('compound', 'requested_by')
+
+
+@admin.register(CompoundKnowledgeGraphEdge)
+class CompoundKnowledgeGraphEdgeAdmin(admin.ModelAdmin):
+    list_display = (
+        'compound',
+        'predicate',
+        'related_compound',
+        'related_target',
+        'canonical_mechanism',
+        'db_validation_status',
+        'confidence_score',
+        'created_at',
+    )
+    list_filter = (
+        'db_validation_status',
+        'canonical_mechanism',
+        'evidence_level',
+        'moderation_status',
+    )
+    search_fields = (
+        'compound__name',
+        'subject_label',
+        'object_label',
+        'source_title',
+        'source_url',
+    )
+    readonly_fields = ('edge_hash', 'created_at', 'updated_at')
+    autocomplete_fields = ('run', 'compound', 'related_compound', 'related_target')

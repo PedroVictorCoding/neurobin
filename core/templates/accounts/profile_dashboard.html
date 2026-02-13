@@ -451,6 +451,25 @@
                             <span class="badge bg-success">Active</span>
                           {% endif %}
                           {% if is_own_profile %}
+                            <form method="post" class="m-0 d-flex align-items-center js-auto-stack-toggle-form">
+                              {% csrf_token %}
+                              <input type="hidden" name="action" value="set_stack_active">
+                              <input type="hidden" name="stack_id" value="{{ stack.id }}">
+                              <input type="hidden" name="stack_q" value="{{ stack_query }}">
+                              <div class="form-check form-switch mb-0">
+                                <input
+                                  class="form-check-input js-auto-stack-toggle"
+                                  type="checkbox"
+                                  role="switch"
+                                  id="stack-active-{{ stack.id }}"
+                                  name="is_active"
+                                  value="1"
+                                  {% if stack.is_active %}checked{% endif %}
+                                >
+                              </div>
+                            </form>
+                          {% endif %}
+                          {% if is_own_profile %}
                             <span class="badge {% if stack.visibility == 'public' %}bg-info{% elif stack.visibility == 'unlisted' %}bg-secondary{% else %}bg-dark text-light border border-secondary{% endif %}">
                               {{ stack.visibility|title }}
                             </span>
@@ -528,4 +547,18 @@
   z-index: 10000 !important;
 }
 </style>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.js-auto-stack-toggle').forEach(function (input) {
+    input.addEventListener('change', function () {
+      const form = input.closest('.js-auto-stack-toggle-form');
+      if (!form) {
+        return;
+      }
+      input.disabled = true;
+      form.submit();
+    });
+  });
+});
+</script>
 {% endblock %}

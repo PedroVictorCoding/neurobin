@@ -94,6 +94,18 @@ class StackItem(models.Model):
     def __str__(self):
         return f"{self.compound.name} in {self.stack.name}"
 
+    @property
+    def recurrence_rate_label(self) -> str:
+        """Display recurrence as a frequency (e.g. 1x/day, 4x/week)."""
+        unit_map = {
+            'daily': 'day',
+            'weekly': 'week',
+            'monthly': 'month',
+        }
+        unit_label = unit_map.get(self.recurrence_unit, self.recurrence_unit or 'unit')
+        interval = self.recurrence_interval if self.recurrence_interval and self.recurrence_interval > 0 else 1
+        return f"{interval}x/{unit_label}"
+
 
 class StackTrait(models.Model):
     TRAIT_TYPE_CHOICES = [

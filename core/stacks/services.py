@@ -29,17 +29,28 @@ class StackOccurrence:
 
 def add_recurrence(dt: datetime, interval: int, unit: str) -> datetime:
     """
-    Add a calendar recurrence while preserving "wall-clock" time where possible.
+    Add recurrence using frequency semantics:
+    - daily:   interval = times per day
+    - weekly:  interval = times per week
+    - monthly: interval = times per month
 
-    We prefer calendar deltas over fixed timedeltas to behave better across DST
-    transitions (e.g. "every day at 9am local time").
+    Examples:
+    - 1 daily   -> +1 day
+    - 4 weekly  -> +7/4 days (4x/week)
+    - 2 monthly -> halfway to same date next month (2x/month)
     """
+    if interval < 1:
+        raise ValueError("recurrence_interval must be >= 1")
+
     if unit == 'daily':
-        return dt + relativedelta(days=interval)
+        return dt + timedelta(days=(1 / interval))
     if unit == 'weekly':
-        return dt + relativedelta(weeks=interval)
+        return dt + timedelta(days=(7 / interval))
     if unit == 'monthly':
-        return dt + relativedelta(months=interval)
+        # Keep month-aware cadence by splitting the current month-span.
+        next_month_same_clock = dt + relativedelta(months=1)
+        span = next_month_same_clock - dt
+        return dt + (span / interval)
     raise ValueError(f"Unknown recurrence unit: {unit!r}")
 
 
@@ -84,41 +95,17 @@ def _advance_to_at_least(current: datetime, target: datetime, *, interval: int, 
     if interval < 1:
         raise ValueError("recurrence_interval must be >= 1")
 
-    tz = timezone.get_current_timezone()
-    current_local = timezone.localtime(current, tz)
-    target_local = timezone.localtime(target, tz)
+    if unit in {'daily', 'weekly'}:
+        step = add_recurrence(current, interval, unit) - current
+        step_seconds = step.total_seconds()
+        if step_seconds > 0:
+            diff_seconds = (target - current).total_seconds()
+            jump_count = int(max(0, diff_seconds // step_seconds))
+            if jump_count > 0:
+                current = current + (step * jump_count)
 
-    if unit == 'daily':
-        diff_days = (target_local.date() - current_local.date()).days
-        jump = max(0, (diff_days // interval) * interval)
-        if jump:
-            current = current + relativedelta(days=jump)
-        while current < target:
-            current = add_recurrence(current, interval, unit)
-        return current
-
-    if unit == 'weekly':
-        diff_days = (target_local.date() - current_local.date()).days
-        diff_weeks = max(0, diff_days // 7)
-        jump = max(0, (diff_weeks // interval) * interval)
-        if jump:
-            current = current + relativedelta(weeks=jump)
-        while current < target:
-            current = add_recurrence(current, interval, unit)
-        return current
-
-    if unit == 'monthly':
-        months_diff = (target_local.year - current_local.year) * 12 + (target_local.month - current_local.month)
-        jump = max(0, (months_diff // interval) * interval)
-        if jump:
-            current = current + relativedelta(months=jump)
-        while current < target:
-            current = add_recurrence(current, interval, unit)
-        return current
-
-    # Fallback: safe linear advance
     safety_counter = 0
-    while current < target and safety_counter < 10_000:
+    while current < target and safety_counter < 20_000:
         current = add_recurrence(current, interval, unit)
         safety_counter += 1
     return current

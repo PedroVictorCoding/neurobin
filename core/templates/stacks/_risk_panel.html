@@ -6,22 +6,29 @@
     <div class="d-flex gap-2 align-items-center">
       {% include "stacks/_risk_badge.html" with risk=stack_risk %}
       <span class="text-muted small">
-        ADMET: {{ stack_risk.predicted_count }}/{{ stack_risk.compound_count }}
-        {% if stack_risk.details.coverage.molprop_count %}
-          • MolProp: {{ stack_risk.details.coverage.molprop_count }}/{{ stack_risk.compound_count }}
-        {% endif %}
+        Predicted: {{ stack_risk.predicted_count }}/{{ stack_risk.compound_count }}
       </span>
+      <button
+        class="btn btn-sm btn-outline-secondary collapsed"
+        type="button"
+        data-bs-toggle="collapse"
+        data-bs-target="#stackRiskAssessmentCollapse"
+        aria-expanded="false"
+        aria-controls="stackRiskAssessmentCollapse"
+      >
+        Toggle
+      </button>
     </div>
   </div>
-  <div class="card-body">
+  <div class="card-body collapse" id="stackRiskAssessmentCollapse">
     <div class="text-muted small mb-2">
-      Based on cached ADMET-AI + MolProp predictions for compounds in this stack. Research-only; not medical advice.
+      Based on cached blended predictions for compounds in this stack. Research-only; not medical advice.
     </div>
 
     {% if stack_risk_status == "ok" %}
       <div class="alert alert-success py-2 mb-3">Risk refreshed.</div>
     {% elif stack_risk_status == "unavailable" %}
-      <div class="alert alert-secondary py-2 mb-3">Neither ADMET-AI nor MolProp is available on the server.</div>
+      <div class="alert alert-secondary py-2 mb-3">Prediction sources are unavailable on the server.</div>
     {% endif %}
 
     {% if stack_risk_autoload %}
@@ -44,7 +51,7 @@
     {% if stack_risk.risk_level == "unknown" %}
       <div class="alert alert-secondary py-2 mb-3">
         Not enough prediction coverage yet to score this stack.
-        Open compound pages to generate cached ADMET-AI predictions.
+        Open compound pages to generate cached predictions.
       </div>
     {% else %}
       <div class="d-flex flex-wrap gap-3 text-muted mb-3" style="font-size: 0.95rem;">
@@ -68,8 +75,7 @@
             <ul class="text-muted mb-0 ps-3" style="font-size: 0.95rem;">
               <li>High BBB signals: {{ stack_risk.details.summary.bbb_high_count|default:0 }}</li>
               <li>Low bioavailability signals: {{ stack_risk.details.summary.low_bioavailability_count|default:0 }}</li>
-              <li>Predicted compounds (ADMET): {{ stack_risk.predicted_count }}/{{ stack_risk.compound_count }}</li>
-              <li>Predicted compounds (MolProp): {{ stack_risk.details.coverage.molprop_count|default:0 }}/{{ stack_risk.compound_count }}</li>
+              <li>Predicted compounds: {{ stack_risk.predicted_count }}/{{ stack_risk.compound_count }}</li>
             </ul>
           </div>
         </div>

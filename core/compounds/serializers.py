@@ -8,7 +8,9 @@ from .models import (
     CompoundSafetyScreening,
     EffectWindow,
     CompoundTargetInteraction,
-    CompoundToCompoundTargetInteraction
+    CompoundToCompoundTargetInteraction,
+    CompoundKnowledgeGraphRun,
+    CompoundKnowledgeGraphEdge,
 )
 
 
@@ -233,4 +235,61 @@ class CompoundToCompoundTargetInteractionSerializer(serializers.ModelSerializer)
             
         return data
 
+
+class CompoundKnowledgeGraphEdgeSerializer(serializers.ModelSerializer):
+    related_compound = serializers.StringRelatedField(read_only=True)
+    related_target = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model = CompoundKnowledgeGraphEdge
+        fields = [
+            'id',
+            'subject_kind',
+            'subject_label',
+            'predicate',
+            'object_kind',
+            'object_label',
+            'related_compound',
+            'related_target',
+            'canonical_mechanism',
+            'confidence_score',
+            'evidence_level',
+            'source_title',
+            'source_url',
+            'evidence_snippet',
+            'db_validation_status',
+            'moderation_status',
+            'moderation_reason',
+            'created_at',
+            'updated_at',
+        ]
+
+
+class CompoundKnowledgeGraphRunSerializer(serializers.ModelSerializer):
+    compound = serializers.StringRelatedField(read_only=True)
+    requested_by = serializers.StringRelatedField(read_only=True)
+    edges = CompoundKnowledgeGraphEdgeSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = CompoundKnowledgeGraphRun
+        fields = [
+            'id',
+            'compound',
+            'requested_by',
+            'status',
+            'model_name',
+            'request_hash',
+            'include_internet',
+            'max_edges',
+            'edges_created',
+            'edges_rejected',
+            'edges_validated',
+            'cached_response_used',
+            'moderation_notes',
+            'error_message',
+            'started_at',
+            'finished_at',
+            'created_at',
+            'edges',
+        ]
 

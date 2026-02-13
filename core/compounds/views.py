@@ -1,5 +1,6 @@
 import json
 import hashlib
+import math
 from io import StringIO
 from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 from django.shortcuts import render, get_object_or_404, redirect
@@ -24,6 +25,7 @@ from .models import (
     Target,
     EffectWindow,
     CompoundTargetInteraction,
+    CompoundToCompoundTargetInteraction,
 )
 from .forms import CompoundForm, MechanismOfActionForm, CategoryForm, TargetForm
 
@@ -46,25 +48,225 @@ def _prediction_map(prediction_obj):
     return {}
 
 
+def _coerce_prediction_number(value):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    if isinstance(value, (int, float)):
+        v = float(value)
+        return v if math.isfinite(v) else None
+    if isinstance(value, dict):
+        for key in ("value", "prediction", "score"):
+            if key in value:
+                return _coerce_prediction_number(value.get(key))
+        return None
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in {"true", "yes", "positive"}:
+            return 1.0
+        if v in {"false", "no", "negative"}:
+            return 0.0
+        try:
+            n = float(value)
+        except ValueError:
+            return None
+        return n if math.isfinite(n) else None
+    return None
+
+
 def _merge_prediction_maps(
     admet_predictions: dict,
     molprop_predictions: dict,
 ) -> tuple[dict, dict]:
     """
-    Merge ADMET-AI + MolProp predictions for display.
+    Merge two prediction maps for display.
 
-    ADMET-AI wins on key collisions because its endpoint naming is
-    currently the primary UI vocabulary.
+    For shared numeric endpoints, output the arithmetic mean.
+    For non-shared or non-numeric endpoints, keep the available value.
     """
     merged = {}
     sources = {}
-    for key, value in molprop_predictions.items():
-        merged[key] = value
-        sources[key] = "MolProp"
-    for key, value in admet_predictions.items():
-        merged[key] = value
-        sources[key] = "ADMET-AI"
+    all_keys = set(admet_predictions.keys()) | set(molprop_predictions.keys())
+    for key in all_keys:
+        has_a = key in admet_predictions
+        has_m = key in molprop_predictions
+        a_raw = admet_predictions.get(key)
+        m_raw = molprop_predictions.get(key)
+        a_num = _coerce_prediction_number(a_raw) if has_a else None
+        m_num = _coerce_prediction_number(m_raw) if has_m else None
+
+        if a_num is not None and m_num is not None:
+            merged[key] = (a_num + m_num) / 2.0
+            sources[key] = "Averaged"
+            continue
+
+        if has_a and has_m:
+            # Shared endpoint but non-numeric payloads: keep the primary cached value.
+            merged[key] = a_raw if a_raw is not None else m_raw
+            sources[key] = "Merged"
+        elif has_a:
+            merged[key] = a_raw
+            sources[key] = "Single-source"
+        elif has_m:
+            merged[key] = m_raw
+            sources[key] = "Single-source"
     return merged, sources
+
+
+def _build_compound_depth1_graph(compound):
+    """
+    Build a compact, non-interactive depth-1 graph payload for compound detail.
+
+    Depth-1 includes direct neighbors of the anchor compound:
+    - Target neighbors from CompoundTargetInteraction
+    - Compound neighbors from CompoundToCompoundTargetInteraction
+    - Shared-target target neighbors from compound-compound interactions
+    """
+    neighbor_map = {}
+    anchor_node_id = f"compound:{compound.id}"
+
+    def _ensure_neighbor(node_id, node_type, label, note=""):
+        row = neighbor_map.get(node_id)
+        if row is None:
+            row = {
+                "id": node_id,
+                "node_type": node_type,
+                "label": label or "Unknown",
+                "note": note or "",
+                "relations": [],
+            }
+            neighbor_map[node_id] = row
+            return row
+        if note and not row.get("note"):
+            row["note"] = note
+        return row
+
+    def _add_relation(row, relation_label):
+        label = (relation_label or "").strip()
+        if not label:
+            return
+        if label in row["relations"]:
+            return
+        row["relations"].append(label)
+
+    cti_rows = (
+        CompoundTargetInteraction.objects.filter(compound_id=compound.id)
+        .select_related("target")
+        .order_by("target__name", "mechanism")[:80]
+    )
+    for cti in cti_rows:
+        target_node_id = f"target:{cti.target_id}"
+        neighbor = _ensure_neighbor(
+            target_node_id,
+            "target",
+            cti.target.name,
+            note=(cti.target.gene_name or "").strip(),
+        )
+        affinity_label = cti.get_affinity_level_display()
+        affinity_suffix = "" if cti.affinity_level == "unknown" else f" ({affinity_label})"
+        _add_relation(neighbor, f"{cti.get_mechanism_display()}{affinity_suffix}")
+
+    cci_rows = (
+        CompoundToCompoundTargetInteraction.objects.filter(
+            Q(compound_a_id=compound.id) | Q(compound_b_id=compound.id)
+        )
+        .select_related("compound_a", "compound_b", "target")
+        .order_by("target__name", "compound_a__name", "compound_b__name")[:80]
+    )
+    for cci in cci_rows:
+        other_compound = cci.compound_b if cci.compound_a_id == compound.id else cci.compound_a
+        other_node_id = f"compound:{other_compound.id}"
+        compound_neighbor = _ensure_neighbor(
+            other_node_id,
+            "compound",
+            other_compound.name,
+            note=(other_compound.aliases or "").strip(),
+        )
+        _add_relation(compound_neighbor, f"{cci.get_interaction_type_display()} via {cci.target.name}")
+
+        target_node_id = f"target:{cci.target_id}"
+        target_neighbor = _ensure_neighbor(
+            target_node_id,
+            "target",
+            cci.target.name,
+            note=(cci.target.gene_name or "").strip(),
+        )
+        _add_relation(target_neighbor, "shared target")
+
+    neighbors = sorted(
+        neighbor_map.values(),
+        key=lambda row: (0 if row["node_type"] == "target" else 1, row["label"].lower()),
+    )
+    if not neighbors:
+        return {
+            "nodes": [
+                {
+                    "id": anchor_node_id,
+                    "node_type": "compound",
+                    "label": compound.name,
+                    "note": (compound.aliases or "").strip(),
+                    "x": 0.0,
+                    "y": 0.0,
+                    "text_y": 30.0,
+                    "is_anchor": True,
+                }
+            ],
+            "edges": [],
+            "radius": 0,
+        }
+
+    neighbor_count = len(neighbors)
+    radius = max(175, min(320, 145 + neighbor_count * 7))
+
+    nodes = [
+        {
+            "id": anchor_node_id,
+            "node_type": "compound",
+            "label": compound.name,
+            "note": (compound.aliases or "").strip(),
+            "x": 0.0,
+            "y": 0.0,
+            "text_y": 30.0,
+            "is_anchor": True,
+        }
+    ]
+    edges = []
+
+    for idx, neighbor in enumerate(neighbors):
+        angle = (-math.pi / 2.0) + ((2.0 * math.pi * idx) / max(neighbor_count, 1))
+        nx = round(math.cos(angle) * radius, 2)
+        ny = round(math.sin(angle) * radius, 2)
+        relation_labels = neighbor.get("relations", [])
+        relation_label = " • ".join(relation_labels[:2]) if relation_labels else "related"
+
+        nodes.append(
+            {
+                "id": neighbor["id"],
+                "node_type": neighbor["node_type"],
+                "label": neighbor["label"],
+                "note": neighbor.get("note", ""),
+                "x": nx,
+                "y": ny,
+                "text_y": round(ny + 30.0, 2),
+                "is_anchor": False,
+            }
+        )
+        edges.append(
+            {
+                "source_id": anchor_node_id,
+                "target_id": neighbor["id"],
+                "source_x": 0.0,
+                "source_y": 0.0,
+                "target_x": nx,
+                "target_y": ny,
+                "mid_x": round(nx / 2.0, 2),
+                "mid_y": round(ny / 2.0, 2),
+                "label": relation_label,
+            }
+        )
+
+    return {"nodes": nodes, "edges": edges, "radius": radius}
 
 
 def compound_detail(request, slug):
@@ -77,6 +279,7 @@ def compound_detail(request, slug):
     #safety_report = CompoundSafetyScreening.objects.filter(compound=compound).order_by('-created_by').first()
     #safety_report = compound.compoundsafetyscreening_set.all()
     safety_report = getattr(compound, 'safety_report', None)
+    compound_has_effect_curves = EffectWindow.objects.filter(compound=compound).exists()
 
     compound_rating = CompoundRating.objects.filter(compound=compound).all()
     avg_rating = compound_rating.aggregate(models.Avg('score'))['score__avg']
@@ -225,6 +428,8 @@ def compound_detail(request, slug):
 
     context = {
         'compound': compound,
+        'compound_has_effect_curves': compound_has_effect_curves,
+        'compound_depth1_graph': _build_compound_depth1_graph(compound),
         'safety_report': safety_report,
         'avg_rating': round(avg_rating, 2) if avg_rating else None,
         'user_rating': user_rating,
@@ -550,6 +755,51 @@ def compound_search(request):
         'query': query,
         'results': results,
     })
+
+
+@login_required
+def compound_knowledge_graph_query(request, slug=None):
+    """Interactive page for querying compound knowledge graph runs/edges."""
+    initial_compound = None
+
+    if slug:
+        initial_compound = Compound.objects.filter(slug=slug).only("id", "name", "slug").first()
+    else:
+        raw_compound_id = (request.GET.get("compound") or request.GET.get("compound_id") or "").strip()
+        if raw_compound_id.isdigit():
+            initial_compound = Compound.objects.filter(id=int(raw_compound_id)).only("id", "name", "slug").first()
+
+    initial_payload = None
+    if initial_compound:
+        initial_payload = {
+            "id": initial_compound.id,
+            "name": initial_compound.name,
+            "slug": initial_compound.slug,
+        }
+
+    context = {
+        "initial_compound": initial_compound,
+        "initial_compound_payload": initial_payload or {},
+        "compound_search_api_url": reverse("compound-search-api"),
+        "knowledge_graph_api_template": reverse("compound-knowledge-graph", kwargs={"compound_id": 0}),
+        "knowledge_graph_enrich_api_template": reverse("compound-knowledge-graph-enrich", kwargs={"compound_id": 0}),
+    }
+    return render(request, "compounds/knowledge_graph_query.html", context)
+
+
+@login_required
+def compound_network_graph_view(request):
+    """Global network graph (lazy-loaded) for compounds/targets/mechanisms."""
+    context = {
+        "network_graph_api_url": reverse("compound-network-graph"),
+        "compound_search_api_url": reverse("compound-search-api"),
+        "network_graph_subgraph_api_template": reverse("compound-network-graph-subgraph", kwargs={"compound_id": 0}),
+        "network_graph_target_subgraph_api_template": reverse(
+            "compound-network-graph-target-subgraph",
+            kwargs={"target_id": 0},
+        ),
+    }
+    return render(request, "compounds/network_graph.html", context)
 
 def compound_list(request):
     from django.core.paginator import Paginator

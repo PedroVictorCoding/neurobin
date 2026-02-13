@@ -187,6 +187,42 @@ class StackSharingAndScheduleTests(TestCase):
         expected = scheduled_for + relativedelta(days=1)
         self.assertEqual(item.intake_time, expected)
 
+    def test_take_weekly_frequency_advances_as_times_per_week(self):
+        now = timezone.now().replace(microsecond=0)
+        stack = Stack.objects.create(user=self.other, name='S', is_active=True, visibility='private')
+        item = StackItem.objects.create(
+            stack=stack,
+            compound=self.compound,
+            dosage_amount='75.00',
+            dosage_unit='mg',
+            intake_time=now,
+            recurrence_interval=4,  # 4x/week
+            recurrence_unit='weekly',
+            order=0,
+        )
+
+        self.client.force_authenticate(user=self.other)
+        resp = self.client.post(
+            f'/api/stacks/stackitem/{item.id}/take/',
+            data={'scheduled_for': now.isoformat(), 'taken_at': now.isoformat()},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 201)
+
+        item.refresh_from_db()
+        expected = now + timedelta(days=7 / 4)
+        self.assertEqual(item.intake_time, expected)
+
+    def test_recurrence_rate_label_is_rendered_as_frequency(self):
+        stack = Stack.objects.create(user=self.other, name='S', is_active=False, visibility='private')
+        item = StackItem.objects.create(
+            stack=stack,
+            compound=self.compound,
+            recurrence_interval=4,
+            recurrence_unit='weekly',
+        )
+        self.assertEqual(item.recurrence_rate_label, '4x/week')
+
     def test_calendar_graph_view_page_renders(self):
         Stack.objects.create(user=self.other, name='S', is_active=True, visibility='private')
         self.client.force_login(self.other)
@@ -267,7 +303,7 @@ class StackSharingAndScheduleTests(TestCase):
         resp = self.client.get(f'/stacks/share/{stack.id}/')
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, f'url=http://testserver/stacks/{stack.id}/')
-        self.assertContains(resp, 'Caffeine 100.00mg / q1d')
+        self.assertContains(resp, 'Caffeine 100.00mg / 1x/day')
 
     def test_owner_can_delete_stackitem_via_api(self):
         stack = Stack.objects.create(user=self.other, name='S', is_active=False, visibility='private')

@@ -17,6 +17,37 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def _load_local_env(path: Path) -> None:
+    """Lightweight .env loader without third-party dependency."""
+    if not path.exists() or not path.is_file():
+        return
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        os.environ[key] = value
+
+
+_load_local_env(BASE_DIR.parent / ".env")
+_load_local_env(BASE_DIR / ".env")
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -201,6 +232,16 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
+
+# Gemini graph enrichment
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2-flash').strip()
+GEMINI_MODEL_PRIORITY = os.getenv('GEMINI_MODEL_PRIORITY', '').strip()
+GEMINI_GRAPH_COOLDOWN_SECONDS = int(os.getenv('GEMINI_GRAPH_COOLDOWN_SECONDS', '21600'))
+GEMINI_GRAPH_MIN_INTERVAL_SECONDS = float(os.getenv('GEMINI_GRAPH_MIN_INTERVAL_SECONDS', '4.1'))
+GEMINI_GRAPH_MAX_EDGES = int(os.getenv('GEMINI_GRAPH_MAX_EDGES', '30'))
+GEMINI_GRAPH_TIMEOUT_SECONDS = int(os.getenv('GEMINI_GRAPH_TIMEOUT_SECONDS', '45'))
+GEMINI_GRAPH_MAX_RETRIES = int(os.getenv('GEMINI_GRAPH_MAX_RETRIES', '2'))
 
 # Request query logging
 REQUEST_LOG_DIR = BASE_DIR / 'request_logs'

@@ -1,3 +1,5 @@
+from urllib.parse import urlencode
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
@@ -53,6 +55,28 @@ def profile_dashboard(request, username=None):
     profile = UserProfile.objects.filter(user=profile_user).first()
     if not profile:
         profile = UserProfile.objects.create(user=profile_user) if is_own_profile else UserProfile(user=profile_user)
+
+    # Allow quick stack active/inactive toggles directly from profile cards.
+    if request.method == 'POST' and is_own_profile:
+        action = (request.POST.get('action') or '').strip().lower()
+        stack_id = request.POST.get('stack_id')
+        stack = Stack.objects.filter(id=stack_id, user=profile_user).first() if stack_id else None
+        if stack and action in {'set_stack_active', 'toggle_stack_active'}:
+            if action == 'set_stack_active':
+                requested = str(request.POST.get('is_active', '')).strip().lower()
+                desired_active = requested in {'1', 'true', 'on', 'yes'}
+                if stack.is_active != desired_active:
+                    stack.is_active = desired_active
+                    stack.save(update_fields=['is_active'])
+            else:
+                stack.is_active = not stack.is_active
+                stack.save(update_fields=['is_active'])
+
+        params = {'tab': 'stacks'}
+        stack_query = (request.POST.get('stack_q') or '').strip()
+        if stack_query:
+            params['stack_q'] = stack_query
+        return redirect(f"{request.path}?{urlencode(params)}")
 
     # Build snippet queryset (own profile sees all; other viewers see only public).
     user_snippets = ResearchSnippet.objects.filter(created_by=profile_user)
