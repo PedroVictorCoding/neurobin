@@ -14,7 +14,12 @@ from .api_views import (
     CompoundToCompoundInteractionListView,
     compound_interactions,
     compound_pair_interactions,
-    compound_search_api
+    compound_search_api,
+    compound_network_graph,
+    compound_network_graph_subgraph,
+    compound_network_graph_target_subgraph,
+    compound_knowledge_graph,
+    compound_knowledge_graph_enrich,
 )
 
 router = DefaultRouter()
@@ -33,4 +38,9 @@ urlpatterns = [
     path('compound/<int:compound_id>/interactions/', compound_interactions, name='compound-interactions'),
     path('compound-pair-interactions/', compound_pair_interactions, name='compound-pair-interactions'),
     path('compound-search/', compound_search_api, name='compound-search-api'),
+    path('network-graph/', compound_network_graph, name='compound-network-graph'),
+    path('network-graph/compound/<int:compound_id>/subgraph/', compound_network_graph_subgraph, name='compound-network-graph-subgraph'),
+    path('network-graph/target/<int:target_id>/subgraph/', compound_network_graph_target_subgraph, name='compound-network-graph-target-subgraph'),
+    path('compound/<int:compound_id>/knowledge-graph/', compound_knowledge_graph, name='compound-knowledge-graph'),
+    path('compound/<int:compound_id>/knowledge-graph/enrich/', compound_knowledge_graph_enrich, name='compound-knowledge-graph-enrich'),
 ]

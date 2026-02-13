@@ -245,6 +245,20 @@ class Compound(models.Model):
         blank=True,
         help_text="SMILES notation for molecular structure"
     )
+    anabolic_rating = models.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text="Relative anabolic rating (commonly testosterone=100 baseline).",
+    )
+    androgenic_rating = models.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text="Relative androgenic rating (commonly testosterone=100 baseline).",
+    )
     categories = models.ManyToManyField(
         CompoundCategories,
         related_name='compounds',
@@ -1024,3 +1038,165 @@ class CompoundToCompoundTargetInteraction(models.Model):
         if not mechanisms:
             return 'unknown'
         return ', '.join(mechanisms)
+
+
+class CompoundKnowledgeGraphRun(models.Model):
+    """Execution record for Gemini-backed compound graph enrichment."""
+
+    STATUS_CHOICES = [
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('skipped', 'Skipped'),
+        ('blocked', 'Blocked'),
+    ]
+
+    compound = models.ForeignKey(
+        'Compound',
+        on_delete=models.CASCADE,
+        related_name='knowledge_graph_runs',
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='requested_knowledge_graph_runs',
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='running')
+    model_name = models.CharField(max_length=100, blank=True)
+    request_hash = models.CharField(max_length=64, db_index=True)
+    include_internet = models.BooleanField(default=True)
+    max_edges = models.PositiveIntegerField(default=25)
+    edges_created = models.PositiveIntegerField(default=0)
+    edges_rejected = models.PositiveIntegerField(default=0)
+    edges_validated = models.PositiveIntegerField(default=0)
+    cached_response_used = models.BooleanField(default=False)
+    raw_response = models.JSONField(default=dict, blank=True)
+    parsed_output = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Normalized Gemini JSON payload captured before moderation filtering",
+    )
+    moderation_notes = models.TextField(blank=True)
+    error_message = models.TextField(blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['compound', 'created_at'], name='ckgr_comp_created_idx'),
+            models.Index(fields=['compound', 'status'], name='ckgr_comp_status_idx'),
+            models.Index(fields=['request_hash'], name='ckgr_req_hash_idx'),
+        ]
+
+    def __str__(self):
+        return f"Graph run for {self.compound.name} ({self.status})"
+
+
+class CompoundKnowledgeGraphEdge(models.Model):
+    """Moderated graph edge generated from DB context + internet evidence."""
+
+    NODE_KIND_CHOICES = [
+        ('compound', 'Compound'),
+        ('target', 'Target'),
+        ('mechanism', 'Mechanism'),
+        ('pathway', 'Pathway'),
+        ('gene', 'Gene'),
+        ('effect', 'Effect'),
+        ('unknown', 'Unknown'),
+    ]
+
+    EVIDENCE_LEVEL_CHOICES = [
+        ('high', 'High'),
+        ('medium', 'Medium'),
+        ('low', 'Low'),
+        ('unknown', 'Unknown'),
+    ]
+
+    DB_VALIDATION_CHOICES = [
+        ('confirmed', 'Confirmed'),
+        ('conflicting', 'Conflicting'),
+        ('novel', 'Novel'),
+        ('unresolved', 'Unresolved'),
+        ('rejected', 'Rejected'),
+    ]
+
+    MODERATION_CHOICES = [
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    ]
+
+    run = models.ForeignKey(
+        CompoundKnowledgeGraphRun,
+        on_delete=models.CASCADE,
+        related_name='edges',
+    )
+    compound = models.ForeignKey(
+        'Compound',
+        on_delete=models.CASCADE,
+        related_name='knowledge_graph_edges',
+        help_text='Anchor compound for this graph edge',
+    )
+    subject_kind = models.CharField(max_length=20, choices=NODE_KIND_CHOICES, default='unknown')
+    subject_label = models.CharField(max_length=255)
+    predicate = models.CharField(max_length=100)
+    object_kind = models.CharField(max_length=20, choices=NODE_KIND_CHOICES, default='unknown')
+    object_label = models.CharField(max_length=255)
+    related_compound = models.ForeignKey(
+        'Compound',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='related_knowledge_graph_edges',
+    )
+    related_target = models.ForeignKey(
+        'Target',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='knowledge_graph_edges',
+    )
+    canonical_mechanism = models.CharField(
+        max_length=50,
+        choices=CompoundTargetInteraction.MECHANISM_CHOICES,
+        default='unknown',
+    )
+    confidence_score = models.FloatField(default=0.0)
+    evidence_level = models.CharField(
+        max_length=20,
+        choices=EVIDENCE_LEVEL_CHOICES,
+        default='unknown',
+    )
+    source_title = models.CharField(max_length=500, blank=True)
+    source_url = models.URLField(blank=True)
+    evidence_snippet = models.TextField(blank=True)
+    db_validation_status = models.CharField(
+        max_length=20,
+        choices=DB_VALIDATION_CHOICES,
+        default='unresolved',
+    )
+    moderation_status = models.CharField(
+        max_length=20,
+        choices=MODERATION_CHOICES,
+        default='approved',
+    )
+    moderation_reason = models.CharField(max_length=255, blank=True)
+    edge_hash = models.CharField(max_length=64, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-confidence_score', '-created_at']
+        indexes = [
+            models.Index(fields=['compound', 'created_at'], name='ckge_comp_created_idx'),
+            models.Index(fields=['db_validation_status'], name='ckge_validation_idx'),
+            models.Index(fields=['canonical_mechanism'], name='ckge_mechanism_idx'),
+            models.Index(fields=['predicate'], name='ckge_predicate_idx'),
+        ]
+        unique_together = ('run', 'edge_hash')
+
+    def __str__(self):
+        return f"{self.subject_label} -[{self.predicate}]-> {self.object_label}"

@@ -4,47 +4,60 @@
     <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
       <div>
         <h2 class="card-title mb-1 text-white fw-semibold">
-          <i class="fas fa-vials text-info"></i> ADMET-AI
+          <i class="fas fa-vials text-info"></i> Prediction Ensemble
         </h2>
         <div class="text-muted" style="font-size: 0.9rem;">
-          Predictive ADMET properties (research-only; not medical advice).
+          Blended predictive properties (research-only; not medical advice).
         </div>
       </div>
 
-      <div class="text-end">
-        {% if user.is_authenticated and compound.smiles %}
-          <form method="post" action="{{ admet_ai_refresh_url }}" class="d-inline" id="admetAiRefreshForm">
-            {% csrf_token %}
-            <input type="hidden" name="next" value="{{ request.get_full_path }}">
-            <button type="submit"
-                    class="btn btn-sm btn-outline-info"
-                    {% if not admet_ai_available %}disabled{% endif %}
-                    title="{% if not admet_ai_available %}Install admet-ai to enable prediction{% else %}Compute / refresh predictions{% endif %}">
-              <i class="fas fa-rotate"></i> Refresh
-            </button>
-          </form>
-          <form method="post" action="{{ molprop_refresh_url }}" class="d-inline" id="molpropRefreshForm">
-            {% csrf_token %}
-            <input type="hidden" name="next" value="{{ request.get_full_path }}">
-            <button type="submit"
-                    class="btn btn-sm btn-outline-secondary"
-                    {% if not molprop_available %}aria-disabled="true" style="opacity: 0.6;"{% endif %}
-                    title="{% if not molprop_available %}Install MolProp (or configure MOLPROP_PREDICT_CMD) to enable{% else %}Compute / refresh MolProp predictions{% endif %}">
-              <i class="fas fa-atom"></i> MolProp
-            </button>
-          </form>
-        {% elif not user.is_authenticated %}
-          <a class="btn btn-sm btn-outline-info" href="{% url 'login' %}?next={{ request.get_full_path|urlencode }}">
-            <i class="fas fa-sign-in-alt"></i> Login to run
-          </a>
-        {% endif %}
+      <div class="text-end d-flex flex-column align-items-end gap-2">
+        <div class="d-flex flex-wrap justify-content-end gap-2">
+          {% if user.is_authenticated and compound.smiles %}
+            <form method="post" action="{{ admet_ai_refresh_url }}" class="d-inline" id="admetAiRefreshForm">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <button type="submit"
+                      class="btn btn-sm btn-outline-info"
+                      {% if not admet_ai_available %}disabled{% endif %}
+                      title="{% if not admet_ai_available %}Prediction source unavailable{% else %}Compute / refresh predictions{% endif %}">
+                <i class="fas fa-rotate"></i> Refresh Core
+              </button>
+            </form>
+            <form method="post" action="{{ molprop_refresh_url }}" class="d-inline" id="molpropRefreshForm">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <button type="submit"
+                      class="btn btn-sm btn-outline-secondary"
+                      {% if not molprop_available %}aria-disabled="true" style="opacity: 0.6;"{% endif %}
+                      title="{% if not molprop_available %}Prediction source unavailable{% else %}Compute / refresh supplemental predictions{% endif %}">
+                <i class="fas fa-atom"></i> Refresh Extended
+              </button>
+            </form>
+          {% elif not user.is_authenticated %}
+            <a class="btn btn-sm btn-outline-info" href="{% url 'login' %}?next={{ request.get_full_path|urlencode }}">
+              <i class="fas fa-sign-in-alt"></i> Login to run
+            </a>
+          {% endif %}
+        </div>
+        <button
+          class="btn btn-sm btn-outline-secondary collapsed"
+          type="button"
+          data-bs-toggle="collapse"
+          data-bs-target="#compoundRiskAssessmentCollapse"
+          aria-expanded="false"
+          aria-controls="compoundRiskAssessmentCollapse"
+        >
+          Toggle
+        </button>
       </div>
     </div>
 
+    <div class="collapse" id="compoundRiskAssessmentCollapse">
     {% if admet_ai_autoload %}
       <div class="d-flex align-items-center gap-2 text-muted mb-3" style="font-size: 0.95rem;">
         <div class="spinner-border spinner-border-sm text-info" role="status" aria-hidden="true"></div>
-        <div>Computing ADMET-AI predictions…</div>
+        <div>Computing predictions…</div>
       </div>
       <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -56,7 +69,7 @@
     {% if molprop_autoload %}
       <div class="d-flex align-items-center gap-2 text-muted mb-3" style="font-size: 0.95rem;">
         <div class="spinner-border spinner-border-sm text-secondary" role="status" aria-hidden="true"></div>
-        <div>Computing MolProp predictions…</div>
+        <div>Computing supplemental predictions…</div>
       </div>
       <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -81,14 +94,14 @@
       <div class="alert alert-secondary py-2 mb-3">No SMILES on this compound yet.</div>
     {% elif admet_ai_status == "unavailable" %}
       <div class="alert alert-secondary py-2 mb-3">
-        ADMET-AI is not installed on the server. Add it to your ML requirements and redeploy.
+        A prediction source is not available on the server.
       </div>
     {% endif %}
     {% if molprop_status == "ok" %}
-      <div class="alert alert-success py-2 mb-3">MolProp predictions updated.</div>
+      <div class="alert alert-success py-2 mb-3">Predictions updated.</div>
     {% elif molprop_status == "error" %}
       <div class="alert alert-warning py-2 mb-3">
-        Failed to compute MolProp predictions.
+        Failed to compute predictions.
         {% if molprop_prediction and molprop_prediction.error %}
           <div class="mt-1" style="font-size: 0.9rem;">
             <code>{{ molprop_prediction.error }}</code>
@@ -99,40 +112,36 @@
       <div class="alert alert-secondary py-2 mb-3">No SMILES on this compound yet.</div>
     {% elif molprop_status == "unavailable" %}
       <div class="alert alert-secondary py-2 mb-3">
-        {% if molprop_unavailable_reason %}
-          {{ molprop_unavailable_reason }}
-        {% else %}
-          MolProp is not installed/configured. Install MolProp or set <code>MOLPROP_PREDICT_CMD</code>.
-        {% endif %}
+        A prediction source is not available on the server.
       </div>
     {% endif %}
 
     <div class="text-muted mb-2" style="font-size: 0.85rem;">
-      Models:
-      <span class="{% if admet_ai_available %}text-success{% else %}text-warning{% endif %}">ADMET-AI {% if admet_ai_available %}ready{% else %}unavailable{% endif %}</span>
+      Sources:
+      <span class="{% if admet_ai_available %}text-success{% else %}text-warning{% endif %}">Core {% if admet_ai_available %}ready{% else %}unavailable{% endif %}</span>
       •
-      <span class="{% if molprop_available %}text-success{% else %}text-warning{% endif %}">MolProp {% if molprop_available %}ready{% else %}unavailable{% endif %}</span>
+      <span class="{% if molprop_available %}text-success{% else %}text-warning{% endif %}">Extended {% if molprop_available %}ready{% else %}unavailable{% endif %}</span>
     </div>
 
     {% if not compound.smiles %}
-      <div class="text-muted">Add a SMILES string to enable ADMET-AI predictions.</div>
+      <div class="text-muted">Add a SMILES string to enable predictions.</div>
     {% elif admet_ai_prediction or molprop_prediction %}
       <div class="d-flex flex-wrap gap-3 text-muted mb-3" style="font-size: 0.9rem;">
         {% if admet_ai_prediction %}
-          <div><strong class="text-light">ADMET-AI:</strong> {{ admet_ai_prediction.computed_at|date:"Y-m-d H:i" }}</div>
+          <div><strong class="text-light">Core:</strong> {{ admet_ai_prediction.computed_at|date:"Y-m-d H:i" }}</div>
           {% if admet_ai_prediction.model_version %}
-            <div><strong class="text-light">ADMET model:</strong> {{ admet_ai_prediction.model_version }}</div>
+            <div><strong class="text-light">Core version:</strong> {{ admet_ai_prediction.model_version }}</div>
           {% endif %}
         {% elif admet_ai_available %}
-          <div class="text-muted"><strong class="text-light">ADMET-AI:</strong> not cached yet</div>
+          <div class="text-muted"><strong class="text-light">Core:</strong> not cached yet</div>
         {% endif %}
         {% if admet_ai_prediction_is_stale %}
           <div class="text-warning"><i class="fas fa-triangle-exclamation"></i> Stale (SMILES changed)</div>
         {% endif %}
         {% if molprop_prediction %}
-          <div><strong class="text-light">MolProp:</strong> {{ molprop_prediction.computed_at|date:"Y-m-d H:i" }}</div>
+          <div><strong class="text-light">Extended:</strong> {{ molprop_prediction.computed_at|date:"Y-m-d H:i" }}</div>
         {% elif molprop_available %}
-          <div class="text-muted"><strong class="text-light">MolProp:</strong> not cached yet</div>
+          <div class="text-muted"><strong class="text-light">Extended:</strong> not cached yet</div>
         {% endif %}
       </div>
 
@@ -279,7 +288,7 @@
                   <canvas id="admetAiChartOrgan"></canvas>
                 </div>
                 <div class="text-muted mt-2" style="font-size: 0.85rem;">
-                  Uses available ADMET-AI endpoints as proxies (not a clinical diagnosis).
+                  Uses available endpoint signals as proxies (not a clinical diagnosis).
                 </div>
               </div>
             </div>
@@ -288,7 +297,7 @@
           <details class="admet-ai-dropdown mt-3" id="admetAiTablesWrap" style="display: none;">
             <summary>
               <div class="fw-semibold text-white">
-                <i class="fas fa-table text-info"></i> ADMET Tables
+                <i class="fas fa-table text-info"></i> Endpoint Tables
               </div>
               <div class="text-muted" style="font-size: 0.85rem;">
                 Physicochemical, absorption, distribution, metabolism, excretion, toxicity
@@ -296,7 +305,7 @@
             </summary>
             <div class="mt-3">
               <div class="text-muted mb-2" style="font-size: 0.85rem;">
-                Lower-accuracy and dataset metadata indicators appear when provided by ADMET-AI.
+                Lower-accuracy and dataset metadata indicators appear when provided by the prediction payload.
               </div>
               <div id="admetAiTablesContainer" class="d-grid gap-3"></div>
             </div>
@@ -1440,7 +1449,7 @@
                     const source = predictionSources && predictionSources[r.key] ? String(predictionSources[r.key]) : '';
                     if (source) {
                       const badge = document.createElement('span');
-                      badge.className = source === 'ADMET-AI' ? 'badge bg-info text-dark ms-2' : 'badge bg-secondary ms-2';
+                      badge.className = source === 'Averaged' ? 'badge bg-info text-dark ms-2' : 'badge bg-secondary ms-2';
                       badge.textContent = source;
                       tdV.appendChild(badge);
                     }
@@ -1575,7 +1584,7 @@
       <div class="text-muted">
         No cached predictions yet.
         {% if not admet_ai_available %}
-          Install ADMET-AI on the server to enable this section.
+          Enable at least one prediction source on the server to use this section.
         {% elif user.is_authenticated %}
           Click Refresh to compute.
         {% else %}
@@ -1583,5 +1592,6 @@
         {% endif %}
       </div>
     {% endif %}
+    </div>
   </div>
 </div>

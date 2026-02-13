@@ -10,6 +10,8 @@ from .views import (
     add_compound,
     submit_rating,
     compound_search,
+    compound_knowledge_graph_query,
+    compound_network_graph_view,
     compound_list,
     mechanism_list,
     add_mechanism,
@@ -26,6 +28,8 @@ urlpatterns = [
     path('', compound_list, name='compound_list'),
     path('add/', add_compound, name='add_compound'),
     path('search/', compound_search, name='compound_search'),
+    path('knowledge-graph/', compound_knowledge_graph_query, name='compound_knowledge_graph_query'),
+    path('network-graph/', compound_network_graph_view, name='compound_network_graph_view'),
 
     path('mechanisms/', mechanism_list, name='mechanism_list'),
     path('mechanisms/add/', add_mechanism, name='add_mechanism'),
@@ -36,6 +40,8 @@ urlpatterns = [
     path('api/targets/', api_targets, name='api_targets'),
     path('api/mechanisms/', api_mechanisms, name='api_mechanisms'),
     path('api/categories/', api_categories, name='api_categories'),
+
+    path('<slug:slug>/knowledge-graph/', compound_knowledge_graph_query, name='compound_knowledge_graph_query_for_compound'),
 
     path('<slug:slug>/details/', compound_details, name='compound_details'),
     path('<slug:slug>/', compound_detail, name='compound_detail'),

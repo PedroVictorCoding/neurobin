@@ -102,6 +102,25 @@ def _get_endpoint_probs(admet_pred: dict, molprop_pred: dict, key: str) -> list[
     return vals
 
 
+def _merged_endpoint_probs(admet_pred: dict, molprop_pred: dict) -> dict[str, float]:
+    """
+    Merge endpoint probabilities by averaging shared numeric endpoints.
+    """
+    merged: dict[str, float] = {}
+    all_keys = set(admet_pred.keys()) | set(molprop_pred.keys())
+    for key in all_keys:
+        vals: list[float] = []
+        a = _as_prob(admet_pred.get(key))
+        if a is not None:
+            vals.append(a)
+        m = _as_prob(molprop_pred.get(key))
+        if m is not None:
+            vals.append(m)
+        if vals:
+            merged[str(key)] = float(sum(vals) / len(vals))
+    return merged
+
+
 def _best_or_avg(values: list[float], mode: str = "max") -> float | None:
     if not values:
         return None
@@ -128,11 +147,12 @@ def _summarize_compound(
     if not admet_preds and not molprop_preds:
         return out
 
+    merged_probs = _merged_endpoint_probs(admet_preds, molprop_preds)
+
     tox_vals = []
     tox_flags = []
     for k in TOX_ENDPOINTS:
-        vals = _get_endpoint_probs(admet_preds, molprop_preds, k)
-        v = _best_or_avg(vals, mode="max")
+        v = merged_probs.get(k)
         if v is None:
             continue
         tox_vals.append(v)
@@ -142,22 +162,17 @@ def _summarize_compound(
 
     cyp_vals = []
     cyp_flags = []
-    for src in (admet_preds, molprop_preds):
-        for k, raw in src.items():
-            key = str(k)
-            if not key.upper().startswith("CYP"):
-                continue
-            v = _as_prob(raw)
-            if v is None:
-                continue
-            cyp_vals.append(v)
-            if v >= 0.7:
-                cyp_flags.append({"endpoint": key, "score": v})
+    for key, v in merged_probs.items():
+        if not str(key).upper().startswith("CYP"):
+            continue
+        cyp_vals.append(v)
+        if v >= 0.7:
+            cyp_flags.append({"endpoint": key, "score": v})
     cyp_score = max(cyp_vals) if cyp_vals else None
 
-    bbb = _best_or_avg(_get_endpoint_probs(admet_preds, molprop_preds, "BBB_Martins"), mode="avg")
-    bio = _best_or_avg(_get_endpoint_probs(admet_preds, molprop_preds, "Bioavailability_Ma"), mode="avg")
-    hia = _best_or_avg(_get_endpoint_probs(admet_preds, molprop_preds, "HIA_Hou"), mode="avg")
+    bbb = merged_probs.get("BBB_Martins")
+    bio = merged_probs.get("Bioavailability_Ma")
+    hia = merged_probs.get("HIA_Hou")
     uncertainty = _extract_molprop_uncertainty(molprop)
     certainty = (1.0 - uncertainty) if uncertainty is not None else None
 
@@ -199,8 +214,7 @@ class StackRiskResult:
 
 def get_or_compute_stack_risk(stack: Stack, items: list[StackItem] | None = None) -> StackRiskResult:
     """
-    Computes and caches a stack-level risk assessment based on cached ADMET-AI predictions
-    for the stack's compounds.
+    Compute and cache stack-level risk assessment from cached prediction data.
     """
     if items is None:
         items = list(stack.items.all().select_related("compound"))
@@ -225,7 +239,7 @@ def get_or_compute_stack_risk(stack: Stack, items: list[StackItem] | None = None
     for item in items:
         admet = admet_map.get(item.compound_id)
         molprop = molprop_map.get(item.compound_id)
-        if admet and admet.predictions:
+        if (admet and admet.predictions) or (molprop and molprop.predictions):
             predicted_count += 1
         if molprop and molprop.predictions:
             molprop_count += 1

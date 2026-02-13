@@ -81,7 +81,7 @@
             </div>
             <div class="pill">
               {% if item.dosage_amount %}{{ item.dosage_amount }} {{ item.dosage_unit }} • {% endif %}
-              every {{ item.recurrence_interval }} {{ item.get_recurrence_unit_display }}
+              {{ item.recurrence_rate_label }}
             </div>
           </div>
         {% empty %}

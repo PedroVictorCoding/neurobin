@@ -64,7 +64,7 @@
                   {% endif %}
                   {% if item.recurrence_interval %}
                     <span class="badge bg-warning ms-2">
-                      Every {{ item.recurrence_interval }} {{ item.get_recurrence_unit_display }}
+                      {{ item.recurrence_rate_label }}
                     </span>
                   {% endif %}
                   {% if item.notes %}

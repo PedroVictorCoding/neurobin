@@ -56,7 +56,7 @@
             {% if item.dosage_amount %}
               <span class="badge bg-info">{{ item.dosage_amount }} {{ item.dosage_unit }}</span>
             {% endif %}
-            <span class="badge bg-dark">Every {{ item.recurrence_interval }} {{ item.get_recurrence_unit_display }}</span>
+            <span class="badge bg-dark">{{ item.recurrence_rate_label }}</span>
           </div>
         </li>
       {% empty %}

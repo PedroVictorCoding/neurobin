@@ -33,14 +33,36 @@
             </div>
             <div class="mb-3">
               <label class="form-label text-light" for="{{ form.password1.id_for_label }}">Password</label>
-              {{ form.password1 }}
+              <div class="input-group">
+                {{ form.password1 }}
+                <button
+                  class="btn btn-outline-secondary js-password-toggle"
+                  type="button"
+                  data-target="{{ form.password1.id_for_label }}"
+                  aria-label="Show password"
+                >
+                  <i class="fas fa-eye me-1" aria-hidden="true"></i>
+                  <span class="js-password-toggle-label">Show</span>
+                </button>
+              </div>
               {% if form.password1.errors %}
                 <div class="text-danger small mt-1">{% for error in form.password1.errors %}{{ error }}{% endfor %}</div>
               {% endif %}
             </div>
             <div class="mb-4">
               <label class="form-label text-light" for="{{ form.password2.id_for_label }}">Confirm Password</label>
-              {{ form.password2 }}
+              <div class="input-group">
+                {{ form.password2 }}
+                <button
+                  class="btn btn-outline-secondary js-password-toggle"
+                  type="button"
+                  data-target="{{ form.password2.id_for_label }}"
+                  aria-label="Show password"
+                >
+                  <i class="fas fa-eye me-1" aria-hidden="true"></i>
+                  <span class="js-password-toggle-label">Show</span>
+                </button>
+              </div>
               {% if form.password2.errors %}
                 <div class="text-danger small mt-1">{% for error in form.password2.errors %}{{ error }}{% endfor %}</div>
               {% endif %}
@@ -63,4 +85,29 @@
     </div>
   </div>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.js-password-toggle').forEach(function (button) {
+    button.addEventListener('click', function () {
+      const targetId = button.getAttribute('data-target');
+      const field = targetId ? document.getElementById(targetId) : null;
+      if (!field) {
+        return;
+      }
+      const isVisible = field.type === 'text';
+      field.type = isVisible ? 'password' : 'text';
+      const icon = button.querySelector('i');
+      if (icon) {
+        icon.classList.toggle('fa-eye', isVisible);
+        icon.classList.toggle('fa-eye-slash', !isVisible);
+      }
+      const label = button.querySelector('.js-password-toggle-label');
+      if (label) {
+        label.textContent = isVisible ? 'Show' : 'Hide';
+      }
+      button.setAttribute('aria-label', isVisible ? 'Show password' : 'Hide password');
+    });
+  });
+});
+</script>
 {% endblock %}
