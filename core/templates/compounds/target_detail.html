@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ target.name }} Target Details{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="mb-4">
+    <h1 class="h3 mb-1">{{ target.name }}</h1>
+    <p class="text-muted mb-0">
+      {{ target.get_target_type_display|default:'Target' }}
+      {% if target.gene_name %} · Gene: {{ target.gene_name }}{% endif %}
+      {% if target.organism %} · {{ target.organism }}{% endif %}
+    </p>
+    {% if target.description %}
+      <p class="mt-3 mb-0">{{ target.description }}</p>
+    {% endif %}
+  </div>
+
+  <div class="card bg-neurobin-card">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h5 mb-0">Related Compounds</h2>
+        <span class="badge bg-secondary">{{ related_compounds|length }} compounds · {{ interaction_count }} interactions</span>
+      </div>
+
+      {% if related_compounds %}
+        <div class="table-responsive">
+          <table class="table table-dark table-striped align-middle mb-0">
+            <thead>
+              <tr>
+                <th scope="col">Compound</th>
+                <th scope="col">Relationship type</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in related_compounds %}
+                <tr>
+                  <td>
+                    <a href="{% url 'compound_detail' row.compound.slug %}" class="link-light">{{ row.compound.name }}</a>
+                  </td>
+                  <td>
+                    {% for relationship_type in row.relationship_types %}
+                      <span class="badge bg-info text-dark me-1">{{ relationship_type }}</span>
+                    {% endfor %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="text-muted mb-0">No compound relationships have been recorded for this target yet.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -11,6 +11,7 @@ from .views import (
     submit_rating,
     compound_search,
     compound_list,
+    target_detail,
     mechanism_list,
     add_mechanism,
     ajax_add_mechanism,
@@ -28,6 +29,7 @@ urlpatterns = [
     path('search/', compound_search, name='compound_search'),
 
     path('mechanisms/', mechanism_list, name='mechanism_list'),
+    path('targets/<int:target_id>/', target_detail, name='target_detail'),
     path('mechanisms/add/', add_mechanism, name='add_mechanism'),
     path('ajax/add-mechanism/', ajax_add_mechanism, name='ajax_add_mechanism'),
 

@@ -1046,3 +1046,49 @@ class NonChemblConsensusTests(TestCase):
                 pass
 
         self.assertEqual(CompoundTargetInteractionEvidence.objects.filter(source="IUPHAR").count(), 1)
+
+
+class TargetDetailViewTests(TestCase):
+    def test_target_detail_lists_related_compounds_and_relationship_types(self):
+        target = Target.objects.create(name="5-HT2A receptor", target_type="receptor")
+        compound_a = Compound.objects.create(name="Compound Alpha")
+        compound_b = Compound.objects.create(name="Compound Beta")
+
+        CompoundTargetInteraction.objects.create(
+            compound=compound_a,
+            target=target,
+            mechanism="agonist",
+        )
+        CompoundTargetInteraction.objects.create(
+            compound=compound_a,
+            target=target,
+            mechanism="partial_agonist",
+        )
+        CompoundTargetInteraction.objects.create(
+            compound=compound_b,
+            target=target,
+            mechanism="antagonist",
+        )
+
+        response = self.client.get(reverse("target_detail", kwargs={"target_id": target.id}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Compound Alpha")
+        self.assertContains(response, "Compound Beta")
+        self.assertContains(response, "Agonist")
+        self.assertContains(response, "Partial Agonist")
+        self.assertContains(response, "Antagonist")
+
+    def test_compound_detail_links_to_target_detail(self):
+        target = Target.objects.create(name="D2 receptor", target_type="receptor")
+        compound = Compound.objects.create(name="Compound With Link")
+        CompoundTargetInteraction.objects.create(
+            compound=compound,
+            target=target,
+            mechanism="agonist",
+        )
+
+        response = self.client.get(reverse("compound_detail", kwargs={"slug": compound.slug}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("target_detail", kwargs={"target_id": target.id}))

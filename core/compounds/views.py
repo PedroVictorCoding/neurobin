@@ -265,6 +265,50 @@ def compound_details(request, slug):
     return compound_detail(request, slug)
 
 
+def target_detail(request, target_id):
+    target = get_object_or_404(Target, id=target_id)
+    interactions = (
+        CompoundTargetInteraction.objects
+        .filter(target=target)
+        .select_related('compound')
+        .order_by('compound__name', 'mechanism')
+    )
+
+    compounds_by_relationship = {}
+    for interaction in interactions:
+        compound_id = interaction.compound_id
+        row = compounds_by_relationship.setdefault(
+            compound_id,
+            {
+                'compound': interaction.compound,
+                'relationship_types': set(),
+            },
+        )
+        if interaction.mechanism:
+            row['relationship_types'].add(interaction.get_mechanism_display())
+
+    related_compounds = sorted(
+        [
+            {
+                'compound': row['compound'],
+                'relationship_types': sorted(row['relationship_types']) or ['Unknown'],
+            }
+            for row in compounds_by_relationship.values()
+        ],
+        key=lambda row: row['compound'].name.lower(),
+    )
+
+    return render(
+        request,
+        'compounds/target_detail.html',
+        {
+            'target': target,
+            'related_compounds': related_compounds,
+            'interaction_count': interactions.count(),
+        },
+    )
+
+
 def is_staff_user(user):
     return user.is_authenticated and user.is_staff
 
