@@ -1,8 +1,10 @@
 import json
 import hashlib
 import math
+import re
 from io import StringIO
 from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
+from urllib.parse import quote
 from django.shortcuts import render, get_object_or_404, redirect
 from django.db import models
 from django.db.models import Q, Count
@@ -29,6 +31,12 @@ from .models import (
     CompoundSteroidRating,
 )
 from .forms import CompoundForm, MechanismOfActionForm, CategoryForm, TargetForm
+from .interaction_engine import canonicalize_mechanism
+
+try:
+    import requests
+except Exception:  # pragma: no cover - dependency is expected in runtime image
+    requests = None
 
 
 def _push_recent_compound(request, compound):
@@ -466,6 +474,9 @@ def compound_detail(request, slug):
         'admet_ai_mechanisms': admet_ai_mechanisms,
         'admet_ai_mechanism_context': admet_ai_mechanism_context,
         'research_import_status': request.GET.get('research_import', ''),
+        'mechanism_import_status': request.GET.get('mechanism_import', ''),
+        'mechanism_import_count': request.GET.get('mechanism_import_count', ''),
+        'mechanism_import_source': request.GET.get('mechanism_import_source', ''),
     }
 
     return render(request, 'compounds/compound_detail.html', context)
@@ -530,6 +541,206 @@ def _append_query_params(url: str, params: dict) -> str:
     existing.update({k: v for k, v in params.items() if v is not None})
     new_query = urlencode(existing)
     return urlunparse(parsed._replace(query=new_query))
+
+
+_MOA_INTERACTION_CHOICES = {
+    key for key, _ in CompoundMechanismOfAction.INTERACTION_TYPES
+}
+
+
+def _normalize_interaction(action_type: str = "", mechanism_text: str = "") -> str:
+    canonical = canonicalize_mechanism(
+        action_type=action_type,
+        mechanism_of_action=mechanism_text,
+    )
+    if canonical in _MOA_INTERACTION_CHOICES:
+        return canonical
+    return "unknown"
+
+
+def _existing_mechanism_keys(compound: Compound) -> set[tuple[str, str]]:
+    keys: set[tuple[str, str]] = set()
+    for row in compound.mechanism_of_action.all().select_related("target_name"):
+        target_label = (
+            (getattr(row.target_name, "name", "") or "").strip().lower() if row.target_name_id else ""
+        )
+        interaction = (row.target_interaction or "").strip().lower()
+        if interaction:
+            keys.add((target_label, interaction))
+    return keys
+
+
+def _fetch_chembl_mechanisms_for_compound(compound: Compound) -> list[dict]:
+    from .management.commands.import_chembl_interactions import ChEMBLImporter
+
+    importer = ChEMBLImporter(slow_mode=False)
+    chembl_id = (compound.chembl_id or "").strip().upper()
+    if not chembl_id:
+        chembl_id = (importer.get_compound_by_name(compound.name) or "").strip().upper()
+    if not chembl_id:
+        return []
+
+    mechanisms = importer.get_compound_mechanisms(chembl_id) or []
+    rows: list[dict] = []
+    for mech in mechanisms:
+        mechanism_text = (mech.get("mechanism_of_action") or "").strip()
+        action_type = (mech.get("action_type") or "").strip()
+        if not mechanism_text and not action_type:
+            continue
+        target_name = ""
+        target_type = ""
+        target_chembl_id = (mech.get("target_chembl_id") or "").strip()
+        if target_chembl_id:
+            target_data = importer.get_target_details(target_chembl_id) or {}
+            target_name = (target_data.get("pref_name") or target_data.get("target_name") or "").strip()
+            target_type = (target_data.get("target_type") or "").strip().lower().replace(" ", "_")
+        rows.append(
+            {
+                "source": "chembl",
+                "target_name": target_name,
+                "target_chembl_id": target_chembl_id,
+                "target_type": target_type,
+                "interaction": _normalize_interaction(action_type=action_type, mechanism_text=mechanism_text),
+                "description": f"{mechanism_text or action_type} (ChEMBL)",
+            }
+        )
+    return rows
+
+
+def _iter_pubchem_section_text(section: dict) -> list[str]:
+    out: list[str] = []
+    info_rows = section.get("Information") or []
+    for info in info_rows:
+        value = info.get("Value") or {}
+        strings = value.get("StringWithMarkup") or []
+        for row in strings:
+            text = (row.get("String") or "").strip()
+            if text:
+                out.append(text)
+        plain = value.get("String")
+        if isinstance(plain, str) and plain.strip():
+            out.append(plain.strip())
+    for child in (section.get("Section") or []):
+        out.extend(_iter_pubchem_section_text(child))
+    return out
+
+
+def _fetch_pubchem_mechanisms_for_compound(compound: Compound) -> list[dict]:
+    if requests is None:
+        return []
+
+    safe_name = quote(compound.name.strip())
+    cid_url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{safe_name}/cids/JSON"
+    cid_resp = requests.get(cid_url, timeout=20)
+    cid_resp.raise_for_status()
+    cid_payload = cid_resp.json() if cid_resp.content else {}
+    cids = (((cid_payload.get("IdentifierList") or {}).get("CID")) or [])[:1]
+    if not cids:
+        return []
+
+    view_url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/{cids[0]}/JSON"
+    view_resp = requests.get(view_url, timeout=20)
+    view_resp.raise_for_status()
+    view_payload = view_resp.json() if view_resp.content else {}
+    record = view_payload.get("Record") or {}
+    sections = record.get("Section") or []
+
+    entries: list[dict] = []
+    for section in sections:
+        heading = (section.get("TOCHeading") or "").strip().lower()
+        if "mechanism of action" not in heading:
+            continue
+        for text in _iter_pubchem_section_text(section):
+            cleaned = re.sub(r"\s+", " ", text).strip()
+            if not cleaned:
+                continue
+            entries.append(
+                {
+                    "source": "pubchem",
+                    "target_name": "",
+                    "target_chembl_id": "",
+                    "target_type": "other",
+                    "interaction": _normalize_interaction(mechanism_text=cleaned),
+                    "description": f"{cleaned} (PubChem)",
+                }
+            )
+    return entries
+
+
+def _fetch_zinc_mechanisms_for_compound(compound: Compound) -> list[dict]:
+    # ZINC does not provide a stable public mechanism endpoint comparable to ChEMBL/PubChem.
+    # Keep this probe lightweight and return no mechanisms when unavailable.
+    if requests is None:
+        return []
+    safe_name = quote(compound.name.strip())
+    probe_url = f"https://zinc.docking.org/substances/search/?q={safe_name}"
+    resp = requests.get(probe_url, timeout=20)
+    if resp.status_code != 200:
+        return []
+    return []
+
+
+def _import_missing_mechanisms_for_compound(compound: Compound) -> dict:
+    existing_keys = _existing_mechanism_keys(compound)
+    imported = 0
+    source_used = ""
+    attempted_sources: list[str] = []
+
+    source_fetchers = [
+        ("chembl", _fetch_chembl_mechanisms_for_compound),
+        ("zinc", _fetch_zinc_mechanisms_for_compound),
+        ("pubchem", _fetch_pubchem_mechanisms_for_compound),
+    ]
+
+    for source_name, fetcher in source_fetchers:
+        attempted_sources.append(source_name)
+        rows = fetcher(compound) or []
+        if not rows:
+            continue
+
+        added_this_source = 0
+        for row in rows:
+            interaction = (row.get("interaction") or "unknown").strip().lower()
+            target_name_raw = (row.get("target_name") or "").strip()
+            target_key = target_name_raw.lower()
+            dedupe_key = (target_key, interaction)
+            if dedupe_key in existing_keys:
+                continue
+
+            target_obj = None
+            if target_name_raw:
+                target_defaults = {
+                    "target_type": (row.get("target_type") or "other")[:100] or "other",
+                    "type": (row.get("target_type") or "other")[:100] or "other",
+                }
+                target_chembl_id = (row.get("target_chembl_id") or "").strip()
+                if target_chembl_id:
+                    target_defaults["chembl_id"] = target_chembl_id[:20]
+                target_obj, _ = Target.objects.get_or_create(
+                    name=target_name_raw[:255],
+                    defaults=target_defaults,
+                )
+
+            moa, _ = CompoundMechanismOfAction.objects.get_or_create(
+                target_name=target_obj,
+                target_type=(row.get("target_type") or "other")[:100] or "other",
+                target_interaction=interaction if interaction in _MOA_INTERACTION_CHOICES else "unknown",
+                description=(row.get("description") or "")[:1000],
+            )
+            compound.mechanism_of_action.add(moa)
+            existing_keys.add(dedupe_key)
+            imported += 1
+            added_this_source += 1
+
+        if added_this_source > 0:
+            source_used = source_name
+            break
+
+    return {
+        "imported": imported,
+        "source": source_used,
+        "attempted": attempted_sources,
+    }
 
 
 @login_required
@@ -653,6 +864,36 @@ def queue_compound_research_import(request, slug):
         max_results=10,
     )
     return redirect(_append_query_params(next_url, {"research_import": "queued"}))
+
+
+@require_POST
+@user_passes_test(is_staff_user)
+def queue_compound_mechanism_import(request, slug):
+    compound = get_object_or_404(Compound, slug=slug)
+
+    next_url = request.POST.get("next") or reverse("compound_detail", kwargs={"slug": slug})
+    if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        next_url = reverse("compound_detail", kwargs={"slug": slug})
+
+    try:
+        result = _import_missing_mechanisms_for_compound(compound)
+    except Exception:
+        return redirect(_append_query_params(next_url, {"mechanism_import": "error"}))
+
+    imported = int(result.get("imported") or 0)
+    source = (result.get("source") or "").strip().lower()
+    if imported > 0:
+        return redirect(
+            _append_query_params(
+                next_url,
+                {
+                    "mechanism_import": "imported",
+                    "mechanism_import_count": str(imported),
+                    "mechanism_import_source": source,
+                },
+            )
+        )
+    return redirect(_append_query_params(next_url, {"mechanism_import": "not_found"}))
 
 
 @user_passes_test(is_staff_user)
@@ -944,12 +1185,12 @@ def api_categories(request):
 
 @require_POST
 @login_required
-def review_snippet(request, compound_slug, snippet_id):
+def review_snippet(request, slug, snippet_id):
     """Handle snippet reviews from compound detail page"""
     try:
         from research.models import ResearchSnippet, SnippetReview
         
-        compound = get_object_or_404(Compound, slug=compound_slug)
+        compound = get_object_or_404(Compound, slug=slug)
         snippet = get_object_or_404(ResearchSnippet, id=snippet_id, compound=compound)
         
         # Check if user already reviewed this snippet

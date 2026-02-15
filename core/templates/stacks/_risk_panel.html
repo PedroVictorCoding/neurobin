@@ -38,7 +38,7 @@
       </div>
       <form method="post" action="{{ stack_risk_refresh_url }}" id="stackRiskRefreshForm" class="d-none">
         {% csrf_token %}
-        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <input type="hidden" name="next" value="{{ stack_risk_autoload_next|default:request.get_full_path }}">
       </form>
       <script>
         document.addEventListener('DOMContentLoaded', function() {

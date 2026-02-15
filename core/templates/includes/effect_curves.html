@@ -28,7 +28,7 @@
             No effect windows have been defined for this compound yet.
         </p>
         {% if user.is_authenticated %}
-            <a href="{% url 'admin:compounds_effectwindow_add' %}" class="btn btn-sm btn-primary">
+            <a href="{% url 'admin:compounds_effectwindow_add' %}" class="btn btn-sm btn-outline-secondary cp-btn">
                 Add Effect Window
             </a>
         {% endif %}
@@ -136,7 +136,7 @@
             {% endif %}
         </p>
         {% if user.is_authenticated and page_type == 'compound_detail' %}
-            <a href="{% url 'admin:compounds_effectwindow_add' %}" class="btn btn-sm btn-primary">
+            <a href="{% url 'admin:compounds_effectwindow_add' %}" class="btn btn-sm btn-outline-secondary cp-btn">
                 Add Effect Window
             </a>
         {% endif %}

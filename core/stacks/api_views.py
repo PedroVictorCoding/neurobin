@@ -9,9 +9,15 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from logs.models import IntakeLog
 from .models import Stack, StackItem
 from .serializers import PublicStackSerializer, StackSerializer, StackItemSerializer
-from .services import get_schedule_window, iter_upcoming_occurrences, take_stack_item
+from .services import (
+    get_schedule_window,
+    iter_upcoming_occurrences,
+    take_stack_item,
+    untake_stack_item_occurrence,
+)
 from .trait_engine import analyze_stack_character_sheet, recommend_stack_builds
 
 
@@ -55,30 +61,37 @@ class StackItemViewSet(viewsets.ModelViewSet):
             raise PermissionDenied('You can only move items within your own stacks.')
         serializer.save()
 
+    @staticmethod
+    def _parse_optional_iso_datetime(value, *, field_name):
+        if not value:
+            return None, None
+        try:
+            dt = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+            if timezone.is_naive(dt):
+                dt = timezone.make_aware(dt, timezone.get_current_timezone())
+            return dt.replace(microsecond=0), None
+        except ValueError:
+            return None, Response(
+                {'detail': f'Invalid {field_name} (expected ISO 8601 datetime).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
     @action(detail=True, methods=['post'])
     def take(self, request, pk=None):
         item = self.get_object()
-        taken_at_raw = request.data.get('taken_at')
-        taken_at = None
-        if taken_at_raw:
-            try:
-                taken_at_str = str(taken_at_raw).replace('Z', '+00:00')
-                taken_at = datetime.fromisoformat(taken_at_str)
-                if timezone.is_naive(taken_at):
-                    taken_at = timezone.make_aware(taken_at, timezone.get_current_timezone())
-            except ValueError:
-                return Response({'detail': 'Invalid taken_at (expected ISO 8601 datetime).'}, status=status.HTTP_400_BAD_REQUEST)
+        taken_at, taken_at_error = self._parse_optional_iso_datetime(
+            request.data.get('taken_at'),
+            field_name='taken_at',
+        )
+        if taken_at_error:
+            return taken_at_error
 
-        scheduled_for_raw = request.data.get('scheduled_for')
-        scheduled_for = None
-        if scheduled_for_raw:
-            try:
-                scheduled_for_str = str(scheduled_for_raw).replace('Z', '+00:00')
-                scheduled_for = datetime.fromisoformat(scheduled_for_str)
-                if timezone.is_naive(scheduled_for):
-                    scheduled_for = timezone.make_aware(scheduled_for, timezone.get_current_timezone())
-            except ValueError:
-                return Response({'detail': 'Invalid scheduled_for (expected ISO 8601 datetime).'}, status=status.HTTP_400_BAD_REQUEST)
+        scheduled_for, scheduled_for_error = self._parse_optional_iso_datetime(
+            request.data.get('scheduled_for'),
+            field_name='scheduled_for',
+        )
+        if scheduled_for_error:
+            return scheduled_for_error
 
         intake_log = take_stack_item(item, user=request.user, taken_at=taken_at, scheduled_for=scheduled_for)
         return Response(
@@ -87,6 +100,67 @@ class StackItemViewSet(viewsets.ModelViewSet):
                 'next_intake_time': item.intake_time,
             },
             status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=['post'])
+    def untake(self, request, pk=None):
+        item = self.get_object()
+        scheduled_for_raw = request.data.get('scheduled_for')
+        if not scheduled_for_raw:
+            return Response(
+                {'detail': 'scheduled_for is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        scheduled_for, scheduled_for_error = self._parse_optional_iso_datetime(
+            scheduled_for_raw,
+            field_name='scheduled_for',
+        )
+        if scheduled_for_error:
+            return scheduled_for_error
+
+        deleted_count = untake_stack_item_occurrence(
+            item,
+            user=request.user,
+            scheduled_for=scheduled_for,
+        )
+        return Response(
+            {
+                'deleted_count': deleted_count,
+                'is_taken': False,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=['get'])
+    def intake_status(self, request, pk=None):
+        item = self.get_object()
+        scheduled_for_raw = (request.query_params.get('scheduled_for') or '').strip()
+        if not scheduled_for_raw:
+            return Response(
+                {'detail': 'scheduled_for query parameter is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        scheduled_for, scheduled_for_error = self._parse_optional_iso_datetime(
+            scheduled_for_raw,
+            field_name='scheduled_for',
+        )
+        if scheduled_for_error:
+            return scheduled_for_error
+
+        is_taken = IntakeLog.objects.filter(
+            user=request.user,
+            stack_item=item,
+            scheduled_for=scheduled_for,
+        ).exists()
+        return Response(
+            {
+                'stack_item_id': item.id,
+                'scheduled_for': scheduled_for,
+                'is_taken': is_taken,
+            },
+            status=status.HTTP_200_OK,
         )
 
 

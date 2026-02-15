@@ -322,8 +322,8 @@
     <div class="d-flex gap-2 justify-content-center flex-wrap">
       <!-- Log Intake Button -->
       <a href="{% url 'log_intake' %}?compound={{ compound.id }}" 
-         class="btn btn-sm btn-outline-success p-2 mt-2" 
-         style="width: 100%;"
+         class="btn btn-sm btn-outline-primary p-2 mt-2" 
+         style="width: 100%; --cp-btn-current-bg:#b86bff; --cp-btn-current-bg-hover:#d0a2ff; --cp-btn-current-border:#b86bff; --cp-btn-current-border-hover:#d0a2ff; --cp-btn-current-text:#120a1f;"
          title="Log intake of {{ compound.name }}">
         <i class="fas fa-plus-circle"></i> Log {{ compound.name }}
       </a>
@@ -340,23 +340,33 @@
         {% csrf_token %}
         <input type="hidden" name="next" value="{{ request.get_full_path }}">
         <button type="submit"
-                class="btn btn-sm btn-outline-warning py-1 px-2 mt-1"
-                style="width: 100%;"
+                class="btn btn-sm btn-outline-light py-1 px-2 mt-1"
+                style="width: 100%; --cp-btn-current-bg:#c7cee3; --cp-btn-current-bg-hover:#d6def2; --cp-btn-current-border:#c7cee3; --cp-btn-current-border-hover:#d6def2; --cp-btn-current-text:#0b0f1a;"
                 title="Queue research import for {{ compound.name }}">
           <i class="fas fa-flask"></i> Queue Research Import
+        </button>
+      </form>
+      <form method="post" action="{% url 'compound_queue_mechanism_import' compound.slug %}" class="w-100">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button type="submit"
+                class="btn btn-sm btn-outline-light py-1 px-2 mt-1"
+                style="width: 100%; --cp-btn-current-bg:#c7cee3; --cp-btn-current-bg-hover:#d6def2; --cp-btn-current-border:#c7cee3; --cp-btn-current-border-hover:#d6def2; --cp-btn-current-text:#0b0f1a;"
+                title="Queue mechanism import from ChEMBL, ZINC, then PubChem for {{ compound.name }}">
+          <i class="fas fa-diagram-project"></i> Queue Mechanism Import
         </button>
       </form>
       {% endif %}
     </div>
     <div class="d-flex gap-2 justify-content-center flex-wrap mt-2">
-      <a class="btn btn-sm btn-outline-info" href="{% url 'compound_knowledge_graph_query_for_compound' slug=compound.slug %}">
+      <a class="btn btn-sm btn-outline-light" style="--cp-btn-current-bg:#c7cee3; --cp-btn-current-bg-hover:#d6def2; --cp-btn-current-border:#c7cee3; --cp-btn-current-border-hover:#d6def2; --cp-btn-current-text:#0b0f1a;" href="{% url 'compound_knowledge_graph_query_for_compound' slug=compound.slug %}">
         Query Knowledge Graph
       </a>
-      <a class="btn btn-sm btn-outline-light" href="{% url 'compound_network_graph_view' %}">
+      <a class="btn btn-sm btn-outline-light" style="--cp-btn-current-bg:#c7cee3; --cp-btn-current-bg-hover:#d6def2; --cp-btn-current-border:#c7cee3; --cp-btn-current-border-hover:#d6def2; --cp-btn-current-text:#0b0f1a;" href="{% url 'compound_network_graph_view' %}">
         Open Network Graph
       </a>
       {% if user.is_staff %}
-        <a class="btn btn-sm btn-outline-warning" href="{% url 'admin:compounds_compound_change' compound.id %}">
+        <a class="btn btn-sm btn-outline-light" style="--cp-btn-current-bg:#c7cee3; --cp-btn-current-bg-hover:#d6def2; --cp-btn-current-border:#c7cee3; --cp-btn-current-border-hover:#d6def2; --cp-btn-current-text:#0b0f1a;" href="{% url 'admin:compounds_compound_change' compound.id %}">
           Compound Admin
         </a>
       {% endif %}
@@ -369,6 +379,18 @@
           A queued or running research import job already exists.
         {% else %}
           Could not queue research import job.
+        {% endif %}
+      </small>
+    {% endif %}
+    {% if user.is_staff and mechanism_import_status %}
+      <small class="d-block mt-1 {% if mechanism_import_status == 'imported' %}text-success{% elif mechanism_import_status == 'not_found' %}text-warning{% else %}text-danger{% endif %}">
+        {% if mechanism_import_status == 'imported' %}
+          Imported {{ mechanism_import_count|default:"0" }} missing mechanism{{ mechanism_import_count|default:"0"|pluralize }}
+          {% if mechanism_import_source %} from {{ mechanism_import_source|upper }}{% endif %}.
+        {% elif mechanism_import_status == 'not_found' %}
+          No new mechanisms found in ChEMBL, ZINC, or PubChem.
+        {% else %}
+          Could not queue mechanism import.
         {% endif %}
       </small>
     {% endif %}

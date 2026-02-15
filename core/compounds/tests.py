@@ -166,6 +166,47 @@ class CompoundAdmetAiTests(TestCase):
         self.assertEqual(pred.uncertainty.get("DILI"), 0.1)
 
 
+class CompoundSnippetReviewTests(TestCase):
+    def setUp(self):
+        self.compound = Compound.objects.create(name="Snippet Compound")
+        self.author = User.objects.create_user(username="snippet_author", password="pass")
+        self.reviewer = User.objects.create_user(username="snippet_reviewer", password="pass")
+
+    def test_compound_detail_review_endpoint_accepts_validate_vote(self):
+        from research.models import ResearchSnippet, SnippetReview
+
+        snippet = ResearchSnippet.objects.create(
+            title="Snippet Title",
+            content="Snippet content",
+            compound=self.compound,
+            visibility="public",
+            status="submitted",
+            created_by=self.author,
+        )
+        self.client.login(username="snippet_reviewer", password="pass")
+        response = self.client.post(
+            reverse(
+                "review_snippet",
+                kwargs={"slug": self.compound.slug, "snippet_id": snippet.id},
+            ),
+            data=json.dumps({"vote_type": "validate", "comment": ""}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["positive_count"], 1)
+        self.assertEqual(payload["negative_count"], 0)
+        self.assertTrue(
+            SnippetReview.objects.filter(
+                snippet=snippet,
+                reviewer=self.reviewer,
+                vote_type="validate",
+            ).exists()
+        )
+
+
 class MolPropBridgeConfigCommandTests(TestCase):
     def test_generate_molprop_bridge_config_writes_endpoint_map(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -386,6 +427,57 @@ class CompoundResearchImportQueueTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("login"), response["Location"])
         self.assertEqual(ResearchImportJob.objects.filter(compound=self.compound).count(), 0)
+
+
+class CompoundMechanismImportQueueTests(TestCase):
+    def setUp(self):
+        self.staff_user = User.objects.create_user(
+            username="staff_mech",
+            password="pass",
+            is_staff=True,
+        )
+        self.normal_user = User.objects.create_user(
+            username="normal_mech",
+            password="pass",
+            is_staff=False,
+        )
+        self.compound = Compound.objects.create(name="Mechanism Queue Test Compound")
+        self.url = reverse(
+            "compound_queue_mechanism_import",
+            kwargs={"slug": self.compound.slug},
+        )
+
+    @patch("compounds.views._import_missing_mechanisms_for_compound")
+    def test_staff_can_queue_mechanism_import(self, mock_import):
+        mock_import.return_value = {"imported": 2, "source": "chembl"}
+
+        self.client.login(username="staff_mech", password="pass")
+        next_url = reverse("compound_detail", kwargs={"slug": self.compound.slug})
+        response = self.client.post(self.url, {"next": next_url})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("mechanism_import=imported", response["Location"])
+        self.assertIn("mechanism_import_count=2", response["Location"])
+        self.assertIn("mechanism_import_source=chembl", response["Location"])
+        mock_import.assert_called_once_with(self.compound)
+
+    @patch("compounds.views._import_missing_mechanisms_for_compound")
+    def test_queue_marks_not_found_when_no_missing_mechanisms(self, mock_import):
+        mock_import.return_value = {"imported": 0, "source": ""}
+
+        self.client.login(username="staff_mech", password="pass")
+        next_url = reverse("compound_detail", kwargs={"slug": self.compound.slug})
+        response = self.client.post(self.url, {"next": next_url})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("mechanism_import=not_found", response["Location"])
+
+    def test_non_staff_cannot_queue_mechanism_import(self):
+        self.client.login(username="normal_mech", password="pass")
+        response = self.client.post(self.url, {"next": "/"})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response["Location"])
 
 
 class ChemblImportInferenceTests(TestCase):

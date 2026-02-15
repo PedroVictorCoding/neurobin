@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from io import StringIO
+from urllib.parse import quote
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
@@ -115,6 +116,64 @@ class StackSharingAndScheduleTests(TestCase):
         self.assertTrue(IntakeLog.objects.filter(user=self.other, compound=self.compound).exists())
         self.assertEqual(IntakeLog.objects.get(user=self.other, compound=self.compound).time_of_day, 'morning')
         self.assertGreater(item.intake_time, now)
+
+    def test_take_status_and_untake_actions_work_for_specific_occurrence(self):
+        scheduled_for = timezone.now().replace(microsecond=0)
+        stack = Stack.objects.create(user=self.other, name='S', is_active=True, visibility='private')
+        item = StackItem.objects.create(
+            stack=stack,
+            compound=self.compound,
+            dosage_amount='75.00',
+            dosage_unit='mg',
+            intake_time=scheduled_for,
+            recurrence_interval=1,
+            recurrence_unit='daily',
+            order=0,
+        )
+
+        self.client.force_authenticate(user=self.other)
+        take_resp = self.client.post(
+            f'/api/stacks/stackitem/{item.id}/take/',
+            data={'scheduled_for': scheduled_for.isoformat(), 'taken_at': scheduled_for.isoformat()},
+            format='json',
+        )
+        self.assertEqual(take_resp.status_code, 201)
+
+        status_resp = self.client.get(
+            f'/api/stacks/stackitem/{item.id}/intake_status/?scheduled_for={quote(scheduled_for.isoformat())}'
+        )
+        self.assertEqual(status_resp.status_code, 200)
+        self.assertTrue(status_resp.json()['is_taken'])
+
+        untake_resp = self.client.post(
+            f'/api/stacks/stackitem/{item.id}/untake/',
+            data={'scheduled_for': scheduled_for.isoformat()},
+            format='json',
+        )
+        self.assertEqual(untake_resp.status_code, 200)
+        self.assertEqual(untake_resp.json()['deleted_count'], 1)
+
+        status_resp_after = self.client.get(
+            f'/api/stacks/stackitem/{item.id}/intake_status/?scheduled_for={quote(scheduled_for.isoformat())}'
+        )
+        self.assertEqual(status_resp_after.status_code, 200)
+        self.assertFalse(status_resp_after.json()['is_taken'])
+
+    def test_untake_and_intake_status_require_scheduled_for(self):
+        stack = Stack.objects.create(user=self.other, name='S', is_active=True, visibility='private')
+        item = StackItem.objects.create(
+            stack=stack,
+            compound=self.compound,
+            recurrence_interval=1,
+            recurrence_unit='daily',
+        )
+        self.client.force_authenticate(user=self.other)
+
+        untake_resp = self.client.post(f'/api/stacks/stackitem/{item.id}/untake/', data={}, format='json')
+        self.assertEqual(untake_resp.status_code, 400)
+
+        status_resp = self.client.get(f'/api/stacks/stackitem/{item.id}/intake_status/')
+        self.assertEqual(status_resp.status_code, 400)
 
     def test_schedule_can_include_due_items_since_midnight(self):
         now = timezone.now()
@@ -401,6 +460,34 @@ class StackSharingAndScheduleTests(TestCase):
             resp = self.client.post(f'/stacks/{stack.id}/risk/refresh/', data={'next': f'/stacks/{stack.id}/'})
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(CompoundADMETPrediction.objects.filter(compound=compound2).exists())
+
+    def test_stack_detail_does_not_autoload_risk_refresh_while_editing_or_after_attempt(self):
+        compound2 = Compound.objects.create(name='Compound3', smiles='CCO')
+        stack = Stack.objects.create(user=self.other, name='AutoRiskGuard', visibility='private')
+        item = StackItem.objects.create(
+            stack=stack,
+            compound=compound2,
+            recurrence_interval=1,
+            recurrence_unit='daily',
+        )
+        self.client.force_login(self.other)
+
+        from unittest.mock import patch
+
+        with patch('compounds.admet_ai.is_admet_ai_available', return_value=True), patch(
+            'compounds.molprop.is_molprop_available', return_value=False
+        ):
+            resp_edit = self.client.get(f'/stacks/{stack.id}/?edit={item.id}')
+            self.assertEqual(resp_edit.status_code, 200)
+            self.assertNotContains(resp_edit, 'id="stackRiskRefreshForm"')
+
+            resp_normal = self.client.get(f'/stacks/{stack.id}/')
+            self.assertEqual(resp_normal.status_code, 200)
+            self.assertContains(resp_normal, 'id="stackRiskRefreshForm"')
+
+            resp_attempted = self.client.get(f'/stacks/{stack.id}/?risk_autoload=1')
+            self.assertEqual(resp_attempted.status_code, 200)
+            self.assertNotContains(resp_attempted, 'id="stackRiskRefreshForm"')
 
 
 class StackTraitRecommendationTests(TestCase):

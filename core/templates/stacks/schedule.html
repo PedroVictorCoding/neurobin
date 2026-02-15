@@ -73,20 +73,32 @@
                   <span class="text-muted">Logged</span>
                 {% else %}
                   {% if o.is_taken %}
-                    <form method="post" class="m-0">
+                    <form
+                      method="post"
+                      class="m-0 js-intake-form"
+                      data-stack-item-id="{{ o.stack_item_id }}"
+                      data-scheduled-for="{{ o.scheduled_for|date:'c' }}"
+                      data-api-action="untake"
+                    >
                       {% csrf_token %}
                       <input type="hidden" name="stack_item_id" value="{{ o.stack_item_id }}">
                       <input type="hidden" name="scheduled_for" value="{{ o.scheduled_for|date:'c' }}">
                       <input type="hidden" name="period" value="{{ period }}">
-                      <button class="btn btn-sm btn-success" type="submit" name="untake_stack_item" aria-label="Undo taken" title="Click to undo">✓</button>
+                      <button class="btn btn-sm btn-success" type="submit" name="untake_stack_item" data-intake-button aria-label="Undo taken" title="Click to undo">✓</button>
                     </form>
                   {% else %}
-                    <form method="post" class="m-0">
+                    <form
+                      method="post"
+                      class="m-0 js-intake-form"
+                      data-stack-item-id="{{ o.stack_item_id }}"
+                      data-scheduled-for="{{ o.scheduled_for|date:'c' }}"
+                      data-api-action="take"
+                    >
                       {% csrf_token %}
                       <input type="hidden" name="stack_item_id" value="{{ o.stack_item_id }}">
                       <input type="hidden" name="scheduled_for" value="{{ o.scheduled_for|date:'c' }}">
                       <input type="hidden" name="period" value="{{ period }}">
-                      <button class="btn btn-sm btn-outline-secondary text-secondary" type="submit" name="take_stack_item" aria-label="Mark taken" title="Not taken">—</button>
+                      <button class="btn btn-sm btn-outline-secondary text-secondary" type="submit" name="take_stack_item" data-intake-button aria-label="Mark taken" title="Not taken">—</button>
                     </form>
                   {% endif %}
                 {% endif %}
@@ -115,20 +127,32 @@
                   <span class="text-muted small">Logged</span>
                 {% else %}
                   {% if o.is_taken %}
-                    <form method="post" class="m-0">
+                    <form
+                      method="post"
+                      class="m-0 js-intake-form"
+                      data-stack-item-id="{{ o.stack_item_id }}"
+                      data-scheduled-for="{{ o.scheduled_for|date:'c' }}"
+                      data-api-action="untake"
+                    >
                       {% csrf_token %}
                       <input type="hidden" name="stack_item_id" value="{{ o.stack_item_id }}">
                       <input type="hidden" name="scheduled_for" value="{{ o.scheduled_for|date:'c' }}">
                       <input type="hidden" name="period" value="{{ period }}">
-                      <button class="btn btn-sm btn-success" type="submit" name="untake_stack_item" aria-label="Undo taken" title="Click to undo">✓</button>
+                      <button class="btn btn-sm btn-success" type="submit" name="untake_stack_item" data-intake-button aria-label="Undo taken" title="Click to undo">✓</button>
                     </form>
                   {% else %}
-                    <form method="post" class="m-0">
+                    <form
+                      method="post"
+                      class="m-0 js-intake-form"
+                      data-stack-item-id="{{ o.stack_item_id }}"
+                      data-scheduled-for="{{ o.scheduled_for|date:'c' }}"
+                      data-api-action="take"
+                    >
                       {% csrf_token %}
                       <input type="hidden" name="stack_item_id" value="{{ o.stack_item_id }}">
                       <input type="hidden" name="scheduled_for" value="{{ o.scheduled_for|date:'c' }}">
                       <input type="hidden" name="period" value="{{ period }}">
-                      <button class="btn btn-sm btn-outline-secondary text-secondary" type="submit" name="take_stack_item" aria-label="Mark taken" title="Not taken">—</button>
+                      <button class="btn btn-sm btn-outline-secondary text-secondary" type="submit" name="take_stack_item" data-intake-button aria-label="Mark taken" title="Not taken">—</button>
                     </form>
                   {% endif %}
                 {% endif %}
@@ -168,4 +192,121 @@
     </div>
   {% endif %}
 </div>
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const intakeForms = Array.from(document.querySelectorAll('.js-intake-form'));
+    if (!intakeForms.length) {
+      return;
+    }
+
+    function setFormTakenState(form, isTaken) {
+      const button = form.querySelector('[data-intake-button]');
+      if (!button) {
+        return;
+      }
+      form.dataset.apiAction = isTaken ? 'untake' : 'take';
+      if (isTaken) {
+        button.textContent = '✓';
+        button.title = 'Click to undo';
+        button.setAttribute('aria-label', 'Undo taken');
+        button.name = 'untake_stack_item';
+        button.classList.remove('btn-outline-secondary', 'text-secondary');
+        button.classList.add('btn-success');
+      } else {
+        button.textContent = '—';
+        button.title = 'Not taken';
+        button.setAttribute('aria-label', 'Mark taken');
+        button.name = 'take_stack_item';
+        button.classList.remove('btn-success');
+        button.classList.add('btn-outline-secondary', 'text-secondary');
+      }
+    }
+
+    function applyStateAcrossDuplicates(stackItemId, scheduledFor, isTaken) {
+      intakeForms.forEach(function(form) {
+        if (form.dataset.stackItemId === stackItemId && form.dataset.scheduledFor === scheduledFor) {
+          setFormTakenState(form, isTaken);
+        }
+      });
+    }
+
+    async function refreshIntakeStatus(form) {
+      const stackItemId = form.dataset.stackItemId;
+      const scheduledFor = form.dataset.scheduledFor;
+      const statusUrl =
+        '/api/stacks/stackitem/' +
+        encodeURIComponent(stackItemId) +
+        '/intake_status/?scheduled_for=' +
+        encodeURIComponent(scheduledFor);
+      const response = await fetch(statusUrl, {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch intake status.');
+      }
+      const payload = await response.json();
+      applyStateAcrossDuplicates(stackItemId, scheduledFor, Boolean(payload.is_taken));
+    }
+
+    intakeForms.forEach(function(form) {
+      form.addEventListener('submit', async function(event) {
+        if (form.dataset.skipAjax === '1') {
+          form.dataset.skipAjax = '0';
+          return;
+        }
+
+        event.preventDefault();
+
+        const stackItemId = form.dataset.stackItemId;
+        const scheduledFor = form.dataset.scheduledFor;
+        const apiAction = form.dataset.apiAction || 'take';
+        const button = form.querySelector('[data-intake-button]');
+        const csrfToken = form.querySelector('input[name=csrfmiddlewaretoken]')?.value || '';
+
+        if (!stackItemId || !scheduledFor || !button) {
+          form.dataset.skipAjax = '1';
+          form.submit();
+          return;
+        }
+
+        button.disabled = true;
+
+        try {
+          const response = await fetch(
+            '/api/stacks/stackitem/' + encodeURIComponent(stackItemId) + '/' + apiAction + '/',
+            {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRFToken': csrfToken,
+              },
+              body: JSON.stringify({
+                scheduled_for: scheduledFor,
+              }),
+            }
+          );
+
+          if (!response.ok) {
+            throw new Error('Failed to update intake.');
+          }
+
+          await refreshIntakeStatus(form);
+        } catch (error) {
+          console.error(error);
+          form.dataset.skipAjax = '1';
+          form.submit();
+          return;
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
+  });
+</script>
 {% endblock %}

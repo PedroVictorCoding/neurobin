@@ -659,6 +659,14 @@ class StackDetailView(LoginRequiredMixin, TemplateView):
             .select_related('compound')
             .order_by('order', 'added')
         )
+        edit_raw = (self.request.GET.get('edit') or '').strip()
+        edit_item_id = None
+        try:
+            if edit_raw:
+                edit_item_id = int(edit_raw)
+        except ValueError:
+            edit_item_id = None
+
         risk_result = get_or_compute_stack_risk(self.stack, items=list(context['items']))
         context['stack_risk'] = risk_result.assessment
         context['stack_risk_status'] = (self.request.GET.get('risk') or '').strip()
@@ -714,7 +722,14 @@ class StackDetailView(LoginRequiredMixin, TemplateView):
                         needs_prediction = True
                         break
 
-        context['stack_risk_autoload'] = bool(needs_prediction)
+        autoload_already_attempted = (self.request.GET.get('risk_autoload') or '').strip() == '1'
+        context['stack_risk_autoload'] = bool(
+            needs_prediction and not edit_item_id and not autoload_already_attempted
+        )
+        context['stack_risk_autoload_next'] = _append_query_params(
+            self.request.get_full_path(),
+            {'risk_autoload': '1'},
+        )
 
         stack_compound_ids = [item.compound_id for item in context['items']]
         if stack_compound_ids:
@@ -744,13 +759,6 @@ class StackDetailView(LoginRequiredMixin, TemplateView):
         context['grouping_presets'] = grouping_preset_options()
 
         context['add_form'] = AddCompoundForm()
-        edit_raw = (self.request.GET.get('edit') or '').strip()
-        edit_item_id = None
-        try:
-            if edit_raw:
-                edit_item_id = int(edit_raw)
-        except ValueError:
-            edit_item_id = None
         context['edit_item_id'] = edit_item_id
         context['edit_form'] = None
         if edit_item_id:

@@ -7,6 +7,7 @@ from .views import (
     compound_admet_ai_refresh,
     compound_molprop_refresh,
     queue_compound_research_import,
+    queue_compound_mechanism_import,
     add_compound,
     submit_rating,
     compound_search,
@@ -51,5 +52,6 @@ urlpatterns = [
     path('<slug:slug>/admet-ai/refresh/', compound_admet_ai_refresh, name='compound_admet_ai_refresh'),
     path('<slug:slug>/molprop/refresh/', compound_molprop_refresh, name='compound_molprop_refresh'),
     path('<slug:slug>/research-import/queue/', queue_compound_research_import, name='compound_queue_research_import'),
+    path('<slug:slug>/mechanism-import/queue/', queue_compound_mechanism_import, name='compound_queue_mechanism_import'),
     path('<slug:slug>/snippet/<int:snippet_id>/review/', review_snippet, name='review_snippet'),
 ]

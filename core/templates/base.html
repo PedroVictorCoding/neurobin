@@ -787,7 +787,7 @@
   <!-- Select2 for searchable dropdowns -->
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
   <!-- Brutalist cyberpunk theme overrides -->
-  <link href="{% static 'css/cyberpunk.css' %}?v=20260208" rel="stylesheet" />
+  <link href="{% static 'css/cyberpunk.css' %}?v=20260222" rel="stylesheet" />
 </head>
 
 <body id="body" class="text-light" style="background-color: var(--bg-primary);">
@@ -810,10 +810,10 @@
               <div class="d-flex align-items-stretch gap-2 position-relative" style="min-width: 340px;">
                 <input id="navCompoundSearch" type="text" name="q" placeholder="Search compounds..." class="btn-outline-secondary form-control text-light" autocomplete="off" aria-label="Search compounds">
                 <div id="navCompoundSearchResults"
-                     class="list-group position-absolute w-100"
+                     class="list-group cp-search-results position-absolute w-100"
                      role="listbox"
                      aria-label="Compound suggestions"
-                     style="top: 44px; left: 0; z-index: 1050; display: none; max-height: 280px; overflow: auto; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;">
+                     style="top: 44px; left: 0; z-index: 1050; display: none; max-height: 280px; overflow: auto; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; background: rgba(16,16,20,0.97);">
                 </div>
                 <button class="btn btn-outline-secondary" type="submit">
                   <i class="fas fa-search"></i>
@@ -885,10 +885,10 @@
               <div class="position-relative w-100">
                 <input id="mobileCompoundSearch" type="text" name="q" placeholder="Search compounds..." class="form-control bg-dark text-light" style="border: 1px solid #6c757d;" autocomplete="off" aria-label="Search compounds">
                 <div id="mobileCompoundSearchResults"
-                     class="list-group position-absolute w-100"
+                     class="list-group cp-search-results position-absolute w-100"
                      role="listbox"
                      aria-label="Compound suggestions"
-                     style="top: 44px; left: 0; z-index: 1050; display: none; max-height: 240px; overflow: auto; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;">
+                     style="top: 44px; left: 0; z-index: 1050; display: none; max-height: 240px; overflow: auto; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; background: rgba(16,16,20,0.97);">
                 </div>
               </div>
               <button class="btn btn-outline-secondary" type="submit">
