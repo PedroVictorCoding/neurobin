@@ -1,10 +1,17 @@
+import json
+from datetime import timedelta
 from django.shortcuts import render, redirect, get_object_or_404
+from django.conf import settings
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
+from django.db.models import Count, Sum
 from django.urls import reverse
+from django.utils import timezone
 from collections import Counter, defaultdict
 from itertools import combinations
 
-from .models import IntakeLog
+from .ip_analytics import refresh_abuseipdb_profile
+from .models import IntakeLog, RequestIPPathStat, RequestIPProfile
 from .forms import IntakeLogForm
 from compounds.models import Compound
 
@@ -280,11 +287,121 @@ def analytics_dashboard(request):
     return render(request, "logs/analytics_dashboard.html", build_analytics_dashboard_context(request.user))
 
 
+@staff_member_required
+def ip_analytics_dashboard(request):
+    new_ip_cutoff = timezone.now() - timedelta(hours=24)
+    stale_cutoff = timezone.now() - timedelta(hours=max(1, int(getattr(settings, "ABUSEIPDB_REFRESH_HOURS", 24))))
+    refresh_summary = None
+
+    if request.method == "POST":
+        action = (request.POST.get("action") or "").strip()
+        try:
+            refresh_limit = int(request.POST.get("limit", "25"))
+        except ValueError:
+            refresh_limit = 25
+        refresh_limit = max(1, min(250, refresh_limit))
+
+        candidates = RequestIPProfile.objects.none()
+        if action == "refresh_pending":
+            candidates = RequestIPProfile.objects.filter(abuse_checked_at__isnull=True).order_by("-last_seen_at")[:refresh_limit]
+        elif action == "refresh_stale":
+            candidates = RequestIPProfile.objects.filter(
+                abuse_checked_at__isnull=False,
+                abuse_checked_at__lt=stale_cutoff,
+            ).order_by("-abuse_checked_at")[:refresh_limit]
+
+        refreshed_count = 0
+        failed_count = 0
+        attempted = 0
+        for profile in candidates:
+            attempted += 1
+            updated = refresh_abuseipdb_profile(profile, force=True)
+            if updated.abuse_check_error:
+                failed_count += 1
+            else:
+                refreshed_count += 1
+
+        refresh_summary = {
+            "action": action,
+            "attempted": attempted,
+            "refreshed": refreshed_count,
+            "failed": failed_count,
+        }
+
+    profile_qs = RequestIPProfile.objects.all()
+    totals = profile_qs.aggregate(
+        total_requests=Sum("total_requests"),
+        total_errors=Sum("error_requests"),
+    )
+
+    threshold = int(getattr(settings, "ABUSE_THROTTLE_CONFIDENCE_THRESHOLD", 50))
+    total_ips = profile_qs.count()
+    new_ips_24h = profile_qs.filter(first_seen_at__gte=new_ip_cutoff).count()
+    throttled_ips = profile_qs.filter(is_throttle_active=True).count()
+    high_confidence_ips = profile_qs.filter(abuse_confidence_score__gt=threshold).count()
+
+    ip_rows = list(profile_qs.order_by("-last_seen_at")[:200])
+    for row in ip_rows:
+        row.is_new = bool(row.first_seen_at and row.first_seen_at >= new_ip_cutoff)
+
+    usage_type_rows = list(
+        profile_qs.exclude(abuse_usage_type="")
+        .values("abuse_usage_type")
+        .annotate(ip_count=Count("id"), request_count=Sum("total_requests"))
+        .order_by("-request_count", "-ip_count")[:20]
+    )
+
+    country_rows = list(
+        profile_qs.exclude(abuse_country_code="")
+        .values("abuse_country_code", "abuse_country_name")
+        .annotate(ip_count=Count("id"), request_count=Sum("total_requests"))
+        .order_by("-request_count", "-ip_count")
+    )
+    country_map_rows = [
+        {
+            "country_code": row["abuse_country_code"],
+            "country_name": row["abuse_country_name"] or row["abuse_country_code"],
+            "ip_count": row["ip_count"] or 0,
+            "request_count": row["request_count"] or 0,
+        }
+        for row in country_rows
+        if row["abuse_country_code"]
+    ]
+
+    top_path_rows = list(
+        RequestIPPathStat.objects.values("path", "method")
+        .annotate(request_count=Sum("request_count"), ip_count=Count("ip_profile", distinct=True))
+        .order_by("-request_count")[:30]
+    )
+
+    context = {
+        "total_ips": total_ips,
+        "new_ips_24h": new_ips_24h,
+        "throttled_ips": throttled_ips,
+        "high_confidence_ips": high_confidence_ips,
+        "total_requests": totals["total_requests"] or 0,
+        "total_errors": totals["total_errors"] or 0,
+        "error_rate_percent": (
+            round(((totals["total_errors"] or 0) / max(1, totals["total_requests"] or 0)) * 100, 2)
+            if totals["total_requests"]
+            else 0
+        ),
+        "confidence_threshold": threshold,
+        "ip_rows": ip_rows,
+        "usage_type_rows": usage_type_rows,
+        "country_rows": country_rows,
+        "country_map_rows_json": json.dumps(country_map_rows),
+        "top_path_rows": top_path_rows,
+        "refresh_summary": refresh_summary,
+        "abuse_auto_enrich": bool(getattr(settings, "ABUSEIPDB_AUTO_ENRICH_NEW_IPS", True)),
+    }
+    return render(request, "logs/ip_analytics_dashboard.html", context)
+
+
 # REST Framework ViewSets
 from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.db.models import Count
 from .serializers import IntakeLogSerializer
 
 

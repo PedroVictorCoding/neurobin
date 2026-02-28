@@ -1,0 +1,734 @@
+{% extends "base.html" %}
+{% block title %}Explore {{ compound.name }} Research — Neurobin{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+  <form id="explorerCsrfForm" class="d-none">{% csrf_token %}</form>
+  <div class="row justify-content-center">
+    <div class="col-12 col-xl-11">
+      <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb mb-0">
+          <li class="breadcrumb-item"><a class="text-info text-decoration-none" href="{% url 'research:snippet_list' %}">Research</a></li>
+          <li class="breadcrumb-item"><a class="text-info text-decoration-none" href="{% url 'research:compound_snippets' compound.slug %}">{{ compound.name }}</a></li>
+          <li class="breadcrumb-item active text-light" aria-current="page">Explore</li>
+        </ol>
+      </nav>
+
+      <div class="card bg-neurobin-card mb-3 border-secondary">
+        <div class="card-body">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div>
+              <h2 class="text-light mb-1">Explore {{ compound.name }} Research</h2>
+              <p class="text-secondary mb-0">
+                Compound-scoped PubMed exploration with snippet capture and graph-context subsearch.
+              </p>
+            </div>
+            <div class="d-flex gap-2">
+              <a href="{% url 'compound_detail' compound.slug %}" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-pills me-1"></i>Compound
+              </a>
+            </div>
+          </div>
+
+          <form id="researchSearchForm" method="get" class="row g-2 mt-3">
+            <div class="col-lg-8">
+              <label for="queryInput" class="form-label text-light small mb-1">Search Focus</label>
+              <input id="queryInput" name="q" type="text" value="{{ search_input }}" class="form-control bg-neurobin-dark text-light border-secondary" placeholder="e.g. anabolic effects, receptor signaling, safety">
+              <div class="form-text text-muted">
+                Search is automatically scoped to <span class="text-info">{{ compound.name }}</span>.
+              </div>
+            </div>
+            <div class="col-lg-2">
+              <label for="maxResultsInput" class="form-label text-light small mb-1">Papers</label>
+              <input id="maxResultsInput" name="max_results" type="number" value="{{ max_results }}" min="1" max="25" class="form-control bg-neurobin-dark text-light border-secondary">
+            </div>
+            <div class="col-lg-2 d-grid align-self-end">
+              <button type="submit" class="btn btn-info">
+                <i class="fas fa-search me-1"></i>Search
+              </button>
+            </div>
+          </form>
+
+          <div class="small text-muted mt-2">
+            Active query: <code>{{ query }}</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="card bg-neurobin-card mb-3 border-secondary">
+        <div class="card-body">
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <h5 class="text-light mb-0"><i class="fas fa-diagram-project text-info me-2"></i>Graph Context Subsearch</h5>
+            <button type="button" id="generateGraphContextBtn" class="btn btn-outline-info btn-sm">
+              <i class="fas fa-wand-magic-sparkles me-1"></i>Generate Context Nodes
+            </button>
+          </div>
+          <div id="graphContextStatus" class="small text-secondary mb-2">
+            Generate nodes to discover subsearch angles from paper context.
+          </div>
+          <div class="graph-context-canvas-wrap mb-3">
+            <svg id="graphContextSvg" class="w-100" viewBox="0 0 960 420" role="img" aria-label="Graph context"></svg>
+          </div>
+          <div id="graphContextNodes" class="d-flex flex-wrap gap-2 mb-2"></div>
+          <div id="graphContextEdges" class="small text-muted"></div>
+          <div class="small text-muted mt-2">
+            Click a node to run a scoped subsearch.
+            {% if not user.is_authenticated %}
+              <span class="text-warning">Login enables Gemini-backed graph generation; fallback extraction is still available.</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      {% if messages %}
+        <div class="row g-3 justify-content-center">
+          <div class="col-12 col-xl-10">
+            <div class="mb-3">
+              {% for message in messages %}
+                <div class="alert alert-{{ message.tags|default:'info' }} py-2 mb-2">{{ message }}</div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      {% endif %}
+
+      <div class="row g-3 justify-content-center">
+        <div class="col-12 col-xl-10">
+          <div class="card bg-neurobin-card border-secondary">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center small text-secondary mb-2">
+                <div>
+                  <span class="text-uppercase">Saved Research</span>
+                  <span class="badge bg-dark border border-secondary ms-2">{{ saved_research_count }}</span>
+                </div>
+                {% if user.is_authenticated %}
+                  <a href="{% url 'research:compound_snippets' compound.slug %}" class="text-info text-decoration-none">View snippets</a>
+                {% else %}
+                  <a href="{% url 'login' %}" class="text-secondary text-decoration-none">Login to save</a>
+                {% endif %}
+              </div>
+              <hr class="border-secondary mt-0 mb-3">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="text-light mb-0">Found Papers</h5>
+                <span class="badge bg-secondary">{{ paper_count }} found</span>
+              </div>
+
+              {% if search_error %}
+                <div class="alert alert-warning">
+                  Could not load papers right now: {{ search_error }}
+                </div>
+              {% endif %}
+
+              {% if paper_results %}
+                {% for paper in paper_results %}
+                  <div class="card bg-neurobin-dark border-secondary mb-3">
+                    <div class="card-body">
+                      <div class="d-flex justify-content-between align-items-start gap-2">
+                        <a href="{{ paper.source_url }}" target="_blank" rel="noopener noreferrer" class="text-info text-decoration-none fw-semibold paper-source-link" data-paper-title="{{ paper.title|default:'Untitled Paper'|escape }}">
+                          {{ paper.title|default:"Untitled Paper" }}
+                        </a>
+                        {% if paper.pubdate %}
+                          <span class="badge bg-dark border border-secondary">{{ paper.pubdate }}</span>
+                        {% endif %}
+                      </div>
+                      <div class="small text-secondary mt-1">
+                        {{ paper.journal|default:"Unknown Journal" }}
+                        {% if paper.pmid %}
+                          <span class="mx-1">•</span>PMID: {{ paper.pmid }}
+                        {% endif %}
+                        {% if paper.doi %}
+                          <span class="mx-1">•</span>DOI: {{ paper.doi }}
+                        {% endif %}
+                      </div>
+                      <p class="text-light small mt-2 mb-3">{{ paper.abstract|default:"No abstract available."|truncatechars:700 }}</p>
+
+                      <form method="post" class="row g-2">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="save_paper_snippet">
+                        <input type="hidden" name="paper_title" value="{{ paper.title }}">
+                        <input type="hidden" name="paper_pmid" value="{{ paper.pmid }}">
+                        <input type="hidden" name="paper_abstract" value="{{ paper.abstract }}">
+                        <input type="hidden" name="paper_journal" value="{{ paper.journal }}">
+                        <input type="hidden" name="paper_pubdate" value="{{ paper.pubdate }}">
+                        <input type="hidden" name="paper_doi" value="{{ paper.doi }}">
+                        <div class="col-md-9">
+                          <textarea name="user_note" rows="2" class="form-control bg-neurobin-card text-light border-secondary" placeholder="Add your notes before saving to snippets..."></textarea>
+                        </div>
+                        <div class="col-md-3 d-grid">
+                          {% if user.is_authenticated %}
+                            <button type="submit" class="btn btn-outline-info">
+                              <i class="fas fa-save me-1"></i>Save Snippet
+                            </button>
+                          {% else %}
+                            <a href="{% url 'login' %}" class="btn btn-outline-secondary">
+                              <i class="fas fa-sign-in-alt me-1"></i>Login to Save
+                            </a>
+                          {% endif %}
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                {% endfor %}
+              {% else %}
+                <div class="text-center py-4">
+                  <i class="fas fa-magnifying-glass text-muted mb-2" style="font-size: 1.8rem;"></i>
+                  <p class="text-muted mb-0">No papers returned for this scoped query.</p>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="paperUrlConfirmModal" tabindex="-1" aria-labelledby="paperUrlConfirmModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content bg-neurobin-dark text-light border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title" id="paperUrlConfirmModalLabel">Confirm Paper URL</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-secondary mb-2">
+          Review or edit the URL. We will fetch the paper PDF, generate implication nodes, then open the page.
+        </p>
+        <label for="paperUrlInput" class="form-label small text-light mb-1">Paper URL</label>
+        <input id="paperUrlInput" type="url" class="form-control bg-neurobin-card text-light border-secondary" placeholder="https://...">
+        <div id="paperUrlModalError" class="small text-danger mt-2"></div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="confirmPaperUrlBtn" class="btn btn-info btn-sm">
+          <i class="fas fa-file-pdf me-1"></i>Analyze PDF &amp; Open
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{{ graph_seed_papers|json_script:"graph-seed-papers" }}
+
+<style>
+.graph-context-canvas-wrap {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: radial-gradient(circle at 10% 10%, rgba(13, 110, 253, 0.12), rgba(13, 17, 23, 0.9));
+  min-height: 280px;
+  overflow: hidden;
+}
+#graphContextSvg {
+  min-height: 280px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.graph-node-label {
+  fill: #f8f9fa;
+  font-size: 11px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: rgba(9, 10, 16, 0.88);
+  stroke-width: 3px;
+}
+.graph-edge-label {
+  fill: #a5b4c8;
+  font-size: 10px;
+  font-weight: 500;
+  paint-order: stroke;
+  stroke: rgba(9, 10, 16, 0.86);
+  stroke-width: 2.6px;
+}
+.graph-node {
+  cursor: pointer;
+}
+</style>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const NS = "http://www.w3.org/2000/svg";
+  const searchForm = document.getElementById("researchSearchForm");
+  const queryInput = document.getElementById("queryInput");
+  const contextBtn = document.getElementById("generateGraphContextBtn");
+  const contextStatus = document.getElementById("graphContextStatus");
+  const graphSvg = document.getElementById("graphContextSvg");
+  const nodeContainer = document.getElementById("graphContextNodes");
+  const edgeContainer = document.getElementById("graphContextEdges");
+  const papersDataEl = document.getElementById("graph-seed-papers");
+  const seedPapers = papersDataEl ? JSON.parse(papersDataEl.textContent || "[]") : [];
+  const csrfToken = document.querySelector("#explorerCsrfForm input[name='csrfmiddlewaretoken']")?.value;
+  const paperLinks = Array.from(document.querySelectorAll(".paper-source-link"));
+  const paperUrlModalEl = document.getElementById("paperUrlConfirmModal");
+  const paperUrlInput = document.getElementById("paperUrlInput");
+  const paperUrlModalError = document.getElementById("paperUrlModalError");
+  const confirmPaperUrlBtn = document.getElementById("confirmPaperUrlBtn");
+  const paperUrlModal = (paperUrlModalEl && window.bootstrap && window.bootstrap.Modal)
+    ? new window.bootstrap.Modal(paperUrlModalEl)
+    : null;
+  const urlGraphContextEndpoint = "{% url 'research:compound_explorer_url_graph_context' compound.slug %}";
+  let pendingPaperTitle = "";
+
+  function applyNodeSearch(term) {
+    const current = (queryInput.value || "").trim();
+    queryInput.value = current ? `${current} ${term}` : term;
+    searchForm.submit();
+  }
+
+  function setPaperAnalyzeBusyState(isBusy) {
+    if (!confirmPaperUrlBtn) {
+      return;
+    }
+    confirmPaperUrlBtn.disabled = isBusy;
+    confirmPaperUrlBtn.innerHTML = isBusy
+      ? "<span class=\"spinner-border spinner-border-sm me-1\" role=\"status\" aria-hidden=\"true\"></span>Analyzing..."
+      : "<i class=\"fas fa-file-pdf me-1\"></i>Analyze PDF &amp; Open";
+  }
+
+  function ensureGraphRoot(nodes) {
+    const hasCompound = nodes.some((node) => node.id === "compound");
+    if (hasCompound) {
+      return;
+    }
+    const sourceNode = nodes[0];
+    const label = sourceNode ? sourceNode.label : "{{ compound.name|escapejs }}";
+    nodes.unshift({ id: "compound", label: label, kind: "compound" });
+  }
+
+  function drawGraphSvg(nodes, edges) {
+    if (!graphSvg) {
+      return;
+    }
+    graphSvg.innerHTML = "";
+    if (!nodes.length) {
+      return;
+    }
+
+    const width = 960;
+    const height = 420;
+    const center = { x: width / 2, y: height / 2 };
+    let view = { x: 0, y: 0, w: width, h: height };
+    const applyView = () => {
+      graphSvg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
+    };
+    applyView();
+
+    const svgPoint = (clientX, clientY) => {
+      const rect = graphSvg.getBoundingClientRect();
+      return {
+        x: view.x + ((clientX - rect.left) / rect.width) * view.w,
+        y: view.y + ((clientY - rect.top) / rect.height) * view.h,
+      };
+    };
+
+    const nodeById = {};
+    nodes.forEach((node, idx) => {
+      nodeById[node.id] = {
+        id: node.id,
+        label: node.label || node.id,
+        kind: node.kind || "concept",
+        x: node.id === "compound" ? center.x : center.x + Math.cos((idx / Math.max(nodes.length, 1)) * Math.PI * 2) * 140 + (Math.random() * 24 - 12),
+        y: node.id === "compound" ? center.y : center.y + Math.sin((idx / Math.max(nodes.length, 1)) * Math.PI * 2) * 120 + (Math.random() * 24 - 12),
+        vx: 0,
+        vy: 0,
+      };
+    });
+
+    const validEdges = edges.filter((edge) => nodeById[edge.source] && nodeById[edge.target] && edge.source !== edge.target);
+    for (let iter = 0; iter < 180; iter += 1) {
+      const ids = Object.keys(nodeById);
+      for (let i = 0; i < ids.length; i += 1) {
+        for (let j = i + 1; j < ids.length; j += 1) {
+          const a = nodeById[ids[i]];
+          const b = nodeById[ids[j]];
+          const dx = a.x - b.x;
+          const dy = a.y - b.y;
+          const dist2 = Math.max((dx * dx) + (dy * dy), 40);
+          const repulse = 1400 / dist2;
+          const ux = dx / Math.sqrt(dist2);
+          const uy = dy / Math.sqrt(dist2);
+          a.vx += ux * repulse;
+          a.vy += uy * repulse;
+          b.vx -= ux * repulse;
+          b.vy -= uy * repulse;
+        }
+      }
+
+      validEdges.forEach((edge) => {
+        const a = nodeById[edge.source];
+        const b = nodeById[edge.target];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.max(Math.sqrt((dx * dx) + (dy * dy)), 1);
+        const targetDist = edge.source === "compound" || edge.target === "compound" ? 120 : 95;
+        const spring = (dist - targetDist) * 0.014;
+        const ux = dx / dist;
+        const uy = dy / dist;
+        a.vx += ux * spring;
+        a.vy += uy * spring;
+        b.vx -= ux * spring;
+        b.vy -= uy * spring;
+      });
+
+      Object.values(nodeById).forEach((node) => {
+        const pull = node.id === "compound" ? 0.04 : 0.009;
+        node.vx += (center.x - node.x) * pull;
+        node.vy += (center.y - node.y) * pull;
+        node.vx *= 0.78;
+        node.vy *= 0.78;
+        if (node.id === "compound") {
+          node.x = center.x;
+          node.y = center.y;
+          node.vx = 0;
+          node.vy = 0;
+        } else {
+          node.x = Math.min(width - 38, Math.max(38, node.x + node.vx));
+          node.y = Math.min(height - 30, Math.max(30, node.y + node.vy));
+        }
+      });
+    }
+
+    const background = document.createElementNS(NS, "rect");
+    background.setAttribute("x", "-20000");
+    background.setAttribute("y", "-20000");
+    background.setAttribute("width", "40000");
+    background.setAttribute("height", "40000");
+    background.setAttribute("fill", "rgba(0,0,0,0)");
+    graphSvg.appendChild(background);
+
+    const viewportLayer = document.createElementNS(NS, "g");
+    const edgeLayer = document.createElementNS(NS, "g");
+    const nodeLayer = document.createElementNS(NS, "g");
+    viewportLayer.appendChild(edgeLayer);
+    viewportLayer.appendChild(nodeLayer);
+    graphSvg.appendChild(viewportLayer);
+
+    const colorByKind = {
+      compound: "#ff2dc8",
+      mechanism: "#00d0ff",
+      effect: "#14d88d",
+      pathway: "#2d9cff",
+      target: "#f79f3a",
+      enzyme: "#6ee7f0",
+      tissue: "#f38ba8",
+      clinical: "#a78bfa",
+      concept: "#8fc3ff",
+    };
+
+    const edgeElements = validEdges.map((edge) => {
+      const group = document.createElementNS(NS, "g");
+      const line = document.createElementNS(NS, "line");
+      line.setAttribute("stroke", "rgba(173, 216, 230, 0.55)");
+      line.setAttribute("stroke-width", "1.45");
+      const label = document.createElementNS(NS, "text");
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("class", "graph-edge-label");
+      label.textContent = edge.relation || "associated_with";
+      group.appendChild(line);
+      group.appendChild(label);
+      edgeLayer.appendChild(group);
+      return { edge, line, label };
+    });
+
+    const nodeElements = {};
+    Object.values(nodeById).forEach((node) => {
+      const group = document.createElementNS(NS, "g");
+      group.setAttribute("class", "graph-node");
+      const radius = node.id === "compound" ? 16 : 10;
+      const color = colorByKind[node.kind] || colorByKind.concept;
+
+      const circle = document.createElementNS(NS, "circle");
+      circle.setAttribute("r", radius);
+      circle.setAttribute("fill", color);
+      circle.setAttribute("stroke", "rgba(12, 14, 24, 0.9)");
+      circle.setAttribute("stroke-width", node.id === "compound" ? "2.2" : "1.2");
+
+      const text = document.createElementNS(NS, "text");
+      text.setAttribute("text-anchor", "middle");
+      text.setAttribute("class", "graph-node-label");
+      text.textContent = node.label;
+
+      group.appendChild(circle);
+      group.appendChild(text);
+      nodeLayer.appendChild(group);
+      nodeElements[node.id] = { group, circle, text, radius };
+    });
+
+    const render = () => {
+      edgeElements.forEach(({ edge, line, label }) => {
+        const source = nodeById[edge.source];
+        const target = nodeById[edge.target];
+        line.setAttribute("x1", source.x);
+        line.setAttribute("y1", source.y);
+        line.setAttribute("x2", target.x);
+        line.setAttribute("y2", target.y);
+        label.setAttribute("x", (source.x + target.x) / 2);
+        label.setAttribute("y", ((source.y + target.y) / 2) - 4);
+      });
+
+      Object.values(nodeById).forEach((node) => {
+        const ref = nodeElements[node.id];
+        if (!ref) {
+          return;
+        }
+        ref.circle.setAttribute("cx", node.x);
+        ref.circle.setAttribute("cy", node.y);
+        ref.text.setAttribute("x", node.x);
+        ref.text.setAttribute("y", node.y + ref.radius + 13);
+      });
+    };
+    render();
+
+    let panState = null;
+    const setCursor = (value) => {
+      graphSvg.style.cursor = value;
+    };
+
+    const startPan = (event) => {
+      panState = {
+        startX: event.clientX,
+        startY: event.clientY,
+        viewX: view.x,
+        viewY: view.y,
+      };
+      setCursor("grabbing");
+      graphSvg.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    };
+    const movePan = (event) => {
+      if (!panState) {
+        return;
+      }
+      const rect = graphSvg.getBoundingClientRect();
+      const dx = ((event.clientX - panState.startX) / rect.width) * view.w;
+      const dy = ((event.clientY - panState.startY) / rect.height) * view.h;
+      view.x = panState.viewX - dx;
+      view.y = panState.viewY - dy;
+      applyView();
+    };
+    const endPan = (event) => {
+      if (!panState) {
+        return;
+      }
+      panState = null;
+      setCursor("grab");
+      if (graphSvg.hasPointerCapture(event.pointerId)) {
+        graphSvg.releasePointerCapture(event.pointerId);
+      }
+    };
+
+    background.addEventListener("pointerdown", startPan);
+    graphSvg.addEventListener("pointermove", movePan);
+    graphSvg.addEventListener("pointerup", endPan);
+    graphSvg.addEventListener("pointercancel", endPan);
+
+    graphSvg.addEventListener("wheel", function (event) {
+      event.preventDefault();
+      const point = svgPoint(event.clientX, event.clientY);
+      const zoomFactor = event.deltaY < 0 ? 0.9 : 1.1;
+      const nextW = Math.min(2600, Math.max(220, view.w * zoomFactor));
+      const nextH = Math.min(1700, Math.max(130, view.h * zoomFactor));
+      const ratioX = (point.x - view.x) / view.w;
+      const ratioY = (point.y - view.y) / view.h;
+      view.x = point.x - (ratioX * nextW);
+      view.y = point.y - (ratioY * nextH);
+      view.w = nextW;
+      view.h = nextH;
+      applyView();
+    }, { passive: false });
+
+    Object.values(nodeById).forEach((node) => {
+      const ref = nodeElements[node.id];
+      if (!ref) {
+        return;
+      }
+      let dragState = null;
+      ref.group.addEventListener("pointerdown", function (event) {
+        if (event.button !== 0) {
+          return;
+        }
+        const point = svgPoint(event.clientX, event.clientY);
+        dragState = {
+          offsetX: node.x - point.x,
+          offsetY: node.y - point.y,
+          moved: false,
+          startX: event.clientX,
+          startY: event.clientY,
+        };
+        ref.group.setPointerCapture(event.pointerId);
+        event.stopPropagation();
+        event.preventDefault();
+      });
+
+      ref.group.addEventListener("pointermove", function (event) {
+        if (!dragState) {
+          return;
+        }
+        const point = svgPoint(event.clientX, event.clientY);
+        node.x = point.x + dragState.offsetX;
+        node.y = point.y + dragState.offsetY;
+        dragState.moved = dragState.moved
+          || Math.abs(event.clientX - dragState.startX) > 3
+          || Math.abs(event.clientY - dragState.startY) > 3;
+        render();
+        event.stopPropagation();
+      });
+
+      ref.group.addEventListener("pointerup", function (event) {
+        if (!dragState) {
+          return;
+        }
+        const moved = dragState.moved;
+        dragState = null;
+        if (ref.group.hasPointerCapture(event.pointerId)) {
+          ref.group.releasePointerCapture(event.pointerId);
+        }
+        if (!moved && node.label) {
+          applyNodeSearch(node.label);
+        }
+        event.stopPropagation();
+      });
+
+      ref.group.addEventListener("pointercancel", function (event) {
+        dragState = null;
+        if (ref.group.hasPointerCapture(event.pointerId)) {
+          ref.group.releasePointerCapture(event.pointerId);
+        }
+      });
+    });
+  }
+
+  function renderGraph(payload) {
+    const nodes = Array.isArray(payload.nodes) ? payload.nodes.slice(0, 30) : [];
+    const edges = Array.isArray(payload.edges) ? payload.edges.slice(0, 60) : [];
+    ensureGraphRoot(nodes);
+    drawGraphSvg(nodes, edges);
+
+    nodeContainer.innerHTML = "";
+    const terms = Array.isArray(payload.subsearch_terms) ? payload.subsearch_terms : [];
+    terms.slice(0, 12).forEach((term) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn btn-sm btn-outline-light";
+      btn.textContent = term;
+      btn.addEventListener("click", function () {
+        applyNodeSearch(term);
+      });
+      nodeContainer.appendChild(btn);
+    });
+
+    edgeContainer.innerHTML = "";
+    if (!edges.length) {
+      edgeContainer.textContent = "No implication edges were returned.";
+      return;
+    }
+    const list = document.createElement("ul");
+    list.className = "mb-0 ps-3";
+    const labelById = {};
+    nodes.forEach((node) => {
+      labelById[node.id] = node.label;
+    });
+    edges.slice(0, 18).forEach((edge) => {
+      const li = document.createElement("li");
+      const sourceLabel = labelById[edge.source] || edge.source;
+      const targetLabel = labelById[edge.target] || edge.target;
+      li.textContent = `${sourceLabel} --${edge.relation}--> ${targetLabel}`;
+      list.appendChild(li);
+    });
+    edgeContainer.appendChild(list);
+  }
+
+  paperLinks.forEach((link) => {
+    link.addEventListener("click", function (event) {
+      event.preventDefault();
+      if (!paperUrlModal || !paperUrlInput) {
+        window.open(link.href, "_blank", "noopener,noreferrer");
+        return;
+      }
+      pendingPaperTitle = link.dataset.paperTitle || "";
+      paperUrlInput.value = link.href || "";
+      if (paperUrlModalError) {
+        paperUrlModalError.textContent = "";
+      }
+      paperUrlModal.show();
+    });
+  });
+
+  confirmPaperUrlBtn?.addEventListener("click", async function () {
+    const targetUrl = (paperUrlInput?.value || "").trim();
+    if (!targetUrl) {
+      if (paperUrlModalError) {
+        paperUrlModalError.textContent = "Provide a URL before continuing.";
+      }
+      return;
+    }
+
+    setPaperAnalyzeBusyState(true);
+    if (paperUrlModalError) {
+      paperUrlModalError.textContent = "";
+    }
+    contextStatus.textContent = "Resolving paper URL and analyzing PDF context...";
+    try {
+      const response = await fetch(urlGraphContextEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfToken || "",
+        },
+        body: JSON.stringify({
+          url: targetUrl,
+          query: queryInput.value || "",
+          paper_title: pendingPaperTitle,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Paper URL analysis failed");
+      }
+
+      renderGraph(data);
+      contextStatus.textContent = `Paper context ready (${data.source || "unknown"}). Drag nodes, drag background to pan, wheel to zoom, click node to subsearch.`;
+      if (paperUrlModal) {
+        paperUrlModal.hide();
+      }
+      window.open(data.resolved_url || targetUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      const message = error?.message || "Paper URL analysis failed";
+      if (paperUrlModalError) {
+        paperUrlModalError.textContent = message;
+      }
+      contextStatus.textContent = `Paper analysis failed: ${message}`;
+    } finally {
+      setPaperAnalyzeBusyState(false);
+    }
+  });
+
+  contextBtn?.addEventListener("click", async function () {
+    contextBtn.disabled = true;
+    contextStatus.textContent = "Generating context graph...";
+    try {
+      const response = await fetch("{% url 'research:compound_explorer_graph_context' compound.slug %}", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfToken || "",
+        },
+        body: JSON.stringify({
+          query: queryInput.value || "",
+          papers: seedPapers,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Graph context request failed");
+      }
+      renderGraph(data);
+      contextStatus.textContent = `Context ready (${data.source || "unknown"}). Drag nodes, drag background to pan, wheel to zoom, click node to subsearch.`;
+    } catch (error) {
+      contextStatus.textContent = `Context generation failed: ${error.message}`;
+    } finally {
+      contextBtn.disabled = false;
+    }
+  });
+});
+</script>
+{% endblock %}

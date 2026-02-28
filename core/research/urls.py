@@ -16,6 +16,17 @@ urlpatterns = [
     
     # Compound-specific snippets
     path('compound/<slug:slug>/', views.compound_snippets, name='compound_snippets'),
+    path('compound/<slug:slug>/explore/', views.compound_research_explorer, name='compound_research_explorer'),
+    path(
+        'compound/<slug:slug>/explore/graph-context/',
+        views.compound_explorer_graph_context,
+        name='compound_explorer_graph_context',
+    ),
+    path(
+        'compound/<slug:slug>/explore/url-graph-context/',
+        views.compound_explorer_url_graph_context,
+        name='compound_explorer_url_graph_context',
+    ),
     
     # AI features
     path('ai-analysis/', views.ai_analysis, name='ai_analysis'),

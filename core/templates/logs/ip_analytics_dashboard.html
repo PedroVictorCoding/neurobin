@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+
+{% block title %}IP Analytics{% endblock %}
+
+{% block head_extra %}
+  <script src="https://www.gstatic.com/charts/loader.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <h1 class="h3 mb-0">IP Abuse Analytics</h1>
+    <div class="text-secondary small">Admin only</div>
+  </div>
+
+  {% if refresh_summary %}
+    <div class="alert {% if refresh_summary.failed %}alert-warning{% else %}alert-success{% endif %} py-2">
+      Refresh attempted: {{ refresh_summary.attempted }} | successful: {{ refresh_summary.refreshed }} | failed: {{ refresh_summary.failed }}
+    </div>
+  {% endif %}
+
+  <div class="row g-3 mb-3">
+    <div class="col-6 col-lg-2">
+      <div class="card h-100 bg-dark text-light border-secondary">
+        <div class="card-body">
+          <div class="small text-secondary">Tracked IPs</div>
+          <div class="h4 mb-0">{{ total_ips }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card h-100 bg-dark text-light border-secondary">
+        <div class="card-body">
+          <div class="small text-secondary">New (24h)</div>
+          <div class="h4 mb-0">{{ new_ips_24h }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card h-100 bg-dark text-light border-secondary">
+        <div class="card-body">
+          <div class="small text-secondary">Total Requests</div>
+          <div class="h4 mb-0">{{ total_requests }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card h-100 bg-dark text-light border-secondary">
+        <div class="card-body">
+          <div class="small text-secondary">Error Rate</div>
+          <div class="h4 mb-0">{{ error_rate_percent }}%</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card h-100 bg-dark text-light border-secondary">
+        <div class="card-body">
+          <div class="small text-secondary">Score > {{ confidence_threshold }}</div>
+          <div class="h4 mb-0">{{ high_confidence_ips }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card h-100 bg-dark text-light border-secondary">
+        <div class="card-body">
+          <div class="small text-secondary">Throttled IPs</div>
+          <div class="h4 mb-0">{{ throttled_ips }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <form method="post" class="d-flex gap-2">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="refresh_pending">
+      <input type="number" min="1" max="250" class="form-control form-control-sm bg-dark text-light border-secondary" style="width:96px;" name="limit" value="25">
+      <button type="submit" class="btn btn-sm btn-outline-warning">Refresh Pending</button>
+    </form>
+    <form method="post" class="d-flex gap-2">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="refresh_stale">
+      <input type="number" min="1" max="250" class="form-control form-control-sm bg-dark text-light border-secondary" style="width:96px;" name="limit" value="25">
+      <button type="submit" class="btn btn-sm btn-outline-info">Refresh Stale</button>
+    </form>
+    <div class="small text-secondary align-self-center">
+      Auto enrich new IPs: {% if abuse_auto_enrich %}on{% else %}off{% endif %}
+    </div>
+  </div>
+
+  <div class="card bg-dark text-light border-secondary mb-3">
+    <div class="card-header">Requests by Country</div>
+    <div class="card-body">
+      <div id="ip-country-map" style="width:100%; height:420px;"></div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-lg-6">
+      <div class="card bg-dark text-light border-secondary h-100">
+        <div class="card-header">Usage Types</div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-dark table-sm mb-0 align-middle">
+              <thead>
+                <tr>
+                  <th>Usage Type</th>
+                  <th>IPs</th>
+                  <th>Requests</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in usage_type_rows %}
+                  <tr>
+                    <td>{{ row.abuse_usage_type }}</td>
+                    <td>{{ row.ip_count }}</td>
+                    <td>{{ row.request_count }}</td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="3" class="text-secondary">No usage type data yet.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="card bg-dark text-light border-secondary h-100">
+        <div class="card-header">Top Paths</div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-dark table-sm mb-0 align-middle">
+              <thead>
+                <tr>
+                  <th>Method</th>
+                  <th>Path</th>
+                  <th>Requests</th>
+                  <th>IPs</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in top_path_rows %}
+                  <tr>
+                    <td>{{ row.method }}</td>
+                    <td class="text-break">{{ row.path }}</td>
+                    <td>{{ row.request_count }}</td>
+                    <td>{{ row.ip_count }}</td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="4" class="text-secondary">No path stats yet.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card bg-dark text-light border-secondary">
+    <div class="card-header">IP Detail (Latest 200)</div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-dark table-sm mb-0 align-middle">
+          <thead>
+            <tr>
+              <th>IP</th>
+              <th>First Seen</th>
+              <th>Last Seen</th>
+              <th>Requests</th>
+              <th>Error %</th>
+              <th>Abuse Score</th>
+              <th>Usage / ISP</th>
+              <th>Location</th>
+              <th>Throttle</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in ip_rows %}
+              <tr>
+                <td>
+                  <code>{{ row.ip_address }}</code>
+                  {% if row.is_new %}
+                    <span class="badge text-bg-primary">new</span>
+                  {% endif %}
+                </td>
+                <td>{{ row.first_seen_at|date:"Y-m-d H:i:s" }}</td>
+                <td>{{ row.last_seen_at|date:"Y-m-d H:i:s" }}</td>
+                <td>{{ row.total_requests }}</td>
+                <td>
+                  {% if row.total_requests %}
+                    {% widthratio row.error_requests row.total_requests 100 %}%
+                  {% else %}
+                    0%
+                  {% endif %}
+                </td>
+                <td>
+                  {% if row.abuse_confidence_score is not None %}
+                    {{ row.abuse_confidence_score }}%
+                  {% else %}
+                    <span class="text-secondary">n/a</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <div>{{ row.abuse_usage_type|default:"-" }}</div>
+                  <div class="small text-secondary text-break">{{ row.abuse_isp|default:"-" }}</div>
+                </td>
+                <td>{{ row.abuse_country_name|default:row.abuse_country_code|default:"-" }}</td>
+                <td>
+                  {% if row.is_throttle_active and row.throttle_limit_per_hour is not None %}
+                    <span class="badge text-bg-danger">{{ row.throttle_limit_per_hour }}/hr{% if row.throttle_limit_per_hour == 0 %} (blocked){% endif %}</span>
+                  {% else %}
+                    <span class="text-secondary">none</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="9" class="text-secondary">No IP records yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function() {
+    const mapRows = {{ country_map_rows_json|safe }};
+    const mapElement = document.getElementById("ip-country-map");
+    if (!mapElement || !Array.isArray(mapRows) || !mapRows.length) {
+      if (mapElement) {
+        mapElement.innerHTML = '<div class="text-secondary p-3">No country data available yet.</div>';
+      }
+      return;
+    }
+
+    google.charts.load("current", {
+      packages: ["geochart"]
+    });
+
+    google.charts.setOnLoadCallback(function drawCountryMap() {
+      const data = new google.visualization.DataTable();
+      data.addColumn("string", "Country");
+      data.addColumn("number", "Requests");
+      data.addColumn({ type: "string", role: "tooltip" });
+
+      mapRows.forEach(function(row) {
+        const tooltip = row.country_name + " | requests: " + row.request_count + " | ips: " + row.ip_count;
+        data.addRow([row.country_code, row.request_count, tooltip]);
+      });
+
+      const options = {
+        legend: "none",
+        backgroundColor: "transparent",
+        datalessRegionColor: "#2f3744",
+        colorAxis: { colors: ["#7fb5ff", "#0d6efd"] }
+      };
+
+      const chart = new google.visualization.GeoChart(mapElement);
+      chart.draw(data, options);
+    });
+  })();
+</script>
+{% endblock %}

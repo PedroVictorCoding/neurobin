@@ -399,7 +399,23 @@
 
     @media (min-width: 992px) {
       .app-shell {
-        max-width: 1500px;
+        width: 75vw;
+        max-width: 75vw;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+      }
+
+      .app-shell > .container,
+      .app-shell > .container-sm,
+      .app-shell > .container-md,
+      .app-shell > .container-lg,
+      .app-shell > .container-xl,
+      .app-shell > .container-xxl,
+      .app-shell > .container-fluid {
+        width: 100%;
+        max-width: 100%;
+        padding-left: 0;
+        padding-right: 0;
       }
     }
     
@@ -412,10 +428,10 @@
       background-color: var(--bg-secondary) !important;
       border: 1px solid var(--border-primary);
       border-radius: 12px;
-      max-width: 700px;
       width: 100%;
-      margin-left: auto;
-      margin-right: auto;
+      max-width: none;
+      margin-left: 0;
+      margin-right: 0;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border-primary);
       position: relative; /* Ensure cards don't interfere with dropdowns */
       z-index: 1; /* Lower z-index than navbar dropdowns */
@@ -787,7 +803,7 @@
   <!-- Select2 for searchable dropdowns -->
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
   <!-- Brutalist cyberpunk theme overrides -->
-  <link href="{% static 'css/cyberpunk.css' %}?v=20260222" rel="stylesheet" />
+  <link href="{% static 'css/cyberpunk.css' %}?v=20260228-21" rel="stylesheet" />
 </head>
 
 <body id="body" class="text-light" style="background-color: var(--bg-primary);">
@@ -797,17 +813,17 @@
       <a class="navbar-brand fw-bold text-light" href="/">Neurobin</a>
       
       <!-- Mobile toggle button -->
-      <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent" aria-controls="navbarContent" aria-expanded="false" aria-label="Toggle navigation">
+      <button class="navbar-toggler border-0 d-lg-none" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent" aria-controls="navbarContent" aria-expanded="false" aria-label="Toggle navigation">
         <span class="navbar-toggler-icon" style="filter: invert(1);"></span>
       </button>
       
       <div class="collapse navbar-collapse" id="navbarContent">
         <!-- Desktop layout -->
         <div class="w-100 d-lg-flex d-none justify-content-end align-items-center">
-          <div class="d-flex align-items-center gap-2">
+          <div class="d-flex align-items-center gap-2 nav-rail-group">
             <!-- Search form as first button in group -->
-            <form action="{% url 'compound_search' %}" method="get" class="d-flex my-2 my-lg-0" style="margin: 0;">
-              <div class="d-flex align-items-stretch gap-2 position-relative" style="min-width: 340px;">
+            <form action="{% url 'compound_search' %}" method="get" class="d-flex my-2 my-lg-0 nav-rail-search">
+              <div class="d-flex align-items-stretch gap-2 position-relative nav-rail-search-shell">
                 <input id="navCompoundSearch" type="text" name="q" placeholder="Search compounds..." class="btn-outline-secondary form-control text-light" autocomplete="off" aria-label="Search compounds">
                 <div id="navCompoundSearchResults"
                      class="list-group cp-search-results position-absolute w-100"
@@ -823,7 +839,7 @@
             
             <!-- Options dropdown as second button in group -->
             <div class="dropdown">
-              <button class="btn btn-outline-secondary dropdown-toggle" style="color:#FFF; border:1px solid #6c757d; background:transparent;" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+              <button class="btn btn-outline-secondary dropdown-toggle nav-rail-options-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                 Options
               </button>
               <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
@@ -854,6 +870,7 @@
                 <li><h6 class="dropdown-header text-white fw-bold">Admin</h6></li>
                 <li><a class="dropdown-item ps-4" href="{% url 'add_compound' %}">Add Compounds</a></li>
                 <li><a class="dropdown-item ps-4" href="{% url 'add_mechanism' %}">Add Mechanisms</a></li>
+                <li><a class="dropdown-item ps-4" href="{% url 'ip_analytics_dashboard' %}">IP Analytics</a></li>
                 {% endif %}
                 
                 <!-- Profile Section -->
@@ -880,10 +897,10 @@
         <!-- Mobile layout -->
         <div class="d-lg-none w-100 mobile-nav-content">
           <!-- Search form full width -->
-          <form action="{% url 'compound_search' %}" method="get" class="mb-3">
+          <form action="{% url 'compound_search' %}" method="get" class="mb-3 mobile-nav-search">
             <div class="d-flex align-items-stretch gap-2">
               <div class="position-relative w-100">
-                <input id="mobileCompoundSearch" type="text" name="q" placeholder="Search compounds..." class="form-control bg-dark text-light" style="border: 1px solid #6c757d;" autocomplete="off" aria-label="Search compounds">
+                <input id="mobileCompoundSearch" type="text" name="q" placeholder="Search compounds..." class="form-control bg-dark text-light" autocomplete="off" aria-label="Search compounds">
                 <div id="mobileCompoundSearchResults"
                      class="list-group cp-search-results position-absolute w-100"
                      role="listbox"
@@ -899,7 +916,7 @@
           
           <!-- Options dropdown full width -->
           <div class="dropdown w-100">
-            <button class="btn btn-outline-secondary dropdown-toggle w-100" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <button class="btn btn-outline-secondary dropdown-toggle w-100 mobile-nav-options-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false">
               <i class="fas fa-cog me-2"></i>Options
             </button>
             <ul class="dropdown-menu dropdown-menu-dark w-100">
@@ -937,6 +954,9 @@
                 <li><a class="dropdown-item ps-4" href="{% url 'add_mechanism' %}">
                   <i class="fas fa-cogs me-2"></i>Add Mechanisms
                 </a></li>
+              <li><a class="dropdown-item ps-4" href="{% url 'ip_analytics_dashboard' %}">
+                <i class="fas fa-map-marked-alt me-2"></i>IP Analytics
+              </a></li>
               <li><a class="dropdown-item ps-4" href="{% url 'research:snippet_list' %}">
                 <i class="fas fa-search me-2"></i>Research Review
               </a></li>
@@ -1013,6 +1033,20 @@
   <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', function() {
+      const navbar = document.querySelector('.navbar');
+      const navbarCollapse = document.getElementById('navbarContent');
+      if (navbar && navbarCollapse) {
+        navbarCollapse.addEventListener('show.bs.collapse', function() {
+          if (window.innerWidth < 992) {
+            navbar.classList.add('navbar-mobile-expanded');
+          }
+        });
+
+        navbarCollapse.addEventListener('hidden.bs.collapse', function() {
+          navbar.classList.remove('navbar-mobile-expanded');
+        });
+      }
+
       const mobileSearchButton = document.querySelector('.cp-mobile-search');
       if (mobileSearchButton) {
         mobileSearchButton.addEventListener('click', function() {
@@ -1177,6 +1211,183 @@
 
       setupCompoundAutocomplete('navCompoundSearch', 'navCompoundSearchResults');
       setupCompoundAutocomplete('mobileCompoundSearch', 'mobileCompoundSearchResults');
+
+      const RANDOM = (min, max) => Math.floor(Math.random() * (max - min + 1) + min);
+
+      function createGalaxyLayer(className) {
+        const layer = document.createElement('span');
+        layer.className = className;
+        layer.setAttribute('aria-hidden', 'true');
+        return layer;
+      }
+
+      function ensureGalaxyMarkup(button) {
+        if (button.querySelector('.btn-galaxy__backdrop')) {
+          return;
+        }
+
+        const label = document.createElement('span');
+        label.className = 'btn-galaxy__label';
+
+        Array.from(button.childNodes).forEach((node) => {
+          label.appendChild(node);
+        });
+
+        const spark = createGalaxyLayer('btn-galaxy__spark');
+        const backdrop = createGalaxyLayer('btn-galaxy__backdrop');
+        const starfield = createGalaxyLayer('btn-galaxy__starfield');
+        const orbit = createGalaxyLayer('btn-galaxy__orbit');
+        const ring = createGalaxyLayer('btn-galaxy__ring');
+
+        for (let index = 0; index < 4; index += 1) {
+          starfield.appendChild(createGalaxyLayer('btn-galaxy__star btn-galaxy__star--static'));
+        }
+
+        for (let index = 0; index < 20; index += 1) {
+          ring.appendChild(createGalaxyLayer('btn-galaxy__star'));
+        }
+
+        orbit.appendChild(ring);
+        button.appendChild(spark);
+        button.appendChild(backdrop);
+        button.appendChild(starfield);
+        button.appendChild(orbit);
+        button.appendChild(label);
+      }
+
+      const galaxyButtonSelector = [
+        '.btn.btn-galaxy',
+        '.btn.btn-primary',
+        '.btn.btn-info',
+        '.btn.btn-outline-primary',
+        '.btn.btn-outline-info',
+        '.cp-btn-share'
+      ].join(', ');
+
+      const galaxyButtons = Array.from(document.querySelectorAll(galaxyButtonSelector))
+        .filter((button, index, allButtons) => (
+          allButtons.indexOf(button) === index &&
+          !button.classList.contains('btn-galaxy-ignore')
+        ));
+
+      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const prefersReducedData = (
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-reduced-data: reduce)').matches
+      );
+      const supportsHover = window.matchMedia('(hover: hover)').matches;
+      const saveData = Boolean(navigator.connection && navigator.connection.saveData);
+      const deviceMemory = Number(navigator.deviceMemory || 8);
+      const cpuCores = Number(navigator.hardwareConcurrency || 8);
+      const allowGalaxyMotion = (
+        supportsHover &&
+        !prefersReducedMotion &&
+        !prefersReducedData &&
+        !saveData &&
+        deviceMemory >= 4 &&
+        cpuCores >= 4 &&
+        galaxyButtons.length <= 18
+      );
+
+      document.body.classList.toggle('btn-galaxy-lite-mode', !allowGalaxyMotion);
+
+      const galaxyVisibilityObserver = (
+        allowGalaxyMotion &&
+        'IntersectionObserver' in window
+      ) ? new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          entry.target.classList.toggle(
+            'btn-galaxy--paused',
+            !entry.isIntersecting || entry.intersectionRatio < 0.1
+          );
+        });
+      }, {
+        root: null,
+        rootMargin: '120px 0px',
+        threshold: [0, 0.1],
+      }) : null;
+
+      function setGalaxyButtonActive(button, isActive) {
+        button.classList.toggle('btn-galaxy--engaged', isActive);
+      }
+
+      galaxyButtons.forEach((button) => {
+        button.classList.add('btn-galaxy', 'btn-galaxy--purple');
+
+        if (!allowGalaxyMotion) {
+          return;
+        }
+
+        if (button.dataset.galaxyReady === '1') {
+          return;
+        }
+
+        ensureGalaxyMarkup(button);
+        button.dataset.galaxyReady = '1';
+
+        if (galaxyVisibilityObserver) {
+          button.classList.add('btn-galaxy--paused');
+          galaxyVisibilityObserver.observe(button);
+        }
+
+        const buttonState = {
+          focused: false,
+          hovered: false,
+          pressed: false,
+        };
+
+        function syncButtonState() {
+          const isActive = buttonState.focused || buttonState.hovered || buttonState.pressed;
+          setGalaxyButtonActive(button, isActive);
+        }
+
+        button.querySelectorAll('.btn-galaxy__star').forEach((star) => {
+          star.style.setProperty('--angle', String(RANDOM(0, 360)));
+          star.style.setProperty('--duration', String(RANDOM(6, 20)));
+          star.style.setProperty('--delay', String(RANDOM(1, 10)));
+          star.style.setProperty('--alpha', String(RANDOM(40, 90) / 100));
+          star.style.setProperty('--size', String(RANDOM(2, 6)));
+          star.style.setProperty('--distance', String(RANDOM(40, 200)));
+        });
+
+        button.addEventListener('pointerenter', () => {
+          buttonState.hovered = true;
+          syncButtonState();
+        });
+
+        button.addEventListener('pointerleave', () => {
+          buttonState.hovered = false;
+          buttonState.pressed = false;
+          syncButtonState();
+        });
+
+        button.addEventListener('pointerdown', () => {
+          buttonState.pressed = true;
+          syncButtonState();
+        });
+
+        button.addEventListener('pointerup', () => {
+          buttonState.pressed = false;
+          syncButtonState();
+        });
+
+        button.addEventListener('pointercancel', () => {
+          buttonState.pressed = false;
+          buttonState.hovered = false;
+          syncButtonState();
+        });
+
+        button.addEventListener('focus', () => {
+          buttonState.focused = true;
+          syncButtonState();
+        });
+
+        button.addEventListener('blur', () => {
+          buttonState.focused = false;
+          buttonState.pressed = false;
+          syncButtonState();
+        });
+      });
     });
   </script>
 </body>

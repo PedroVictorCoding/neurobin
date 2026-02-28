@@ -25,9 +25,17 @@
 
     <div class="d-flex flex-wrap gap-2 stack-actions">
       <a class="btn btn-outline-secondary" href="{% url 'my_stacks' %}">Back</a>
-      <a class="btn btn-outline-info" target="_blank" rel="noopener noreferrer" href="{% url 'stack_share' stack.id %}" title="Share stack" aria-label="Share stack">
+      <button
+        class="btn btn-outline-info js-stack-share-copy"
+        type="button"
+        data-stack-share-copy
+        data-share-url="{% url 'stack_detail' stack.id %}"
+        data-share-image-url="{% url 'stack_share_image' stack.id %}"
+        title="Copy stack link and image"
+        aria-label="Copy stack link and image"
+      >
         <i class="fas fa-share-alt"></i>
-      </a>
+      </button>
       <form method="post" class="m-0">
         {% csrf_token %}
         <button class="btn {% if stack.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %}" type="submit" name="toggle_stack_active">
@@ -70,7 +78,9 @@
       {{ add_form.recurrence_interval }}
       {{ add_form.recurrence_unit }}
       {{ add_form.notes }}
-      <button class="btn btn-outline-success" type="submit" name="add_compound_to_stack">Add</button>
+      <button class="btn btn-galaxy btn-galaxy--sm" type="submit" name="add_compound_to_stack">
+        {% include "includes/galaxy_button_inner.html" with label="Add" %}
+      </button>
       {% if add_form.errors %}
         <div class="text-danger small">
           {% for field, errs in add_form.errors.items %}
@@ -890,4 +900,5 @@
     });
   });
 </script>
+{% include "stacks/_share_clipboard_script.html" %}
 {% endblock %}

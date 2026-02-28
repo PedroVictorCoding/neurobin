@@ -1,4 +1,5 @@
 from urllib.parse import urlencode
+from datetime import date, timedelta
 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import logout
@@ -7,8 +8,10 @@ from django.contrib.auth.views import redirect_to_login
 from django.contrib.auth.models import User
 from django.contrib import messages
 from django.db.models import Count, Q
+from django.utils import timezone
 from research.models import ResearchSnippet, SnippetReview, SnippetComment
 from stacks.models import Stack
+from logs.models import UserGoal, UserGoalCompletion
 from .models import UserProfile
 from .forms import StyledUserCreationForm, UserProfileForm
 
@@ -37,6 +40,69 @@ def custom_logout(request):
         messages.success(request, 'You have been successfully logged out.')
         return redirect('home')
 
+
+def _build_goal_tracker_context(user):
+    today = timezone.localdate()
+    week_start = today - timedelta(days=today.weekday())
+    week_days = [week_start + timedelta(days=idx) for idx in range(7)]
+
+    goals = list(
+        UserGoal.objects.filter(user=user, is_active=True)
+        .order_by('goal_type', 'name', 'id')
+    )
+
+    weekly_checks = UserGoalCompletion.objects.filter(
+        goal__in=goals,
+        date__gte=week_days[0],
+        date__lte=week_days[-1],
+    )
+    check_map = {
+        (check.goal_id, check.date): bool(check.completed)
+        for check in weekly_checks
+    }
+
+    goal_rows = []
+    week_completed_count = 0
+    for goal in goals:
+        row_checks = []
+        for day in week_days:
+            completed = check_map.get((goal.id, day), False)
+            if completed:
+                week_completed_count += 1
+            row_checks.append({
+                'date': day,
+                'date_iso': day.isoformat(),
+                'completed': completed,
+                'is_today': day == today,
+            })
+        goal_rows.append({
+            'id': goal.id,
+            'name': goal.name,
+            'goal_type': goal.goal_type,
+            'checks': row_checks,
+        })
+
+    completed_dates = set(
+        UserGoalCompletion.objects.filter(
+            goal__user=user,
+            completed=True,
+        ).values_list('date', flat=True)
+    )
+    streak_days = 0
+    streak_cursor = today
+    while streak_cursor in completed_dates:
+        streak_days += 1
+        streak_cursor -= timedelta(days=1)
+
+    return {
+        'today': today,
+        'week_days': week_days,
+        'goals': goal_rows,
+        'streak_days': streak_days,
+        'week_completed_count': week_completed_count,
+        'week_total_count': len(goals) * 7,
+    }
+
 def profile_dashboard(request, username=None):
     """
     User profile dashboard with research statistics and activity.
@@ -56,27 +122,68 @@ def profile_dashboard(request, username=None):
     if not profile:
         profile = UserProfile.objects.create(user=profile_user) if is_own_profile else UserProfile(user=profile_user)
 
-    # Allow quick stack active/inactive toggles directly from profile cards.
+    # Allow profile actions (stack toggles and weekly goals).
     if request.method == 'POST' and is_own_profile:
         action = (request.POST.get('action') or '').strip().lower()
-        stack_id = request.POST.get('stack_id')
-        stack = Stack.objects.filter(id=stack_id, user=profile_user).first() if stack_id else None
-        if stack and action in {'set_stack_active', 'toggle_stack_active'}:
-            if action == 'set_stack_active':
-                requested = str(request.POST.get('is_active', '')).strip().lower()
-                desired_active = requested in {'1', 'true', 'on', 'yes'}
-                if stack.is_active != desired_active:
-                    stack.is_active = desired_active
+        if action in {'set_stack_active', 'toggle_stack_active'}:
+            stack_id = request.POST.get('stack_id')
+            stack = Stack.objects.filter(id=stack_id, user=profile_user).first() if stack_id else None
+            if stack:
+                if action == 'set_stack_active':
+                    requested = str(request.POST.get('is_active', '')).strip().lower()
+                    desired_active = requested in {'1', 'true', 'on', 'yes'}
+                    if stack.is_active != desired_active:
+                        stack.is_active = desired_active
+                        stack.save(update_fields=['is_active'])
+                else:
+                    stack.is_active = not stack.is_active
                     stack.save(update_fields=['is_active'])
-            else:
-                stack.is_active = not stack.is_active
-                stack.save(update_fields=['is_active'])
 
-        params = {'tab': 'stacks'}
-        stack_query = (request.POST.get('stack_q') or '').strip()
-        if stack_query:
-            params['stack_q'] = stack_query
-        return redirect(f"{request.path}?{urlencode(params)}")
+            params = {'tab': 'stacks'}
+            stack_query = (request.POST.get('stack_q') or '').strip()
+            if stack_query:
+                params['stack_q'] = stack_query
+            return redirect(f"{request.path}?{urlencode(params)}")
+
+        if action == 'add_profile_goal':
+            goal_name = (request.POST.get('goal_name') or '').strip()
+            goal_type = (request.POST.get('goal_type') or '').strip().lower()
+            if goal_name and goal_type in {'workout', 'health'}:
+                UserGoal.objects.create(
+                    user=profile_user,
+                    name=goal_name[:120],
+                    goal_type=goal_type,
+                )
+            return redirect(f"{request.path}?tab=goals")
+
+        if action == 'toggle_goal_completion':
+            goal_id = request.POST.get('goal_id')
+            goal_date_raw = (request.POST.get('goal_date') or '').strip()
+            goal = UserGoal.objects.filter(
+                id=goal_id,
+                user=profile_user,
+                is_active=True,
+            ).first()
+
+            goal_date = None
+            if goal_date_raw:
+                try:
+                    goal_date = date.fromisoformat(goal_date_raw)
+                except ValueError:
+                    goal_date = None
+
+            if goal and goal_date:
+                desired_completed = str(request.POST.get('is_completed', '')).strip().lower() in {'1', 'true', 'on', 'yes'}
+                completion, _ = UserGoalCompletion.objects.get_or_create(
+                    goal=goal,
+                    date=goal_date,
+                    defaults={'completed': desired_completed},
+                )
+                if completion.completed != desired_completed:
+                    completion.completed = desired_completed
+                    completion.save(update_fields=['completed', 'updated_at'])
+
+            return redirect(f"{request.path}?tab=goals")
 
     # Build snippet queryset (own profile sees all; other viewers see only public).
     user_snippets = ResearchSnippet.objects.filter(created_by=profile_user)
@@ -142,6 +249,8 @@ def profile_dashboard(request, username=None):
         analytics_context = build_analytics_dashboard_context(request.user)
 
     allowed_tabs = {'research', 'comments', 'reviews', 'stacks'}
+    if is_own_profile:
+        allowed_tabs.add('goals')
     default_tab = 'stacks'
     if has_analytics:
         allowed_tabs.add('analytics')
@@ -162,6 +271,8 @@ def profile_dashboard(request, username=None):
         'stacks_count': stack_total_count,
     }
 
+    goal_tracker = _build_goal_tracker_context(profile_user) if is_own_profile else None
+
     context = {
         'profile_user': profile_user,
         'user_profile': profile,
@@ -175,6 +286,7 @@ def profile_dashboard(request, username=None):
         'profile_stacks': list(visible_stacks[:30]),
         'stack_query': stack_query,
         'has_analytics': has_analytics,
+        'goal_tracker': goal_tracker,
     }
     context.update(analytics_context)
 

@@ -1,0 +1,146 @@
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const shareButtons = document.querySelectorAll('[data-stack-share-copy]');
+  if (!shareButtons.length) {
+    return;
+  }
+
+  const buttonTimers = new WeakMap();
+
+  const setButtonMessage = (button, message) => {
+    const existingTimer = buttonTimers.get(button);
+    if (existingTimer) {
+      window.clearTimeout(existingTimer);
+    }
+
+    if (!button.dataset.originalTitle) {
+      button.dataset.originalTitle = button.getAttribute('title') || '';
+    }
+    if (!button.dataset.originalAriaLabel) {
+      button.dataset.originalAriaLabel = button.getAttribute('aria-label') || '';
+    }
+
+    button.setAttribute('title', message);
+    button.setAttribute('aria-label', message);
+
+    const timerId = window.setTimeout(() => {
+      button.setAttribute('title', button.dataset.originalTitle || 'Copy stack link and image');
+      button.setAttribute('aria-label', button.dataset.originalAriaLabel || 'Copy stack link and image');
+      buttonTimers.delete(button);
+    }, 1800);
+
+    buttonTimers.set(button, timerId);
+  };
+
+  const getAbsoluteUrl = (rawUrl) => new URL(rawUrl || '/', window.location.origin).href;
+
+  const svgToPngBlob = async (svgText) => {
+    const svgBlob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' });
+    const objectUrl = URL.createObjectURL(svgBlob);
+
+    try {
+      const image = new Image();
+      image.decoding = 'async';
+
+      await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = reject;
+        image.src = objectUrl;
+      });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth || 1200;
+      canvas.height = image.naturalHeight || 630;
+
+      const context = canvas.getContext('2d');
+      if (!context) {
+        throw new Error('Canvas context unavailable');
+      }
+
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      const pngBlob = await new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob);
+            return;
+          }
+          reject(new Error('PNG conversion failed'));
+        }, 'image/png');
+      });
+
+      return pngBlob;
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  };
+
+  const writeSharePayload = async (button) => {
+    const shareUrl = getAbsoluteUrl(button.dataset.shareUrl);
+    const shareImageUrl = getAbsoluteUrl(button.dataset.shareImageUrl);
+
+    if (navigator.clipboard && window.ClipboardItem) {
+      let pngBlob = null;
+      try {
+        const imageResponse = await fetch(shareImageUrl, {
+          credentials: 'same-origin',
+          headers: { 'Accept': 'image/svg+xml' },
+        });
+        if (imageResponse.ok) {
+          const svgText = await imageResponse.text();
+          pngBlob = await svgToPngBlob(svgText);
+        }
+      } catch (error) {
+        console.warn('Unable to prepare stack share image for clipboard:', error);
+      }
+
+      const clipboardPayload = {
+        'text/plain': new Blob([shareUrl], { type: 'text/plain' }),
+        'text/uri-list': new Blob([shareUrl], { type: 'text/uri-list' }),
+      };
+      if (pngBlob) {
+        clipboardPayload['image/png'] = pngBlob;
+      }
+
+      try {
+        await navigator.clipboard.write([new ClipboardItem(clipboardPayload)]);
+        return Boolean(pngBlob);
+      } catch (error) {
+        if (navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(shareUrl);
+          return false;
+        }
+        throw error;
+      }
+    }
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(shareUrl);
+      return false;
+    }
+
+    window.prompt('Copy this stack URL', shareUrl);
+    return false;
+  };
+
+  shareButtons.forEach((button) => {
+    button.addEventListener('click', async () => {
+      if (button.disabled) {
+        return;
+      }
+
+      button.disabled = true;
+
+      try {
+        const copiedImage = await writeSharePayload(button);
+        setButtonMessage(button, copiedImage ? 'Copied link and image' : 'Copied link');
+      } catch (error) {
+        console.error('Failed to copy stack share payload:', error);
+        setButtonMessage(button, 'Copy failed');
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+});
+</script>

@@ -4,15 +4,17 @@
     <h2 class="mb-4">Analytics Dashboard</h2>
   {% endif %}
   
-  <!-- Effect Curves Timeline -->
-  <div class="row">
-    <div class="col-12">
-      {% include 'includes/effect_curves.html' with page_type='dashboard' %}
+  {% if show_effect_timeline != False %}
+    <!-- Effect Curves Timeline -->
+    <div class="row">
+      <div class="col-12">
+        {% include 'includes/effect_curves.html' with page_type='dashboard' %}
+      </div>
     </div>
-  </div>
+  {% endif %}
   
   <!-- 2x2 Analytics Grid -->
-  <div class="row mt-4 g-4">
+  <div class="row {% if show_effect_timeline != False %}mt-4{% endif %} g-4">
     <!-- Top Left: Intake Statistics -->
     <div class="col-md-6">
       <div class="card bg-neurobin-card p-4 shadow h-100">

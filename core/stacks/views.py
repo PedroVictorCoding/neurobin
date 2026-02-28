@@ -1,7 +1,9 @@
+from html import escape
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 
 from django.views.generic import TemplateView
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.urls import reverse
@@ -57,6 +59,89 @@ def _build_stack_embed_description(stack, items) -> str:
     return f"{stack.name} ({len(items)} compounds) by {stack.user.username}: {compounds_part}{extra}"
 
 
+def _truncate_stack_share_text(value: str, max_len: int) -> str:
+    text = str(value or "").strip()
+    if len(text) <= max_len:
+        return text
+    return f"{text[: max_len - 3].rstrip()}..."
+
+
+def _build_stack_share_image_svg(stack: Stack, items) -> str:
+    width = 1200
+    height = 630
+    preview_items = list(items[:7])
+
+    title = escape(_truncate_stack_share_text(stack.name, 42))
+    subtitle = escape(f"By {stack.user.username} | {len(items)} compounds")
+    visibility = escape(stack.get_visibility_display())
+
+    row_markup = []
+    row_start_y = 220
+    row_height = 54
+
+    if preview_items:
+        for index, item in enumerate(preview_items):
+            y = row_start_y + (index * row_height)
+            compound_name = escape(_truncate_stack_share_text(item.compound.name, 34))
+
+            detail_parts = []
+            if item.dosage_amount:
+                detail_parts.append(f"{item.dosage_amount} {item.dosage_unit}")
+            detail_parts.append(item.recurrence_rate_label)
+            if item.time_of_day:
+                detail_parts.append(item.get_time_of_day_display())
+            detail_text = escape(" | ".join(detail_parts))
+
+            row_markup.append(
+                f"""
+    <rect x="84" y="{y - 28}" width="1032" height="42" rx="12" fill="rgba(255,255,255,0.04)" />
+    <circle cx="112" cy="{y - 7}" r="6" fill="#22d3ee" />
+    <text x="132" y="{y}" fill="#f8fafc" font-size="24" font-weight="700">{compound_name}</text>
+    <text x="760" y="{y}" fill="#cbd5e1" font-size="18" text-anchor="end">{detail_text}</text>
+"""
+            )
+    else:
+        row_markup.append(
+            """
+    <rect x="84" y="192" width="1032" height="68" rx="18" fill="rgba(255,255,255,0.04)" />
+    <text x="110" y="235" fill="#cbd5e1" font-size="24">No compounds in this stack yet.</text>
+"""
+        )
+
+    extra_markup = ""
+    if len(items) > len(preview_items):
+        extra_count = len(items) - len(preview_items)
+        extra_markup = (
+            f'<text x="84" y="600" fill="#93c5fd" font-size="20">+{extra_count} more compound'
+            f'{"s" if extra_count != 1 else ""}</text>'
+        )
+
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="title desc">
+  <title id="title">{title}</title>
+  <desc id="desc">{subtitle}</desc>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b1020" />
+      <stop offset="100%" stop-color="#101a30" />
+    </linearGradient>
+    <linearGradient id="panel" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#16243f" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+  </defs>
+  <rect width="{width}" height="{height}" fill="url(#bg)" />
+  <rect x="42" y="42" width="1116" height="546" rx="28" fill="url(#panel)" stroke="rgba(255,255,255,0.08)" />
+  <text x="84" y="118" fill="#7dd3fc" font-size="18" font-weight="700" letter-spacing="1.5">NEUROBIN STACK</text>
+  <text x="84" y="164" fill="#f8fafc" font-size="42" font-weight="800">{title}</text>
+  <text x="84" y="194" fill="#cbd5e1" font-size="22">{subtitle}</text>
+  <rect x="944" y="92" width="172" height="36" rx="18" fill="rgba(34,211,238,0.12)" stroke="rgba(34,211,238,0.35)" />
+  <text x="1030" y="116" fill="#dbeafe" font-size="18" font-weight="700" text-anchor="middle">{visibility}</text>
+  {''.join(row_markup)}
+  {extra_markup}
+  <text x="84" y="564" fill="#94a3b8" font-size="18">Share link copied with preview image from Neurobin</text>
+</svg>"""
+
+
 def _get_shareable_stack_or_404(request, stack_id: int) -> Stack:
     stack = (
         Stack.objects.filter(id=stack_id)
@@ -70,6 +155,15 @@ def _get_shareable_stack_or_404(request, stack_id: int) -> Stack:
         if not request.user.is_authenticated or request.user.id != stack.user_id:
             raise Http404("Stack not found.")
     return stack
+
+
+def stack_share_image(request, stack_id: int):
+    stack = _get_shareable_stack_or_404(request, stack_id)
+    items = list(stack.items.all().select_related('compound').order_by('order', 'added'))
+    svg = _build_stack_share_image_svg(stack, items)
+    response = HttpResponse(svg, content_type='image/svg+xml')
+    response['Cache-Control'] = 'private, max-age=300'
+    return response
 
 
 def _safe_get_risk_assessment(stack: Stack):

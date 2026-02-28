@@ -23,6 +23,9 @@
           <a href="{% url 'compound_detail' compound.slug %}" class="btn btn-outline-secondary me-2">
             <i class="fas fa-pills"></i> View Compound
           </a>
+          <a href="{% url 'research:compound_research_explorer' compound.slug %}" class="btn btn-outline-info me-2">
+            <i class="fas fa-compass"></i> Explore Research
+          </a>
           {% if user.is_authenticated %}
             <a href="{% url 'research:create_snippet' %}?compound={{ compound.pk }}" class="btn btn-info">
               <i class="fas fa-plus"></i> Add Research

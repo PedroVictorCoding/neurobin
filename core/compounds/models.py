@@ -235,6 +235,27 @@ class Compound(models.Model):
         unique=True,
         help_text="ChEMBL compound ID (e.g., CHEMBL25)"
     )
+    bindingdb_id = models.CharField(
+        max_length=32,
+        blank=True,
+        null=True,
+        unique=True,
+        help_text="BindingDB monomer ID (e.g., 50058958)",
+    )
+    pubchem_cid = models.CharField(
+        max_length=32,
+        blank=True,
+        null=True,
+        unique=True,
+        help_text="PubChem Compound ID (CID)",
+    )
+    inchi = models.CharField(
+        max_length=4000,
+        blank=True,
+        null=True,
+        unique=True,
+        help_text="IUPAC International Chemical Identifier (InChI)",
+    )
     aliases = models.CharField(
         max_length=255,
         blank=True,
@@ -244,6 +265,45 @@ class Compound(models.Model):
         max_length=1000,
         blank=True,
         help_text="SMILES notation for molecular structure"
+    )
+    inchi_key = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Hashed InChIKey identifier",
+    )
+    iupac_name = models.CharField(
+        max_length=1000,
+        blank=True,
+        default="",
+        help_text="IUPAC preferred compound name",
+    )
+    molecular_formula = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="Molecular formula (for example C8H10N4O2)",
+    )
+    molecular_weight = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="Molecular weight in g/mol",
+    )
+    mechanism_of_action_summary = models.TextField(
+        blank=True,
+        default="",
+        help_text="Primary external mechanism summary from upstream sources",
+    )
+    pubmed_interactions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Cached PubMed interaction-focused references",
+    )
+    enriched_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time external enrichment sources were checked",
     )
     categories = models.ManyToManyField(
         CompoundCategories,
@@ -294,6 +354,22 @@ class Compound(models.Model):
         return CompoundToCompoundTargetInteraction.objects.filter(
             Q(compound_a=self) | Q(compound_b=self)
         ).select_related('compound_a', 'compound_b', 'target', 'created_by')
+
+    @property
+    def missing_enrichment(self) -> bool:
+        required_values = [
+            self.smiles,
+            self.pubchem_cid,
+            self.inchi,
+            self.inchi_key,
+            self.iupac_name,
+            self.molecular_formula,
+            self.molecular_weight,
+            self.mechanism_of_action_summary,
+        ]
+        if any(not (value or "").strip() for value in required_values):
+            return True
+        return not bool(self.pubmed_interactions)
 
 
 class CompoundSteroidRating(models.Model):

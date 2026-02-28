@@ -1,0 +1,23 @@
+{
+  "name": "neurobin-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native iOS/Android wrapper for neurob.in using Capacitor",
+  "scripts": {
+    "copy": "npx cap copy",
+    "sync": "npx cap sync",
+    "doctor": "npx cap doctor",
+    "add:android": "npx cap add android",
+    "add:ios": "npx cap add ios",
+    "open:android": "npx cap open android",
+    "open:ios": "npx cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/core": "^7.4.3",
+    "@capacitor/ios": "^7.4.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.3"
+  }
+}

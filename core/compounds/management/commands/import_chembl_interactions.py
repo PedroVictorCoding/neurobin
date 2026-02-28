@@ -1344,15 +1344,34 @@ class Command(BaseCommand):
             # Get SMILES structure if available
             structure = importer._as_dict(molecule.get('molecule_structures'))
             smiles = ''
+            inchi = ''
+            inchi_key = ''
             if structure:
                 smiles = structure.get('canonical_smiles', '') or ''
+                inchi = structure.get('standard_inchi', '') or ''
+                inchi_key = structure.get('standard_inchi_key', '') or ''
+
+            molecule_properties = importer._as_dict(molecule.get('molecule_properties'))
+            molecular_formula = molecule_properties.get('full_molformula', '') or ''
+            molecular_weight = molecule_properties.get('full_mwt', '') or ''
+
+            iupac_name = ''
+            synonyms = importer._as_list(molecule.get('molecule_synonyms'))
+            for syn in synonyms:
+                syn = importer._as_dict(syn)
+                if not syn:
+                    continue
+                syn_type = str(syn.get('syn_type', '')).lower()
+                synonym_name = syn.get('molecule_synonym', '')
+                if synonym_name and 'iupac' in syn_type:
+                    iupac_name = synonym_name
+                    break
             
             # Build comprehensive description
             description = self._build_enhanced_description(molecule, chembl_id, importer)
             
             # Get aliases from synonyms
             aliases = []
-            synonyms = importer._as_list(molecule.get('molecule_synonyms'))
             for syn in synonyms[:5]:  # Limit to first 5 synonyms
                 syn = importer._as_dict(syn)
                 if not syn:
@@ -1379,6 +1398,30 @@ class Command(BaseCommand):
                 if update_existing and smiles and (not compound.smiles or compound.smiles != smiles):
                     compound.smiles = smiles
                     updated_fields.append('SMILES')
+
+                if inchi and (not compound.inchi or (update_existing and compound.inchi != inchi)):
+                    compound.inchi = inchi
+                    updated_fields.append('InChI')
+
+                if inchi_key and (not compound.inchi_key or (update_existing and compound.inchi_key != inchi_key)):
+                    compound.inchi_key = inchi_key
+                    updated_fields.append('InChIKey')
+
+                if iupac_name and (not compound.iupac_name or (update_existing and compound.iupac_name != iupac_name)):
+                    compound.iupac_name = iupac_name
+                    updated_fields.append('IUPAC name')
+
+                if molecular_formula and (
+                    not compound.molecular_formula or (update_existing and compound.molecular_formula != molecular_formula)
+                ):
+                    compound.molecular_formula = molecular_formula
+                    updated_fields.append('molecular formula')
+
+                if molecular_weight and (
+                    not compound.molecular_weight or (update_existing and compound.molecular_weight != molecular_weight)
+                ):
+                    compound.molecular_weight = molecular_weight
+                    updated_fields.append('molecular weight')
                 
                 if update_existing and aliases_str and (not compound.aliases or compound.aliases != aliases_str):
                     compound.aliases = aliases_str
@@ -1430,6 +1473,11 @@ class Command(BaseCommand):
                         'name': name,
                         'description': description,
                         'smiles': smiles,
+                        'inchi': inchi,
+                        'inchi_key': inchi_key,
+                        'iupac_name': iupac_name,
+                        'molecular_formula': molecular_formula,
+                        'molecular_weight': molecular_weight,
                         'aliases': final_aliases_str
                     }
                 )

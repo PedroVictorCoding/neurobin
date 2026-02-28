@@ -1,5 +1,0 @@
-Django==5.2.4
-djangorestframework==3.19.0
-djangorestframework-simplejwt==2.8.1
-pytz
-sqlparse

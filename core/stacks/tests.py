@@ -412,12 +412,31 @@ class StackSharingAndScheduleTests(TestCase):
         self.assertEqual(embed_resp.status_code, 200)
         self.assertContains(embed_resp, 'Shared Public')
 
+    def test_share_image_renders_for_public_stack(self):
+        stack = Stack.objects.create(user=self.owner, name='Clipboard Ready', visibility='public')
+        StackItem.objects.create(
+            stack=stack,
+            compound=self.compound,
+            dosage_amount='100.00',
+            dosage_unit='mg',
+            recurrence_interval=1,
+            recurrence_unit='daily',
+        )
+
+        resp = self.client.get(f'/stacks/share/{stack.id}/image.svg')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp['Content-Type'], 'image/svg+xml')
+        self.assertIn('Clipboard Ready', resp.content.decode('utf-8'))
+        self.assertIn('Caffeine', resp.content.decode('utf-8'))
+
     def test_share_page_not_available_for_private_stack(self):
         stack = Stack.objects.create(user=self.owner, name='Secret', visibility='private')
         resp = self.client.get(f'/stacks/share/{stack.id}/')
         self.assertEqual(resp.status_code, 404)
         embed_resp = self.client.get(f'/stacks/share/{stack.id}/embed/')
         self.assertEqual(embed_resp.status_code, 404)
+        image_resp = self.client.get(f'/stacks/share/{stack.id}/image.svg')
+        self.assertEqual(image_resp.status_code, 404)
 
     def test_share_page_available_for_private_stack_owner(self):
         stack = Stack.objects.create(user=self.owner, name='Secret Owner', visibility='private')
@@ -426,6 +445,8 @@ class StackSharingAndScheduleTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         embed_resp = self.client.get(f'/stacks/share/{stack.id}/embed/')
         self.assertEqual(embed_resp.status_code, 200)
+        image_resp = self.client.get(f'/stacks/share/{stack.id}/image.svg')
+        self.assertEqual(image_resp.status_code, 200)
 
     def test_stack_detail_shows_risk_assessment_when_predictions_exist(self):
         stack = Stack.objects.create(user=self.other, name='Risky', visibility='private')

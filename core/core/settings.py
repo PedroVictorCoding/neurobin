@@ -10,8 +10,11 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
-from pathlib import Path
 import os
+from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
+
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -44,28 +47,114 @@ def _load_local_env(path: Path) -> None:
         os.environ[key] = value
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def _env_list(name: str, default=()):
+    raw = os.getenv(name)
+    values = raw.split(",") if raw is not None else list(default)
+    return [value.strip() for value in values if value and value.strip()]
+
+
+def _env_header_tuple(name: str, default=None):
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    values = [value.strip() for value in raw.split(",", 1)]
+    if len(values) != 2 or not values[0] or not values[1]:
+        raise ImproperlyConfigured(
+            f"{name} must be set as 'HEADER_NAME,header-value' when provided."
+        )
+    return values[0], values[1]
+
+
+def _database_from_url(database_url: str):
+    parsed = urlparse(database_url)
+    scheme = parsed.scheme.lower()
+    db_conn_max_age = int(os.getenv("DB_CONN_MAX_AGE", "60"))
+    db_conn_health_checks = _env_bool("DB_CONN_HEALTH_CHECKS", True)
+
+    if scheme in {"postgres", "postgresql"}:
+        options = {}
+        query_params = parse_qs(parsed.query, keep_blank_values=False)
+        sslmode = query_params.get("sslmode", [None])[0]
+        if sslmode:
+            options["sslmode"] = sslmode
+
+        config = {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": unquote((parsed.path or "").lstrip("/")) or "neurobin",
+            "USER": unquote(parsed.username or ""),
+            "PASSWORD": unquote(parsed.password or ""),
+            "HOST": parsed.hostname or "127.0.0.1",
+            "PORT": str(parsed.port or "5432"),
+            "CONN_MAX_AGE": db_conn_max_age,
+            "CONN_HEALTH_CHECKS": db_conn_health_checks,
+        }
+        if options:
+            config["OPTIONS"] = options
+        return config
+
+    if scheme in {"sqlite", "sqlite3"}:
+        raw_path = unquote(parsed.path or "")
+        if parsed.netloc:
+            raw_path = f"/{parsed.netloc}{raw_path}"
+
+        if not raw_path or raw_path == "/":
+            name = BASE_DIR / "db.sqlite3"
+        elif database_url.startswith("sqlite:////"):
+            name = Path(raw_path)
+        else:
+            name = BASE_DIR / raw_path.lstrip("/")
+        return {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": name,
+        }
+
+    raise ImproperlyConfigured(
+        "DATABASE_URL must use postgresql://, postgres://, sqlite://, or sqlite3://."
+    )
+
+
 _load_local_env(BASE_DIR.parent / ".env")
 _load_local_env(BASE_DIR / ".env")
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+DJANGO_ENV = os.getenv("DJANGO_ENV", "development").strip().lower()
+IS_PRODUCTION = DJANGO_ENV in {"production", "prod"}
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-1nm5fkxv-v3b*&8p*_9vg@29#u**ik+tg9o$9!jdv6so#1$14^'
+# SECURITY WARNING: keep this value secret in production.
+_INSECURE_DEFAULT_SECRET_KEY = "django-insecure-1nm5fkxv-v3b*&8p*_9vg@29#u**ik+tg9o$9!jdv6so#1$14^"
+SECRET_KEY = os.getenv("SECRET_KEY", _INSECURE_DEFAULT_SECRET_KEY).strip()
+if IS_PRODUCTION and SECRET_KEY == _INSECURE_DEFAULT_SECRET_KEY:
+    raise ImproperlyConfigured("Set SECRET_KEY in production before starting Django.")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# SECURITY WARNING: don't run with debug turned on in production.
+DEBUG = _env_bool("DEBUG", not IS_PRODUCTION)
 
-ALLOWED_HOSTS = ['neurob.in', '192.168.1.119', '0.0.0.0', 'localhost', '127.0.0.1']
+_default_allowed_hosts = (
+    ("neurob.in", "www.neurob.in")
+    if IS_PRODUCTION
+    else ("localhost", "127.0.0.1", "0.0.0.0")
+)
+ALLOWED_HOSTS = _env_list("ALLOWED_HOSTS", _default_allowed_hosts)
 
-CSRF_TRUSTED_ORIGINS = [
-    'https://neurob.in',
-    'http://192.168.1.119',
-    'http://0.0.0.0',
-    'http://localhost',
-    'http://127.0.0.1',
-]
+_default_csrf_trusted_origins = []
+if IS_PRODUCTION:
+    for host in ALLOWED_HOSTS:
+        if host in {"*", "localhost", "127.0.0.1", "0.0.0.0"} or host.startswith("."):
+            continue
+        _default_csrf_trusted_origins.append(
+            host if "://" in host else f"https://{host}"
+        )
+CSRF_TRUSTED_ORIGINS = _env_list(
+    "CSRF_TRUSTED_ORIGINS",
+    _default_csrf_trusted_origins,
+)
 
 
 # Application definition
@@ -93,8 +182,11 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'core.middleware.SiteQueryLoggingMiddleware',
+    'core.middleware.ExploitAttemptBlocklistMiddleware',
+    'core.middleware.BotBlocklistMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'core.middleware.AbuseConfidenceThrottleMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -122,30 +214,36 @@ WSGI_APPLICATION = 'core.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-#
-# Default remains SQLite for local simplicity.
-# Set DB_ENGINE=postgresql (or postgres) plus DB_* vars to switch.
-DB_ENGINE = os.getenv('DB_ENGINE', 'sqlite3').strip().lower()
-
-if DB_ENGINE in {'postgres', 'postgresql'}:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.getenv('DB_NAME', 'neurobin'),
-            'USER': os.getenv('DB_USER', 'postgres'),
-            'PASSWORD': os.getenv('DB_PASSWORD', ''),
-            'HOST': os.getenv('DB_HOST', '127.0.0.1'),
-            'PORT': os.getenv('DB_PORT', '5432'),
-            'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')),
-        }
-    }
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+if DATABASE_URL:
+    DATABASES = {"default": _database_from_url(DATABASE_URL)}
 else:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+    db_engine = os.getenv("DB_ENGINE", "sqlite3").strip().lower()
+    if db_engine in {"postgres", "postgresql"}:
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.postgresql",
+                "NAME": os.getenv("DB_NAME", "neurobin"),
+                "USER": os.getenv("DB_USER", "postgres"),
+                "PASSWORD": os.getenv("DB_PASSWORD", ""),
+                "HOST": os.getenv("DB_HOST", "127.0.0.1"),
+                "PORT": os.getenv("DB_PORT", "5432"),
+                "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "60")),
+                "CONN_HEALTH_CHECKS": _env_bool("DB_CONN_HEALTH_CHECKS", True),
+            }
         }
-    }
+    else:
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.sqlite3",
+                "NAME": BASE_DIR / "db.sqlite3",
+            }
+        }
+
+if IS_PRODUCTION and DATABASES["default"]["ENGINE"] == "django.db.backends.sqlite3":
+    raise ImproperlyConfigured(
+        "SQLite is not supported for production mode. Set DATABASE_URL or DB_ENGINE=postgresql."
+    )
 
 
 # Password validation
@@ -182,11 +280,29 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = "/static/"
 STATICFILES_DIRS = [
     BASE_DIR / 'static',
 ]
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# HTTPS and cookie hardening defaults.
+SECURE_PROXY_SSL_HEADER = _env_header_tuple(
+    "SECURE_PROXY_SSL_HEADER",
+    ("HTTP_X_FORWARDED_PROTO", "https") if IS_PRODUCTION else None,
+)
+USE_X_FORWARDED_HOST = _env_bool("USE_X_FORWARDED_HOST", IS_PRODUCTION)
+SECURE_SSL_REDIRECT = _env_bool("SECURE_SSL_REDIRECT", IS_PRODUCTION)
+SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", str(31536000 if IS_PRODUCTION else 0)))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = _env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", IS_PRODUCTION)
+SECURE_HSTS_PRELOAD = _env_bool("SECURE_HSTS_PRELOAD", IS_PRODUCTION)
+SESSION_COOKIE_SECURE = _env_bool("SESSION_COOKIE_SECURE", IS_PRODUCTION)
+CSRF_COOKIE_SECURE = _env_bool("CSRF_COOKIE_SECURE", IS_PRODUCTION)
+SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
+CSRF_COOKIE_SAMESITE = os.getenv("CSRF_COOKIE_SAMESITE", "Lax")
+SECURE_CONTENT_TYPE_NOSNIFF = _env_bool("SECURE_CONTENT_TYPE_NOSNIFF", True)
+SECURE_REFERRER_POLICY = os.getenv("SECURE_REFERRER_POLICY", "strict-origin-when-cross-origin")
+X_FRAME_OPTIONS = os.getenv("X_FRAME_OPTIONS", "DENY")
 
 # Media files (User uploads)
 MEDIA_URL = '/media/'
@@ -233,6 +349,30 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
+# Cache backend (shared Redis cache in production by default).
+CACHE_BACKEND = os.getenv("CACHE_BACKEND", "redis" if IS_PRODUCTION else "locmem").strip().lower()
+CACHE_KEY_PREFIX = os.getenv("CACHE_KEY_PREFIX", "neurobin").strip()
+CACHE_TIMEOUT_SECONDS = int(os.getenv("CACHE_TIMEOUT_SECONDS", "300"))
+if CACHE_BACKEND == "redis":
+    redis_cache_url = os.getenv("REDIS_CACHE_URL", "redis://127.0.0.1:6379/1").strip()
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": redis_cache_url,
+            "KEY_PREFIX": CACHE_KEY_PREFIX,
+            "TIMEOUT": CACHE_TIMEOUT_SECONDS,
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": os.getenv("LOCMEM_CACHE_LOCATION", "neurobin-default"),
+            "KEY_PREFIX": CACHE_KEY_PREFIX,
+            "TIMEOUT": CACHE_TIMEOUT_SECONDS,
+        }
+    }
+
 # Gemini graph enrichment
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2-flash').strip()
@@ -243,9 +383,101 @@ GEMINI_GRAPH_MAX_EDGES = int(os.getenv('GEMINI_GRAPH_MAX_EDGES', '30'))
 GEMINI_GRAPH_TIMEOUT_SECONDS = int(os.getenv('GEMINI_GRAPH_TIMEOUT_SECONDS', '45'))
 GEMINI_GRAPH_MAX_RETRIES = int(os.getenv('GEMINI_GRAPH_MAX_RETRIES', '2'))
 
+# AbuseIPDB IP enrichment
+ABUSEIPDB_API_KEY = os.getenv("ABUSEIPDB_API_KEY", "").strip()
+ABUSEIPDB_DOMAIN_VERIFICATION_TOKEN = os.getenv("ABUSEIPDB_DOMAIN_VERIFICATION_TOKEN", "").strip()
+ABUSEIPDB_CHECK_ENDPOINT = os.getenv(
+    "ABUSEIPDB_CHECK_ENDPOINT",
+    "https://api.abuseipdb.com/api/v2/check",
+).strip()
+ABUSEIPDB_MAX_AGE_DAYS = int(os.getenv("ABUSEIPDB_MAX_AGE_DAYS", "90"))
+ABUSEIPDB_TIMEOUT_SECONDS = int(os.getenv("ABUSEIPDB_TIMEOUT_SECONDS", "6"))
+ABUSEIPDB_REFRESH_HOURS = int(os.getenv("ABUSEIPDB_REFRESH_HOURS", "24"))
+ABUSEIPDB_USER_AGENT = os.getenv("ABUSEIPDB_USER_AGENT", "neurobin-ip-analytics/1.0").strip()
+ABUSEIPDB_AUTO_ENRICH_NEW_IPS = _env_bool("ABUSEIPDB_AUTO_ENRICH_NEW_IPS", True)
+
+# Abuse confidence throttling
+ABUSE_THROTTLE_ENABLED = _env_bool("ABUSE_THROTTLE_ENABLED", True)
+ABUSE_THROTTLE_CONFIDENCE_THRESHOLD = int(os.getenv("ABUSE_THROTTLE_CONFIDENCE_THRESHOLD", "50"))
+ABUSE_THROTTLE_BASE_LIMIT_PER_HOUR = int(os.getenv("ABUSE_THROTTLE_BASE_LIMIT_PER_HOUR", "5"))
+ABUSE_THROTTLE_STEP_PERCENT = int(os.getenv("ABUSE_THROTTLE_STEP_PERCENT", "10"))
+ABUSE_THROTTLE_STEP_REDUCTION = int(os.getenv("ABUSE_THROTTLE_STEP_REDUCTION", "1"))
+ABUSE_THROTTLE_MIN_LIMIT_PER_HOUR = int(os.getenv("ABUSE_THROTTLE_MIN_LIMIT_PER_HOUR", "0"))
+ABUSE_THROTTLE_CACHE_PREFIX = os.getenv("ABUSE_THROTTLE_CACHE_PREFIX", "abuse_throttle").strip()
+
+# Bot controls
+BOT_BLOCKLIST_ENABLED = _env_bool('BOT_BLOCKLIST_ENABLED', True)
+BOT_BLOCKLIST_UA_SUBSTRINGS = tuple(
+    token.strip()
+    for token in os.getenv(
+        'BOT_BLOCKLIST_UA_SUBSTRINGS',
+        (
+            'SemrushBot,AhrefsBot,MJ12bot,'
+            'FaviconHash-API,CensysInspect,DOMHashBot,CMS-Checker,OI-Crawler,wpbot'
+        ),
+    ).split(',')
+    if token.strip()
+)
+BOT_ALLOWLIST_UA_SUBSTRINGS = tuple(
+    token.strip()
+    for token in os.getenv(
+        'BOT_ALLOWLIST_UA_SUBSTRINGS',
+        (
+            'Googlebot,Bingbot,DuckDuckBot,Applebot,GoogleOther,Google-InspectionTool,'
+            'AdsBot-Google,OAI-SearchBot,ChatGPT-User,facebookexternalhit,Twitterbot,'
+            'LinkedInBot,Discordbot,TelegramBot,WhatsApp'
+        ),
+    ).split(',')
+    if token.strip()
+)
+ROBOTS_ALLOW_ALL_AGENTS = _env_bool('ROBOTS_ALLOW_ALL_AGENTS', True)
+BOT_QUERY_UA_SUBSTRINGS = tuple(
+    token.strip()
+    for token in os.getenv(
+        'BOT_QUERY_UA_SUBSTRINGS',
+        (
+            'bot,crawler,spider,scrapy,curl,go-http-client,python-requests,libwww,wget,headless,'
+            'phantom,semrush,ahrefs,mj12,oai-searchbot,chatgpt-user,censys,openintel,faviconhash,'
+            'domhash,cms-checker,palo alto networks,google-read-aloud,discordbot,telegrambot,'
+            'facebookexternalhit,twitterbot,linkedinbot,whatsapp'
+        ),
+    ).split(',')
+    if token.strip()
+)
+EXPLOIT_BLOCKLIST_ENABLED = _env_bool('EXPLOIT_BLOCKLIST_ENABLED', True)
+EXPLOIT_BLOCK_TIMEOUT_SECONDS = int(os.getenv('EXPLOIT_BLOCK_TIMEOUT_SECONDS', str(30 * 24 * 60 * 60)))
+EXPLOIT_BLOCKED_IP_CACHE_PREFIX = os.getenv('EXPLOIT_BLOCKED_IP_CACHE_PREFIX', 'exploit_blocked_ip').strip()
+EXPLOIT_TRUSTED_IPS = tuple(
+    ip.strip()
+    for ip in os.getenv('EXPLOIT_TRUSTED_IPS', '127.0.0.1,::1').split(',')
+    if ip.strip()
+)
+EXPLOIT_PATH_INDICATORS = tuple(
+    token.strip()
+    for token in os.getenv(
+        'EXPLOIT_PATH_INDICATORS',
+        (
+            '/.env,/.git/,/.git/config,/.svn/,/.hg/,/wp-admin/,/wp-content/,/wp-includes/,'
+            '/xmlrpc.php,/phpmyadmin,/pma/,/adminer.php,/vendor/phpunit/,/cgi-bin/,'
+            '/boaform/admin/formlogin,/.aws/,/.ssh/,/id_rsa,/.ds_store,/.well-known/security.txt,'
+            '/server-status,/debug/default/view'
+        ),
+    ).split(',')
+    if token.strip()
+)
+
 # Request query logging
-REQUEST_LOG_DIR = BASE_DIR / 'request_logs'
-REQUEST_LOG_DIR.mkdir(parents=True, exist_ok=True)
+request_log_dir_env = os.getenv("REQUEST_LOG_DIR", str(BASE_DIR / "request_logs")).strip()
+REQUEST_LOG_DIR = Path(request_log_dir_env) if request_log_dir_env else (BASE_DIR / "request_logs")
+try:
+    REQUEST_LOG_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    REQUEST_LOG_DIR = Path("/tmp/neurobin_request_logs")
+    REQUEST_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+REQUEST_LOG_LEVEL = os.getenv("REQUEST_LOG_LEVEL", "INFO").upper()
+SECURITY_LOG_LEVEL = os.getenv("SECURITY_LOG_LEVEL", "WARNING").upper()
+DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO").upper()
 
 LOGGING = {
     'version': 1,
@@ -256,6 +488,11 @@ LOGGING = {
         },
     },
     'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'timestamped',
+            'level': DJANGO_LOG_LEVEL,
+        },
         'site_queries_file': {
             'class': 'logging.handlers.RotatingFileHandler',
             'filename': str(REQUEST_LOG_DIR / 'site_queries.log'),
@@ -263,7 +500,25 @@ LOGGING = {
             'backupCount': 10,
             'formatter': 'timestamped',
             'encoding': 'utf-8',
-            'level': 'INFO',
+            'level': REQUEST_LOG_LEVEL,
+        },
+        'bot_queries_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(REQUEST_LOG_DIR / 'bot_queries.log'),
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 10,
+            'formatter': 'timestamped',
+            'encoding': 'utf-8',
+            'level': REQUEST_LOG_LEVEL,
+        },
+        'internal_queries_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(REQUEST_LOG_DIR / 'internal_queries.log'),
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 10,
+            'formatter': 'timestamped',
+            'encoding': 'utf-8',
+            'level': REQUEST_LOG_LEVEL,
         },
         'robots_queries_file': {
             'class': 'logging.handlers.RotatingFileHandler',
@@ -272,18 +527,47 @@ LOGGING = {
             'backupCount': 10,
             'formatter': 'timestamped',
             'encoding': 'utf-8',
-            'level': 'INFO',
+            'level': REQUEST_LOG_LEVEL,
+        },
+        'security_queries_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(REQUEST_LOG_DIR / 'security_queries.log'),
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 10,
+            'formatter': 'timestamped',
+            'encoding': 'utf-8',
+            'level': SECURITY_LOG_LEVEL,
         },
     },
     'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': DJANGO_LOG_LEVEL,
+            'propagate': False,
+        },
         'site_queries': {
             'handlers': ['site_queries_file'],
-            'level': 'INFO',
+            'level': REQUEST_LOG_LEVEL,
+            'propagate': False,
+        },
+        'bot_queries': {
+            'handlers': ['bot_queries_file'],
+            'level': REQUEST_LOG_LEVEL,
+            'propagate': False,
+        },
+        'internal_queries': {
+            'handlers': ['internal_queries_file'],
+            'level': REQUEST_LOG_LEVEL,
             'propagate': False,
         },
         'robots_queries': {
             'handlers': ['robots_queries_file'],
-            'level': 'INFO',
+            'level': REQUEST_LOG_LEVEL,
+            'propagate': False,
+        },
+        'security_queries': {
+            'handlers': ['security_queries_file'],
+            'level': SECURITY_LOG_LEVEL,
             'propagate': False,
         },
     },

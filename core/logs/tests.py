@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.core.cache import cache
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from compounds.models import (
@@ -8,7 +9,7 @@ from compounds.models import (
     CompoundToCompoundTargetInteraction,
     Target,
 )
-from logs.models import IntakeLog
+from logs.models import IntakeLog, RequestIPPathStat, RequestIPProfile
 
 
 class AnalyticsDashboardTests(TestCase):
@@ -75,3 +76,98 @@ class AnalyticsDashboardTests(TestCase):
         self.assertEqual(response.context["todays_known_pair_count"], 1)
         self.assertEqual(len(response.context["todays_known_pair_summaries"]), 1)
         self.assertEqual(response.context["todays_inferred_pair_count"], 0)
+
+
+@override_settings(ABUSEIPDB_AUTO_ENRICH_NEW_IPS=False, ABUSE_THROTTLE_ENABLED=False)
+class RequestIPTrackingTests(TestCase):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def test_site_query_tracking_creates_profile_and_path_stat(self):
+        response = self.client.get(
+            "/about/",
+            REMOTE_ADDR="198.51.100.42",
+            HTTP_USER_AGENT="Mozilla/5.0 (X11; Linux x86_64)",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        profile = RequestIPProfile.objects.get(ip_address="198.51.100.42")
+        self.assertEqual(profile.total_requests, 1)
+        self.assertEqual(profile.get_requests, 1)
+        self.assertEqual(profile.post_requests, 0)
+        self.assertEqual(profile.distinct_paths, 1)
+        self.assertEqual(profile.last_path, "/about/")
+
+        path_stat = RequestIPPathStat.objects.get(ip_profile=profile, method="GET", path="/about/")
+        self.assertEqual(path_stat.request_count, 1)
+
+
+@override_settings(ABUSEIPDB_AUTO_ENRICH_NEW_IPS=False, ABUSE_THROTTLE_ENABLED=False)
+class IPAnalyticsDashboardAccessTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="normal", password="pw")
+        self.staff = User.objects.create_user(username="staff", password="pw", is_staff=True)
+
+    def test_non_staff_is_redirected(self):
+        self.client.force_login(self.user)
+        response = self.client.get("/logs/ip-analytics/")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/login/", response["Location"])
+
+    def test_staff_can_access_dashboard(self):
+        self.client.force_login(self.staff)
+        response = self.client.get("/logs/ip-analytics/")
+        self.assertEqual(response.status_code, 200)
+
+
+@override_settings(
+    ABUSEIPDB_AUTO_ENRICH_NEW_IPS=False,
+    ABUSE_THROTTLE_ENABLED=True,
+    ABUSE_THROTTLE_CONFIDENCE_THRESHOLD=50,
+    ABUSE_THROTTLE_BASE_LIMIT_PER_HOUR=5,
+    ABUSE_THROTTLE_STEP_PERCENT=10,
+    ABUSE_THROTTLE_STEP_REDUCTION=1,
+    ABUSE_THROTTLE_MIN_LIMIT_PER_HOUR=0,
+)
+class AbuseThrottleMiddlewareTests(TestCase):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        now = timezone.now()
+        # 83% -> limit becomes 2/hour with the default formula.
+        RequestIPProfile.objects.create(
+            ip_address="198.51.100.77",
+            first_seen_at=now,
+            last_seen_at=now,
+            abuse_checked_at=now,
+            abuse_confidence_score=83,
+            is_throttle_active=True,
+            throttle_limit_per_hour=2,
+        )
+
+    def test_abusive_ip_is_rate_limited(self):
+        first = self.client.get("/about/", REMOTE_ADDR="198.51.100.77", HTTP_USER_AGENT="Mozilla/5.0")
+        second = self.client.get("/about/", REMOTE_ADDR="198.51.100.77", HTTP_USER_AGENT="Mozilla/5.0")
+        third = self.client.get("/about/", REMOTE_ADDR="198.51.100.77", HTTP_USER_AGENT="Mozilla/5.0")
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(third.status_code, 429)
+        self.assertEqual(third["X-RateLimit-Limit"], "2")
+
+    def test_zero_per_hour_limit_fully_blocks_ip(self):
+        now = timezone.now()
+        RequestIPProfile.objects.create(
+            ip_address="198.51.100.78",
+            first_seen_at=now,
+            last_seen_at=now,
+            abuse_checked_at=now,
+            abuse_confidence_score=100,
+            is_throttle_active=True,
+            throttle_limit_per_hour=0,
+        )
+
+        response = self.client.get("/about/", REMOTE_ADDR="198.51.100.78", HTTP_USER_AGENT="Mozilla/5.0")
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response["X-RateLimit-Limit"], "0")

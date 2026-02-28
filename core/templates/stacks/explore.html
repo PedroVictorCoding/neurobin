@@ -34,9 +34,17 @@
           </div>
           <div class="d-flex gap-2 align-items-center stack-actions">
             {% include "stacks/_risk_badge.html" with risk=stack.risk %}
-            <a class="btn btn-sm btn-outline-info" target="_blank" rel="noopener noreferrer" href="{% url 'stack_share' stack.id %}" title="Share stack" aria-label="Share stack">
+            <button
+              class="btn btn-sm btn-outline-info js-stack-share-copy"
+              type="button"
+              data-stack-share-copy
+              data-share-url="{% url 'stack_detail' stack.id %}"
+              data-share-image-url="{% url 'stack_share_image' stack.id %}"
+              title="Copy stack link and image"
+              aria-label="Copy stack link and image"
+            >
               <i class="fas fa-share-alt"></i>
-            </a>
+            </button>
             {% if stack.user_id == request.user.id %}
               <span class="badge bg-secondary">Your stack</span>
             {% else %}
@@ -83,4 +91,5 @@
     <div class="alert alert-secondary">No public stacks found.</div>
   {% endif %}
 </div>
+{% include "stacks/_share_clipboard_script.html" %}
 {% endblock %}

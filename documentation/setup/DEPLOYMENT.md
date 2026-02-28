@@ -47,31 +47,35 @@ ALTER USER neurobin_user CREATEDB;
 
 ### Environment Variables
 
-Create `/opt/neurobin/.env`:
+Create `/opt/neurobin/.env` (you can start from `core/.env.production.example`):
 ```bash
 # Django Settings
+DJANGO_ENV=production
 DEBUG=False
 SECRET_KEY=your_super_secret_key_here_minimum_50_characters_long
 ALLOWED_HOSTS=neurob.in,www.neurob.in,your-domain.com
+CSRF_TRUSTED_ORIGINS=https://neurob.in,https://www.neurob.in
 
 # Database
 DATABASE_URL=postgresql://neurobin_user:secure_password_here@localhost:5432/neurobin_db
-
-# Email (for password resets)
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_HOST_USER=noreply@neurob.in
-EMAIL_HOST_PASSWORD=app_specific_password
-EMAIL_USE_TLS=True
 
 # Security
 SECURE_SSL_REDIRECT=True
 SECURE_PROXY_SSL_HEADER=HTTP_X_FORWARDED_PROTO,https
 SESSION_COOKIE_SECURE=True
 CSRF_COOKIE_SECURE=True
+SECURE_HSTS_SECONDS=31536000
+SECURE_HSTS_INCLUDE_SUBDOMAINS=True
+SECURE_HSTS_PRELOAD=True
+
+# Cache / workers
+CACHE_BACKEND=redis
+REDIS_CACHE_URL=redis://127.0.0.1:6379/1
+CELERY_BROKER_URL=redis://127.0.0.1:6379/0
+CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/0
 
 # API Keys (if needed)
-OPENAI_API_KEY=your_openai_key_here
+GEMINI_API_KEY=your_gemini_key_here
 ```
 
 ## Backend Deployment

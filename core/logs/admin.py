@@ -1,5 +1,11 @@
 from django.contrib import admin
-from .models import IntakeLog
+from .models import (
+    IntakeLog,
+    RequestIPPathStat,
+    RequestIPProfile,
+    UserGoal,
+    UserGoalCompletion,
+)
 
 @admin.register(IntakeLog)
 class IntakeLogAdmin(admin.ModelAdmin):
@@ -54,3 +60,52 @@ class IntakeLogAdmin(admin.ModelAdmin):
         
         return response
     export_as_csv.short_description = 'Export selected intake logs as CSV'
+
+
+@admin.register(UserGoal)
+class UserGoalAdmin(admin.ModelAdmin):
+    list_display = ["user", "name", "goal_type", "is_active", "created_at"]
+    list_filter = ["goal_type", "is_active", "created_at"]
+    search_fields = ["user__username", "name"]
+    autocomplete_fields = ["user"]
+    ordering = ["-created_at"]
+
+
+@admin.register(UserGoalCompletion)
+class UserGoalCompletionAdmin(admin.ModelAdmin):
+    list_display = ["goal", "date", "completed", "updated_at"]
+    list_filter = ["completed", "date", "goal__goal_type"]
+    search_fields = ["goal__user__username", "goal__name"]
+    autocomplete_fields = ["goal"]
+    ordering = ["-date", "-updated_at"]
+
+
+@admin.register(RequestIPProfile)
+class RequestIPProfileAdmin(admin.ModelAdmin):
+    list_display = [
+        "ip_address",
+        "last_seen_at",
+        "total_requests",
+        "abuse_confidence_score",
+        "abuse_usage_type",
+        "abuse_country_code",
+        "is_throttle_active",
+        "throttle_limit_per_hour",
+    ]
+    list_filter = [
+        "is_throttle_active",
+        "abuse_country_code",
+        "abuse_usage_type",
+        "abuse_checked_at",
+    ]
+    search_fields = ["ip_address", "abuse_isp", "abuse_domain", "abuse_country_name"]
+    ordering = ["-last_seen_at"]
+    readonly_fields = ["created_at", "updated_at"]
+
+
+@admin.register(RequestIPPathStat)
+class RequestIPPathStatAdmin(admin.ModelAdmin):
+    list_display = ["ip_profile", "method", "path", "request_count", "last_seen_at"]
+    list_filter = ["method", "last_seen_at"]
+    search_fields = ["ip_profile__ip_address", "path"]
+    ordering = ["-request_count", "-last_seen_at"]

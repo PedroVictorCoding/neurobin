@@ -59,6 +59,84 @@
     </form>
   </div>
 
+  <div class="card bg-neurobin-card p-4 shadow mb-3">
+    <h5 class="text-light mb-2">Quick Import from PubChem CID</h5>
+    <p class="text-secondary small mb-3">Enter a PubChem CID and import all available metadata, then run enrichment/mechanism backfill.</p>
+
+    {% if pubchem_import_message %}
+      <div class="alert alert-{{ pubchem_import_message_type }} py-2">
+        {{ pubchem_import_message }}
+      </div>
+    {% endif %}
+
+    {% if pubchem_import_output %}
+      <details class="mb-3">
+        <summary class="text-info small" style="cursor:pointer;">Import summary</summary>
+        <pre class="bg-dark text-light p-2 mt-2 rounded small" style="max-height: 220px; overflow:auto;">{{ pubchem_import_output }}</pre>
+      </details>
+    {% endif %}
+
+    <form method="post" class="row g-2 align-items-end">
+      {% csrf_token %}
+      <div class="col-12 col-md-8">
+        <label for="pubchem_import_cid" class="form-label text-light mb-1">PubChem CID</label>
+        <input
+          type="text"
+          id="pubchem_import_cid"
+          name="pubchem_import_cid"
+          value="{{ pubchem_import_cid }}"
+          class="form-control bg-dark text-light"
+          placeholder="2244"
+          autocomplete="off"
+        >
+      </div>
+      <div class="col-12 col-md-4 d-grid">
+        <button type="submit" name="quick_import_pubchem" value="1" class="btn btn-outline-info">
+          Import CID
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card bg-neurobin-card p-4 shadow mb-3">
+    <h5 class="text-light mb-2">Quick Import from BindingDB ID</h5>
+    <p class="text-secondary small mb-3">Enter a BindingDB monomer ID (for example: 50058958) to import ligand metadata and BindingDB target interactions.</p>
+
+    {% if bindingdb_import_message %}
+      <div class="alert alert-{{ bindingdb_import_message_type }} py-2">
+        {{ bindingdb_import_message }}
+      </div>
+    {% endif %}
+
+    {% if bindingdb_import_output %}
+      <details class="mb-3">
+        <summary class="text-info small" style="cursor:pointer;">Import summary</summary>
+        <pre class="bg-dark text-light p-2 mt-2 rounded small" style="max-height: 220px; overflow:auto;">{{ bindingdb_import_output }}</pre>
+      </details>
+    {% endif %}
+
+    <form method="post" class="row g-2 align-items-end">
+      {% csrf_token %}
+      <div class="col-12 col-md-8">
+        <label for="bindingdb_import_id" class="form-label text-light mb-1">BindingDB Monomer ID</label>
+        <input
+          type="text"
+          id="bindingdb_import_id"
+          name="bindingdb_import_id"
+          value="{{ bindingdb_import_id }}"
+          class="form-control bg-dark text-light"
+          placeholder="50058958 or BDBM50058958"
+          autocomplete="off"
+        >
+      </div>
+      <div class="col-12 col-md-4 d-grid">
+        <button type="submit" name="quick_import_bindingdb" value="1" class="btn btn-outline-info">
+          Import BindingDB
+        </button>
+      </div>
+    </form>
+  </div>
+
   <form id="mainCompoundForm" method="post" enctype="multipart/form-data" class="card bg-neurobin-card p-4 shadow">
     {% csrf_token %}
     {% for field in form.visible_fields %}
@@ -90,7 +168,9 @@
         {% endfor %}
       </div>
     {% endfor %}
-    <button type="submit" class="btn btn-info w-100">Submit</button>
+    <button type="submit" class="btn btn-galaxy btn-galaxy--full">
+      {% include "includes/galaxy_button_inner.html" with label="Add Compound" %}
+    </button>
   </form>
   <p class="mt-3"><a href="{% url 'compound_list' %}" class="text-info">&larr; Back to compound list</a></p>
 </div>

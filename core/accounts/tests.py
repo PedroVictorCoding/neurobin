@@ -1,7 +1,9 @@
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from stacks.models import Stack
+from logs.models import UserGoal, UserGoalCompletion
 
 
 class RegistrationTests(TestCase):
@@ -95,3 +97,70 @@ class ProfileDashboardStackToggleTests(TestCase):
         self.assertEqual(response.status_code, 200)
         stack.refresh_from_db()
         self.assertFalse(stack.is_active)
+
+
+class ProfileDashboardGoalTrackerTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="goalowner",
+            email="goalowner@example.com",
+            password="StrongPass123!",
+        )
+        self.other_user = User.objects.create_user(
+            username="goalviewer",
+            email="goalviewer@example.com",
+            password="StrongPass123!",
+        )
+
+    def test_owner_can_add_weekly_goal(self):
+        self.client.login(username="goalowner", password="StrongPass123!")
+
+        response = self.client.post(
+            reverse("profile_dashboard"),
+            data={
+                "action": "add_profile_goal",
+                "goal_name": "Morning walk",
+                "goal_type": "health",
+            },
+        )
+
+        self.assertRedirects(response, f"{reverse('profile_dashboard')}?tab=goals")
+        goal = UserGoal.objects.get(user=self.user)
+        self.assertEqual(goal.name, "Morning walk")
+        self.assertEqual(goal.goal_type, "health")
+
+    def test_owner_can_toggle_goal_completion(self):
+        goal = UserGoal.objects.create(user=self.user, name="Lift", goal_type="workout")
+        self.client.login(username="goalowner", password="StrongPass123!")
+        today = timezone.localdate().isoformat()
+
+        response = self.client.post(
+            reverse("profile_dashboard"),
+            data={
+                "action": "toggle_goal_completion",
+                "goal_id": str(goal.id),
+                "goal_date": today,
+                "is_completed": "1",
+            },
+        )
+
+        self.assertRedirects(response, f"{reverse('profile_dashboard')}?tab=goals")
+        completion = UserGoalCompletion.objects.get(goal=goal, date=timezone.localdate())
+        self.assertTrue(completion.completed)
+
+    def test_non_owner_cannot_modify_goal_data(self):
+        goal = UserGoal.objects.create(user=self.user, name="Protected goal", goal_type="health")
+        self.client.login(username="goalviewer", password="StrongPass123!")
+
+        response = self.client.post(
+            reverse("user_profile", kwargs={"username": "goalowner"}),
+            data={
+                "action": "toggle_goal_completion",
+                "goal_id": str(goal.id),
+                "goal_date": timezone.localdate().isoformat(),
+                "is_completed": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(UserGoalCompletion.objects.filter(goal=goal).exists())

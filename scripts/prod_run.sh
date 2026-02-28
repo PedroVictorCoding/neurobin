@@ -10,7 +10,12 @@ if [[ ! -x "venv/bin/python" ]]; then
   exit 1
 fi
 
+export DJANGO_ENV="${DJANGO_ENV:-development}"
 export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-core.settings}"
+
+if [[ "${RUN_DEPLOY_CHECK:-0}" == "1" ]]; then
+  venv/bin/python core/manage.py check --deploy --fail-level WARNING
+fi
 
 if command -v redis-cli >/dev/null 2>&1; then
   if ! redis-cli ping >/dev/null 2>&1; then
@@ -21,7 +26,7 @@ else
   echo "redis-cli not found. Ensure Redis is running on localhost:6379."
 fi
 
-if [[ "${RUN_MIGRATIONS:-1}" == "1" ]]; then
+if [[ "${RUN_MIGRATIONS:-0}" == "1" ]]; then
   venv/bin/python core/manage.py migrate
 fi
 
@@ -36,17 +41,13 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-venv/bin/celery -A core.celery worker -l info &
-CELERY_PID=$!
-echo "Celery worker started (pid=$CELERY_PID)"
+if [[ "${START_CELERY_WORKER:-0}" == "1" ]]; then
+  venv/bin/celery -A core.celery worker -l info &
+  CELERY_PID=$!
+  echo "Celery worker started (pid=$CELERY_PID)"
+else
+  echo "Skipping embedded Celery worker (START_CELERY_WORKER=0)."
+fi
 
 WEB_BIND="${WEB_BIND:-0.0.0.0:9000}"
-WEB_WORKERS="${WEB_WORKERS:-3}"
-WEB_TIMEOUT="${WEB_TIMEOUT:-120}"
-
-venv/bin/gunicorn core.wsgi:application \
-  --bind "$WEB_BIND" \
-  --workers "$WEB_WORKERS" \
-  --timeout "$WEB_TIMEOUT" \
-  --access-logfile - \
-  --error-logfile -
+venv/bin/python core/manage.py runserver "$WEB_BIND" --insecure

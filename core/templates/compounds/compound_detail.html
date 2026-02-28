@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% load compound_extras %}
 {% block title %}{{ compound.name }} — Neurobin{% endblock %}
+{% block head_extra %}
+  {% if compound.smiles or compound.pubchem_cid %}
+    <script defer src="https://3Dmol.org/build/3Dmol-min.js"></script>
+  {% endif %}
+{% endblock %}
 
 <meta name="description" content="{% block meta_description1 %}Neurobin: Explore compounds, mechanisms, and research.{% endblock %}">
 <!-- Open Graph / Discord / Facebook -->
@@ -24,7 +29,9 @@
   @media (max-width: 768px) {
     .molecule-container {
       width: 100% !important;
-      max-width: 250px !important;
+      max-width: 320px !important;
+      height: auto !important;
+      aspect-ratio: 1 / 1;
       margin: 0 auto !important;
     }
     
@@ -32,6 +39,92 @@
       font-size: 0.9rem !important;
       word-break: break-all;
     }
+
+    .compound-structure-shell {
+      width: 100%;
+      max-width: 320px;
+      margin: 0 auto;
+    }
+  }
+
+  .compound-structure-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 200px;
+  }
+
+  .compound-structure-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .compound-structure-label {
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.58);
+  }
+
+  .compound-structure-toggle {
+    width: 100%;
+    gap: 0 !important;
+    padding: 2px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.03);
+    overflow: hidden;
+  }
+
+  .compound-structure-toggle .compound-structure-toggle-btn {
+    flex: 1 1 0;
+    min-height: 34px;
+    padding: 0.35rem 0.5rem;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: rgba(255, 255, 255, 0.72) !important;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .compound-structure-toggle .compound-structure-toggle-btn:hover,
+  .compound-structure-toggle .compound-structure-toggle-btn:focus-visible {
+    background: rgba(255, 255, 255, 0.04) !important;
+    color: #ffffff !important;
+  }
+
+  .compound-structure-toggle .compound-structure-toggle-btn.active {
+    background: rgba(var(--theme-accent-rgb), 0.14) !important;
+    color: #ffffff !important;
+    box-shadow: inset 0 0 0 1px rgba(var(--theme-accent-rgb), 0.18);
+  }
+
+  .compound-structure-stage {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .compound-structure-stage > * {
+    width: 100%;
+    height: 100%;
+  }
+
+  .compound-structure-stage canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
   }
   
   /* Star rating styles */
@@ -207,6 +300,24 @@
     top: 0;
     z-index: 10;
   }
+
+  .compound-meta-list {
+    border: 1px solid #495057;
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: rgba(52, 58, 64, 0.25);
+    font-size: 0.84rem;
+  }
+
+  .compound-meta-list .meta-key {
+    color: #9ba3ad;
+    margin-right: 6px;
+  }
+
+  .compound-meta-list .meta-value {
+    color: #e9ecef;
+    word-break: break-word;
+  }
 </style>
 
 <!-- Admin Control Panel -->
@@ -214,7 +325,7 @@
      style="max-width: 700px; width: 100%; border-radius: 10px;">
   <div class="card-body position-relative">
     <div class="row">
-      <div class="col-12 col-md-8">
+      <div class="col-12 col-lg-7">
         <div class="d-flex justify-content-between align-items-start mb-2">
           <h1 class="card-title mb-0" id="compoundName">{{ compound.name }}</h1>
         </div>
@@ -254,16 +365,46 @@
           Evidence handling: review mechanism confidence, prediction coverage, and source links before using this in decisions.
         </div>
       </div>
-      <div class="col-12 col-md-4 d-flex justify-content-md-end justify-content-center mt-4 mt-md-0">
-        <div class="bg-dark rounded molecule-container"
-             style="width: 200px; height: 200px; border: 2px solid #7c7c7c; display: flex; align-items: center; justify-content: center;">
-          {% if compound.smiles %}
-            <div id="moleculeContainer" class="bg-dark" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
-              <svg id="moleculeViewer" data-smiles="{{ compound.smiles }}" width="196" height="196" style="border-radius: 8px; transform: scaleY(-1);"></svg>
-            </div>
-          {% else %}
-            <span class="text-secondary small">No Structure</span>
-          {% endif %}
+      <div class="col-12 col-lg-5 d-flex justify-content-lg-end justify-content-center mt-4 mt-lg-0">
+        <div class="compound-structure-shell">
+          <div class="compound-structure-header">
+            <div class="compound-structure-label">Structure Viewer</div>
+            {% if compound.smiles or compound.pubchem_cid %}
+              <div class="btn-group btn-group-sm compound-structure-toggle" role="group" aria-label="Structure viewer mode">
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary compound-structure-toggle-btn"
+                  data-structure-mode-toggle="2d"
+                  {% if not compound.smiles %}disabled{% endif %}
+                >
+                  2D Structure
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary compound-structure-toggle-btn"
+                  data-structure-mode-toggle="3d"
+                >
+                  3D Structure
+                </button>
+              </div>
+            {% endif %}
+          </div>
+          <div class="bg-dark rounded molecule-container"
+               style="width: 200px; height: 200px; border: 2px solid #7c7c7c; display: flex; align-items: center; justify-content: center;">
+            {% if compound.smiles or compound.pubchem_cid %}
+              <div
+                id="compoundStructureStage"
+                class="compound-structure-stage bg-dark"
+                data-smiles="{{ compound.smiles|default:'' }}"
+                data-pubchem-cid="{{ compound.pubchem_cid|default:'' }}"
+                data-default-mode="{% if compound.smiles %}2d{% else %}3d{% endif %}"
+              >
+                <div class="text-secondary small">Loading structure...</div>
+              </div>
+            {% else %}
+              <span class="text-secondary small">No Structure</span>
+            {% endif %}
+          </div>
         </div>
       </div>
     </div>
@@ -385,7 +526,7 @@
     {% if user.is_staff and mechanism_import_status %}
       <small class="d-block mt-1 {% if mechanism_import_status == 'imported' %}text-success{% elif mechanism_import_status == 'not_found' %}text-warning{% else %}text-danger{% endif %}">
         {% if mechanism_import_status == 'imported' %}
-          Imported {{ mechanism_import_count|default:"0" }} missing mechanism{{ mechanism_import_count|default:"0"|pluralize }}
+          Imported {{ mechanism_import_count|default:"0" }} missing mechanism/interaction record{{ mechanism_import_count|default:"0"|pluralize }}
           {% if mechanism_import_source %} from {{ mechanism_import_source|upper }}{% endif %}.
         {% elif mechanism_import_status == 'not_found' %}
           No new mechanisms found in ChEMBL, ZINC, or PubChem.
@@ -546,12 +687,80 @@
   </div>
 </div>
 
+{% if compound.chembl_id or compound.bindingdb_id or compound.pubchem_cid or compound.smiles or compound.inchi or compound.inchi_key or compound.iupac_name or compound.molecular_formula or compound.molecular_weight or compound.mechanism_of_action_summary or compound.pubmed_interactions %}
+<div class="card bg-neurobin-card text-light mb-3 shadow p-3"
+     style="max-width: 700px; width: 100%; border-radius: 10px;">
+  <div class="card-body">
+    <h2 class="card-title mb-3 text-white fw-semibold">
+      <i class="fas fa-info-circle text-info"></i> Information
+    </h2>
+    {% if compound.chembl_id or compound.bindingdb_id or compound.pubchem_cid or compound.smiles or compound.inchi or compound.inchi_key or compound.iupac_name or compound.molecular_formula or compound.molecular_weight %}
+      <div class="mb-2">
+        <div class="compound-meta-list">
+          {% if compound.chembl_id %}
+            <div><span class="meta-key">ChEMBL ID:</span><span class="meta-value">{{ compound.chembl_id }}</span></div>
+          {% endif %}
+          {% if compound.bindingdb_id %}
+            <div><span class="meta-key">BindingDB ID:</span><span class="meta-value">{{ compound.bindingdb_id }}</span></div>
+          {% endif %}
+          {% if compound.pubchem_cid %}
+            <div><span class="meta-key">PubChem CID:</span><span class="meta-value">{{ compound.pubchem_cid }}</span></div>
+          {% endif %}
+          {% if compound.iupac_name %}
+            <div><span class="meta-key">IUPAC:</span><span class="meta-value">{{ compound.iupac_name }}</span></div>
+          {% endif %}
+          {% if compound.molecular_formula %}
+            <div><span class="meta-key">Formula:</span><span class="meta-value">{{ compound.molecular_formula }}</span></div>
+          {% endif %}
+          {% if compound.molecular_weight %}
+            <div><span class="meta-key">Molecular Weight:</span><span class="meta-value">{{ compound.molecular_weight }}</span></div>
+          {% endif %}
+          {% if compound.smiles %}
+            <div><span class="meta-key">SMILES:</span><span class="meta-value">{{ compound.smiles }}</span></div>
+          {% endif %}
+          {% if compound.inchi %}
+            <div><span class="meta-key">InChI:</span><span class="meta-value">{{ compound.inchi }}</span></div>
+          {% endif %}
+          {% if compound.inchi_key %}
+            <div><span class="meta-key">InChIKey:</span><span class="meta-value">{{ compound.inchi_key }}</span></div>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+    {% if compound.mechanism_of_action_summary %}
+      <div class="small text-muted mb-2">
+        External mechanism summary: {{ compound.mechanism_of_action_summary }}
+      </div>
+    {% endif %}
+    {% if compound.pubmed_interactions %}
+      <div class="small text-muted mb-0">
+        PubMed interaction references:
+        {% for row in compound.pubmed_interactions|slice:":3" %}
+          <a href="{{ row.url|default:'https://pubmed.ncbi.nlm.nih.gov/' }}" target="_blank" rel="noopener" class="text-info text-decoration-none">{{ row.pmid|default:"PMID" }}</a>{% if not forloop.last %}, {% endif %}
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 <div class="card bg-neurobin-card text-light mb-3 shadow p-3"
      style="max-width: 700px; width: 100%; border-radius: 10px;">
   <div class="card-body">
     <h2 class="card-title mb-4 text-white fw-semibold">
       <i class="fas fa-microscope text-info"></i> Research Snippets
     </h2>
+    <div class="mb-3 d-flex flex-wrap gap-2">
+      <a href="{% url 'research:compound_research_explorer' compound.slug %}" class="btn btn-sm btn-outline-info">
+        <i class="fas fa-compass"></i> Explore Research
+      </a>
+      {% if research_snippets and user.is_authenticated %}
+        <a href="{% url 'research:create_snippet' %}?compound={{ compound.id }}"
+           class="btn btn-sm btn-outline-info">
+          <i class="fas fa-plus"></i> Add Research
+        </a>
+      {% endif %}
+    </div>
     
     {% if research_snippets %}
       <div class="mb-3">
@@ -863,6 +1072,7 @@
 // Admin editing functionality
 document.addEventListener('DOMContentLoaded', function() {
     const compoundId = {{ compound.id }};
+    const compoundApiUrl = "{% url 'compound-detail' slug=compound.slug %}";
     
     // Edit compound name
     document.getElementById('editNameBtn')?.addEventListener('click', function() {
@@ -1014,7 +1224,7 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             const [categoriesResponse, compoundResponse] = await Promise.all([
                 fetch('/api/compounds/compoundcategories/'),
-                fetch(`/api/compounds/compound/${compoundId}/`)
+                fetch(compoundApiUrl)
             ]);
             
             const categories = await categoriesResponse.json();
@@ -1043,7 +1253,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Update compound field via API
     async function updateCompoundField(field, value) {
         try {
-            const response = await fetch(`/api/compounds/compound/${compoundId}/`, {
+            const response = await fetch(compoundApiUrl, {
                 method: 'PATCH',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1409,8 +1619,7 @@ async function saveCompoundName(button) {
     }
     
     try {
-        const compoundId = {{ compound.id }};
-        const response = await fetch(`/api/compounds/compound/${compoundId}/`, {
+        const response = await fetch(compoundApiUrl, {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
@@ -1440,8 +1649,7 @@ async function saveCompoundDescription(button) {
     const newDesc = formData.get('description').trim();
     
     try {
-        const compoundId = {{ compound.id }};
-        const response = await fetch(`/api/compounds/compound/${compoundId}/`, {
+        const response = await fetch(compoundApiUrl, {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
@@ -1470,8 +1678,7 @@ async function saveCompoundCategories(button) {
     const selectedIds = Array.from(select.selectedOptions).map(option => parseInt(option.value));
     
     try {
-        const compoundId = {{ compound.id }};
-        const response = await fetch(`/api/compounds/compound/${compoundId}/`, {
+        const response = await fetch(compoundApiUrl, {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
@@ -1926,6 +2133,229 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Load compound interactions on page load
     loadCompoundInteractions();
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const stageElement = document.getElementById('compoundStructureStage');
+    if (!stageElement) {
+        return;
+    }
+
+    const showStatus = (message) => {
+        stageElement.innerHTML = `<div class="text-secondary small">${message}</div>`;
+    };
+
+    const toggleButtons = Array.from(document.querySelectorAll('[data-structure-mode-toggle]'));
+    const smiles = (stageElement.dataset.smiles || '').trim();
+    const pubchemCid = (stageElement.dataset.pubchemCid || '').trim();
+    const has2dMode = Boolean(smiles);
+    const has3dMode = Boolean(smiles || pubchemCid);
+
+    if (!has2dMode && !has3dMode) {
+        showStatus('No structure available.');
+        return;
+    }
+
+    let activeMode = (stageElement.dataset.defaultMode || '').trim();
+    if ((activeMode !== '2d' || !has2dMode) && (activeMode !== '3d' || !has3dMode)) {
+        activeMode = has2dMode ? '2d' : '3d';
+    }
+
+    let renderSequence = 0;
+    let current3dViewer = null;
+    let structureDataPromise = null;
+
+    const sdfUrls = [];
+    if (pubchemCid) {
+        sdfUrls.push(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${encodeURIComponent(pubchemCid)}/record/SDF/?record_type=3d`);
+    }
+    if (smiles) {
+        sdfUrls.push(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smiles)}/record/SDF/?record_type=3d`);
+    }
+
+    const prefersReducedMotion = (
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    );
+
+    const syncToggleState = () => {
+        toggleButtons.forEach((button) => {
+            const mode = button.dataset.structureModeToggle;
+            const isActive = mode === activeMode;
+            button.classList.toggle('active', isActive);
+            button.setAttribute('aria-selected', String(isActive));
+            button.setAttribute('aria-pressed', String(isActive));
+        });
+    };
+
+    const teardownHiddenViewer = () => {
+        if (current3dViewer) {
+            try {
+                current3dViewer.spin(false);
+            } catch (error) {
+                // Ignore stop errors during teardown.
+            }
+
+            try {
+                current3dViewer.clear();
+                current3dViewer.render();
+            } catch (error) {
+                // Ignore cleanup errors; the DOM stage is cleared below.
+            }
+
+            current3dViewer = null;
+        }
+
+        stageElement.innerHTML = '';
+    };
+
+    async function loadStructureData() {
+        if (structureDataPromise) {
+            return structureDataPromise;
+        }
+
+        structureDataPromise = (async () => {
+            for (const url of sdfUrls) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'GET',
+                        headers: { 'Accept': 'chemical/x-mdl-sdfile' },
+                    });
+
+                    if (!response.ok) {
+                        continue;
+                    }
+
+                    const sdf = await response.text();
+                    if (sdf && sdf.trim()) {
+                        return sdf;
+                    }
+                } catch (error) {
+                    console.error('Failed to fetch 3D molecule data:', error);
+                }
+            }
+
+            return '';
+        })();
+
+        return structureDataPromise;
+    }
+
+    async function render2d(token) {
+        if (!has2dMode) {
+            showStatus('2D unavailable.');
+            return;
+        }
+
+        if (typeof MolecularViewer === 'undefined' || typeof SmilesDrawer === 'undefined') {
+            showStatus('2D unavailable.');
+            return;
+        }
+
+        stageElement.innerHTML = '<svg class="molecule-viewer" width="196" height="196" style="border-radius: 8px; transform: scaleY(-1);"></svg>';
+        const svgElement = stageElement.querySelector('svg');
+        const detailViewer = new MolecularViewer();
+
+        if (!detailViewer.init()) {
+            showStatus('2D unavailable.');
+            return;
+        }
+
+        try {
+            await detailViewer.drawMolecule(smiles, svgElement);
+            if (token !== renderSequence || activeMode !== '2d') {
+                stageElement.innerHTML = '';
+            }
+        } catch (error) {
+            console.error('Failed to render 2D molecule viewer:', error);
+            if (token === renderSequence && activeMode === '2d') {
+                showStatus('2D unavailable.');
+            }
+        }
+    }
+
+    async function render3d(token) {
+        if (!has3dMode || typeof window.$3Dmol === 'undefined') {
+            showStatus('3D unavailable.');
+            return;
+        }
+
+        stageElement.innerHTML = '<div class="text-secondary small">Loading 3D...</div>';
+        const sdf = await loadStructureData();
+        if (token !== renderSequence || activeMode !== '3d') {
+            return;
+        }
+
+        if (!sdf) {
+            showStatus('3D model unavailable.');
+            return;
+        }
+
+        stageElement.innerHTML = '';
+
+        try {
+            const viewer = window.$3Dmol.createViewer(stageElement, {
+                backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--bg-tertiary').trim() || '#12121a',
+            });
+
+            viewer.addModel(sdf, 'sdf');
+            viewer.setStyle({}, {
+                stick: { radius: 0.18 },
+                sphere: { scale: 0.28 },
+            });
+            viewer.zoomTo();
+            viewer.render();
+            current3dViewer = viewer;
+
+            if (!prefersReducedMotion) {
+                viewer.spin('y', 1);
+            }
+        } catch (error) {
+            console.error('Failed to initialize 3D molecule viewer:', error);
+            showStatus('3D unavailable.');
+        }
+    }
+
+    async function mountMode(mode) {
+        if ((mode === '2d' && !has2dMode) || (mode === '3d' && !has3dMode)) {
+            return;
+        }
+
+        activeMode = mode;
+        renderSequence += 1;
+        const token = renderSequence;
+
+        syncToggleState();
+        teardownHiddenViewer();
+
+        if (mode === '2d') {
+            await render2d(token);
+            return;
+        }
+
+        await render3d(token);
+    }
+
+    toggleButtons.forEach((button) => {
+        const mode = button.dataset.structureModeToggle;
+
+        if ((mode === '2d' && !has2dMode) || (mode === '3d' && !has3dMode)) {
+            button.disabled = true;
+            return;
+        }
+
+        button.addEventListener('click', function() {
+            if (mode === activeMode) {
+                return;
+            }
+
+            mountMode(mode);
+        });
+    });
+
+    mountMode(activeMode);
 });
 </script>
 </div>

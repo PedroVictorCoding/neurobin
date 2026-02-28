@@ -1,70 +1,394 @@
 {% extends "base.html" %}
 {% load static %}
 {% block title %}Neurobin — Research, Track, Stay Safe{% endblock %}
+{% block head_extra %}
+<meta name="abuseipdb-verification" content="" />
+<style>
+  .home-week-rail {
+    display: flex;
+    width: 100%;
+    box-sizing: border-box;
+    gap: 1rem;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    padding: 0.25rem;
+    padding-bottom: 0.5rem;
+    margin: 0;
+    scrollbar-width: thin;
+  }
+  .home-week-card {
+    flex: 0 0 min(84vw, 19rem);
+    min-width: 0;
+    min-height: 14.5rem;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    scroll-snap-align: start;
+  }
+  .home-week-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .home-week-badge {
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.78);
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+  .home-week-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .home-week-progress-label {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.72);
+  }
+  .home-week-progress-track {
+    height: 0.35rem;
+    width: 100%;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+  }
+  .home-week-progress-bar {
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, rgba(147, 51, 234, 0.95), rgba(192, 132, 252, 0.95));
+  }
+  .home-week-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    max-height: 15rem;
+    padding-right: 0.15rem;
+  }
+  .home-week-item-form {
+    margin: 0;
+  }
+  .home-week-item {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35rem;
+    width: 100%;
+    min-width: 0;
+    padding: 0.45rem 0.5rem;
+    border-radius: 0.75rem;
+    border: 0;
+    background: rgba(0, 0, 0, 0.16);
+    text-align: left;
+    cursor: pointer;
+  }
+  .home-week-item.is-taken {
+    background: rgba(25, 135, 84, 0.14);
+  }
+  .home-week-item:hover {
+    background: rgba(168, 85, 247, 0.14);
+  }
+  .home-week-item.is-taken:hover {
+    background: rgba(25, 135, 84, 0.2);
+  }
+  .home-week-item:focus-visible {
+    outline: 2px solid rgba(168, 85, 247, 0.75);
+    outline-offset: 2px;
+  }
+  .home-week-item-time {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-family: "Space Mono", monospace;
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.68);
+  }
+  .home-week-item-dot {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 999px;
+    background: rgba(255, 193, 7, 0.95);
+    flex: 0 0 auto;
+  }
+  .home-week-item.is-taken .home-week-item-dot {
+    background: rgba(25, 135, 84, 0.95);
+  }
+  .home-week-item-body {
+    min-width: 0;
+    line-height: 1.2;
+  }
+  .home-week-item-link,
+  .home-week-item-link:hover {
+    display: block;
+    color: #fff;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .home-week-item-stack {
+    display: block;
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.5);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .home-week-more {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.55);
+    padding-top: 0.15rem;
+  }
+  .home-week-empty {
+    margin-top: auto;
+    padding: 0.85rem 0;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.5);
+  }
+  .home-stat {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    min-height: 7.25rem;
+    padding: 0.9rem 0.75rem;
+    border-radius: 1rem;
+    overflow: hidden;
+    background:
+      radial-gradient(120% 140% at 12% 0%, rgba(168, 85, 247, 0.12), transparent 48%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01));
+    border: 1px solid rgba(168, 85, 247, 0.12);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      0 12px 26px rgba(0, 0, 0, 0.18);
+  }
+  .home-stat::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(216, 180, 254, 0.6), rgba(168, 85, 247, 0.08), transparent 70%);
+  }
+  .home-stat-value {
+    position: relative;
+    display: inline-block;
+    font-size: clamp(2.2rem, 4vw, 3.2rem);
+    font-weight: 700;
+    line-height: 1;
+    background-image: linear-gradient(
+      180deg,
+      rgba(250, 245, 255, 0.98) 0%,
+      rgba(224, 193, 255, 0.98) 26%,
+      rgba(192, 132, 252, 0.96) 58%,
+      rgba(139, 92, 246, 0.96) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 20px rgba(168, 85, 247, 0.14);
+  }
+  .home-stat-value.is-success {
+    background-image: linear-gradient(
+      180deg,
+      rgba(250, 245, 255, 0.98) 0%,
+      rgba(224, 193, 255, 0.98) 26%,
+      rgba(192, 132, 252, 0.96) 58%,
+      rgba(139, 92, 246, 0.96) 100%
+    );
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+  .home-stat-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.72);
+  }
+  .btn.btn-outline-secondary.home-hero-secondary-btn {
+    min-height: 44px;
+    padding: 0.5rem 0.9rem !important;
+    border-radius: 10px !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.01em !important;
+    text-transform: none !important;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
+      rgba(24, 20, 38, 0.82) !important;
+    border-color: rgba(184, 107, 255, 0.22) !important;
+    color: var(--text-primary) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+    text-shadow: none;
+  }
+  .btn.btn-outline-secondary.home-hero-secondary-btn:hover,
+  .btn.btn-outline-secondary.home-hero-secondary-btn:focus-visible {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+      rgba(36, 28, 56, 0.88) !important;
+    border-color: rgba(184, 107, 255, 0.34) !important;
+    color: #ffffff !important;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.24) !important;
+  }
+  @media (min-width: 992px) {
+    .home-week-card {
+      flex: 0 0 clamp(13.5rem, 18vw, 16rem);
+    }
+  }
+</style>
+{% endblock %}
 {% block content %}
-<div class="container py-3" style="max-width: 1100px;">
-  <div class="row g-4 align-items-stretch">
-    <div class="col-12 col-lg-7">
-      <div class="card h-100 bg-neurobin-card border-0">
-        <div class="card-body p-4">
-          <h1 class="fw-bold mb-3">Evidence-first biotech workflow</h1>
-          <p class="text-secondary mb-3">
-            Explore compounds, evaluate stack tradeoffs, and track intake with confidence and uncertainty shown explicitly.
-          </p>
-          <div class="small text-muted mb-4">
-            Research use only. Do not treat recommendation outputs as clinical instructions.
-          </div>
-          <div class="d-flex flex-wrap gap-2">
-            <a href="{% url 'compound_list' %}" class="btn btn-info" style="--cp-btn-current-bg:#b86bff; --cp-btn-current-bg-hover:#d0a2ff; --cp-btn-current-border:#b86bff; --cp-btn-current-border-hover:#d0a2ff; --cp-btn-current-text:#120a1f;">Browse Compounds</a>
-            <a href="{% url 'research:snippet_list' %}" class="btn btn-outline-secondary">Review Research</a>
-            {% if user.is_authenticated %}
-              <a href="{% url 'my_stacks' %}" class="btn btn-outline-secondary">Resume My Stacks</a>
-            {% else %}
-              <a href="{% url 'register' %}" class="btn btn-outline-secondary">Create Free Account</a>
-            {% endif %}
-          </div>
-        </div>
+<div class="py-3">
+  <div class="card h-100 bg-neurobin-card border-0">
+    <div class="card-body p-4">
+      <h1 class="fw-bold mb-3">Evidence-first biotech workflow</h1>
+      <p class="text-secondary mb-3">
+        Explore compounds, evaluate stack tradeoffs, and track intake with confidence and uncertainty shown explicitly.
+      </p>
+      <div class="small text-muted mb-4">
+        Research use only. Do not treat recommendation outputs as clinical instructions.
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        <a href="{% url 'compound_list' %}" class="btn btn-info" style="--cp-btn-current-bg:#b86bff; --cp-btn-current-bg-hover:#d0a2ff; --cp-btn-current-border:#b86bff; --cp-btn-current-border-hover:#d0a2ff; --cp-btn-current-text:#120a1f;">Browse Compounds</a>
+        <a href="{% url 'research:snippet_list' %}" class="btn btn-outline-secondary home-hero-secondary-btn">Review Research</a>
+        {% if user.is_authenticated %}
+          <a href="{% url 'my_stacks' %}" class="btn btn-outline-secondary home-hero-secondary-btn">Resume My Stacks</a>
+        {% else %}
+          <a href="{% url 'register' %}" class="btn btn-outline-secondary home-hero-secondary-btn">Create Free Account</a>
+        {% endif %}
       </div>
     </div>
+  </div>
 
-    <div class="col-12 col-lg-5">
-      <div class="card h-100 bg-neurobin-card border-0">
-        <div class="card-body p-4">
-          <h2 class="h5 text-white mb-3">Trust Signals</h2>
-          <div class="small text-muted mb-2">Confidence labels are visible on risk and research outputs.</div>
-          <div class="small text-muted mb-2">Source links and provenance are shown where available.</div>
-          <div class="small text-muted mb-2">Versioned change requests support auditability.</div>
-          <div class="small text-muted">No high-pressure prompts. You can explore before creating an account.</div>
+  <div class="card bg-neurobin-card border-0 mt-4">
+    <div class="card-body p-4">
+      <div class="row row-cols-2 row-cols-lg-3 text-center g-3">
+        <div class="col">
+          <div class="home-stat">
+            <div class="home-stat-value counter" data-target="{{ compound_count }}">0</div>
+            <div class="home-stat-label">Compounds</div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="home-stat">
+            <div class="home-stat-value counter" data-target="{{ mechanism_count }}">0</div>
+            <div class="home-stat-label">Mechanisms</div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="home-stat">
+            <div class="home-stat-value counter" data-target="{{ target_count }}">0</div>
+            <div class="home-stat-label">Targets</div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="home-stat">
+            <div class="home-stat-value counter" data-target="{{ public_stack_count }}">0</div>
+            <div class="home-stat-label">Public Stacks</div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="home-stat">
+            <div class="home-stat-value counter" data-target="{{ public_snippet_count }}">0</div>
+            <div class="home-stat-label">Public Snippets</div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="home-stat">
+            <div class="home-stat-value is-success counter" data-target="{{ verified_snippet_count }}">0</div>
+            <div class="home-stat-label">Verified Snippets</div>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="mt-4 pt-3 border-top">
-    <div class="row text-center g-3">
-      <div class="col-6 col-lg-2">
-        <div class="display-6 fw-bold text-primary counter" data-target="{{ compound_count }}">0</div>
-        <div class="text-muted text-uppercase small">Compounds</div>
+  <div class="card bg-neurobin-card border-0 mt-4">
+    <div class="card-body p-4">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div>
+          <h2 class="h5 text-white mb-1">This Week&apos;s Intake</h2>
+          <div class="text-muted small">{{ week_intake.title }}</div>
+        </div>
+        {% if user.is_authenticated %}
+          <a href="{% url 'stack_calendar' %}?period=week" class="btn btn-sm btn-outline-secondary">Open Week Calendar</a>
+        {% else %}
+          <a href="{% url 'register' %}" class="btn btn-sm btn-outline-secondary">Create Free Account</a>
+        {% endif %}
       </div>
-      <div class="col-6 col-lg-2">
-        <div class="display-6 fw-bold text-success counter" data-target="{{ mechanism_count }}">0</div>
-        <div class="text-muted text-uppercase small">Mechanisms</div>
+
+      <div class="home-week-rail" role="list" aria-label="Weekly intake overview">
+        {% for day in week_intake.days %}
+          <section
+            class="home-week-card nb-card-soft {% if day.is_today %}nb-card-soft-active{% endif %} {% if day.count and day.taken_count == day.count %}nb-card-soft-success{% endif %}"
+            role="listitem"
+            data-is-today="{% if day.is_today %}1{% else %}0{% endif %}"
+            data-total-count="{{ day.count }}"
+            data-taken-count="{{ day.taken_count }}"
+          >
+            <div class="home-week-card-top">
+              <div>
+                <div class="home-week-kicker nb-surface-kicker">{{ day.date|date:"D" }}</div>
+                <div class="home-week-date nb-surface-title">{{ day.date|date:"M j" }}</div>
+              </div>
+              <div class="home-week-badge">{{ day.count }} scheduled</div>
+            </div>
+
+            {% if day.count %}
+              <div class="home-week-progress">
+                <div class="home-week-progress-label">{{ day.taken_count }}/{{ day.count }} taken</div>
+                <div class="home-week-progress-track">
+                  <div class="home-week-progress-bar" style="width: {{ day.percent_taken }}%;"></div>
+                </div>
+              </div>
+
+              <div class="home-week-items nb-scroll-y">
+                {% for item in day.items %}
+                  <form method="post" class="home-week-item-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="stack_item_id" value="{{ item.stack_item_id }}">
+                    <input type="hidden" name="scheduled_for" value="{{ item.scheduled_for|date:'c' }}">
+                    <button
+                      type="submit"
+                      class="home-week-item nb-row-soft {% if item.is_taken %}is-taken{% endif %}"
+                      name="{% if item.is_taken %}untake_stack_item{% else %}take_stack_item{% endif %}"
+                      value="1"
+                      data-compound-name="{{ item.compound_name|escape }}"
+                      title="{% if item.is_taken %}Click to mark as not taken{% else %}Click to mark as taken{% endif %}"
+                      aria-label="{% if item.is_taken %}Mark {{ item.compound_name }} as not taken{% else %}Mark {{ item.compound_name }} as taken{% endif %}"
+                    >
+                      <div class="home-week-item-time">
+                        <span>{{ item.scheduled_for|date:"H:i" }}</span>
+                        <span class="home-week-item-dot" aria-hidden="true"></span>
+                      </div>
+                      <div class="home-week-item-body">
+                        <span class="home-week-item-link">{{ item.compound_name }}</span>
+                        <span class="home-week-item-stack">{{ item.stack_name }}</span>
+                      </div>
+                    </button>
+                  </form>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="home-week-empty">No scheduled items.</div>
+            {% endif %}
+          </section>
+        {% endfor %}
       </div>
-      <div class="col-6 col-lg-2">
-        <div class="display-6 fw-bold text-warning counter" data-target="{{ target_count }}">0</div>
-        <div class="text-muted text-uppercase small">Targets</div>
-      </div>
-      <div class="col-6 col-lg-2">
-        <div class="display-6 fw-bold text-info counter" data-target="{{ public_stack_count }}">0</div>
-        <div class="text-muted text-uppercase small">Public Stacks</div>
-      </div>
-      <div class="col-6 col-lg-2">
-        <div class="display-6 fw-bold text-primary counter" data-target="{{ public_snippet_count }}">0</div>
-        <div class="text-muted text-uppercase small">Public Snippets</div>
-      </div>
-      <div class="col-6 col-lg-2">
-        <div class="display-6 fw-bold text-success counter" data-target="{{ verified_snippet_count }}">0</div>
-        <div class="text-muted text-uppercase small">Verified Snippets</div>
+
+      <div class="small text-muted mt-3">
+        {% if week_intake.is_preview %}
+          Sign in to populate this rail from your active stacks and keep the weekly view synced with the calendar.
+        {% elif week_intake.has_items %}
+          This mirrors the current week from your active stack schedule with taken items called out inline.
+        {% else %}
+          Activate a stack or add a recurring compound to fill in this week.
+        {% endif %}
       </div>
     </div>
   </div>
@@ -137,7 +461,7 @@
   <div class="text-center mt-4">
     <small class="text-muted">
       <i class="fas fa-database me-1"></i>
-      Curated from ChEMBL and scientific databases
+      Curated from scientific databases
       <span class="mx-2">•</span>
       <a href="{% url 'about' %}" class="text-muted text-decoration-none">About</a>
       <span class="mx-2">•</span>
@@ -174,6 +498,130 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   counters.forEach(counter => observer.observe(counter));
+
+  const weekRail = document.querySelector('.home-week-rail');
+  const todayCard = weekRail ? weekRail.querySelector('.home-week-card[data-is-today="1"]') : null;
+  if (weekRail && todayCard && weekRail.scrollWidth > weekRail.clientWidth) {
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const maxScrollLeft = Math.max(0, weekRail.scrollWidth - weekRail.clientWidth);
+    const targetLeft = Math.max(
+      0,
+      Math.min(
+        maxScrollLeft,
+        todayCard.offsetLeft - ((weekRail.clientWidth - todayCard.offsetWidth) / 2)
+      )
+    );
+
+    requestAnimationFrame(() => {
+      weekRail.scrollTo({
+        left: targetLeft,
+        behavior: prefersReducedMotion ? 'auto' : 'smooth',
+      });
+    });
+  }
+
+  const updateWeekCardState = (button, isTaken) => {
+    const card = button.closest('.home-week-card');
+    if (!card) {
+      return;
+    }
+
+    const totalCount = parseInt(card.dataset.totalCount || '0', 10);
+    const currentTakenCount = parseInt(card.dataset.takenCount || '0', 10);
+    const nextTakenCount = Math.max(
+      0,
+      Math.min(totalCount, currentTakenCount + (isTaken ? 1 : -1))
+    );
+    card.dataset.takenCount = String(nextTakenCount);
+
+    button.classList.toggle('is-taken', isTaken);
+    button.name = isTaken ? 'untake_stack_item' : 'take_stack_item';
+
+    const compoundName = button.dataset.compoundName || 'item';
+    button.title = isTaken ? 'Click to mark as not taken' : 'Click to mark as taken';
+    button.setAttribute(
+      'aria-label',
+      isTaken
+        ? `Mark ${compoundName} as not taken`
+        : `Mark ${compoundName} as taken`
+    );
+
+    const progressLabel = card.querySelector('.home-week-progress-label');
+    if (progressLabel) {
+      progressLabel.textContent = `${nextTakenCount}/${totalCount} taken`;
+    }
+
+    const progressBar = card.querySelector('.home-week-progress-bar');
+    if (progressBar) {
+      const percent = totalCount ? Math.round((nextTakenCount / totalCount) * 100) : 0;
+      progressBar.style.width = `${percent}%`;
+    }
+
+    card.classList.toggle('nb-card-soft-success', totalCount > 0 && nextTakenCount === totalCount);
+  };
+
+  const submitWeekFormFallback = (form, button) => {
+    const actionInput = document.createElement('input');
+    actionInput.type = 'hidden';
+    actionInput.name = button.name;
+    actionInput.value = button.value || '1';
+    form.appendChild(actionInput);
+    form.submit();
+  };
+
+  document.querySelectorAll('.home-week-item-form').forEach((form) => {
+    const button = form.querySelector('.home-week-item');
+    if (!button) {
+      return;
+    }
+
+    button.addEventListener('click', async (event) => {
+      event.preventDefault();
+      if (button.disabled) {
+        return;
+      }
+
+      const csrfInput = form.querySelector('input[name="csrfmiddlewaretoken"]');
+      if (!csrfInput) {
+        submitWeekFormFallback(form, button);
+        return;
+      }
+
+      button.disabled = true;
+
+      try {
+        const formData = new FormData(form);
+        formData.append(button.name, button.value || '1');
+
+        const response = await fetch(form.action || window.location.href, {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRFToken': csrfInput.value,
+            'Accept': 'application/json',
+          },
+          credentials: 'same-origin',
+        });
+
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+
+        const payload = await response.json();
+        if (!payload.ok || typeof payload.is_taken !== 'boolean') {
+          throw new Error('Unexpected response payload');
+        }
+
+        updateWeekCardState(button, payload.is_taken);
+      } catch (error) {
+        console.error('Failed to toggle intake state from homepage:', error);
+        submitWeekFormFallback(form, button);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
 });
 </script>
 {% endblock %}

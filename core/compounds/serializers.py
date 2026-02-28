@@ -77,7 +77,11 @@ class CompoundSerializer(serializers.ModelSerializer):
     class Meta:
         model = Compound
         fields = '__all__'
-        read_only_fields = ('slug',)
+        read_only_fields = (
+            'slug',
+            'pubmed_interactions',
+            'enriched_at',
+        )
 
     def create(self, validated_data):
         categories_ids = validated_data.pop('categories_ids', [])

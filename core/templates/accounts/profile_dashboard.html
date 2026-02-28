@@ -172,6 +172,13 @@
                     type="button" role="tab" aria-controls="reviews" aria-selected="{% if active_tab == 'reviews' %}true{% else %}false{% endif %}">
               <i class="fas fa-star me-2"></i>Reviews Given
             </button>
+            {% if is_own_profile %}
+              <button class="nav-link bg-transparent border-0 {% if active_tab == 'goals' %}text-neurobin-accent border-bottom border-3{% else %}text-secondary{% endif %}" 
+                      id="goals-tab" data-bs-toggle="tab" data-bs-target="#goals" 
+                      type="button" role="tab" aria-controls="goals" aria-selected="{% if active_tab == 'goals' %}true{% else %}false{% endif %}">
+                <i class="fas fa-calendar-check me-2"></i>Goals
+              </button>
+            {% endif %}
             <button class="nav-link bg-transparent border-0 {% if active_tab == 'stacks' %}text-neurobin-accent border-bottom border-3{% else %}text-secondary{% endif %}" 
                     id="stacks-tab" data-bs-toggle="tab" data-bs-target="#stacks" 
                     type="button" role="tab" aria-controls="stacks" aria-selected="{% if active_tab == 'stacks' %}true{% else %}false{% endif %}">
@@ -403,6 +410,88 @@
             {% endif %}
           </div>
 
+          {% if is_own_profile %}
+            <div class="tab-pane fade {% if active_tab == 'goals' %}show active{% endif %}" id="goals" role="tabpanel" aria-labelledby="goals-tab">
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <h5 class="text-light mb-0">Weekly Goals</h5>
+                <div class="d-flex flex-wrap gap-2">
+                  <span class="badge bg-success">
+                    Streak: {{ goal_tracker.streak_days }} day{{ goal_tracker.streak_days|pluralize }}
+                  </span>
+                  <span class="badge bg-secondary">
+                    Week: {{ goal_tracker.week_completed_count }}/{{ goal_tracker.week_total_count }}
+                  </span>
+                </div>
+              </div>
+
+              <form method="post" class="row g-2 mb-4">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="add_profile_goal">
+                <div class="col-md-6">
+                  <input type="text" class="form-control bg-neurobin-dark text-light border-secondary" name="goal_name" maxlength="120" required placeholder="Add a goal (e.g., Cardio 20 minutes)">
+                </div>
+                <div class="col-md-3">
+                  <select class="form-select bg-neurobin-dark text-light border-secondary" name="goal_type">
+                    <option value="workout">Workout</option>
+                    <option value="health">Health</option>
+                  </select>
+                </div>
+                <div class="col-md-3 d-grid">
+                  <button type="submit" class="btn btn-outline-info">
+                    <i class="fas fa-plus me-1"></i>Add Goal
+                  </button>
+                </div>
+              </form>
+
+              {% if goal_tracker.goals %}
+                <div class="table-responsive">
+                  <table class="table table-sm align-middle mb-0 goal-week-table">
+                    <thead>
+                      <tr>
+                        <th class="text-secondary">Goal</th>
+                        {% for day in goal_tracker.week_days %}
+                          <th class="text-center text-secondary {% if day == goal_tracker.today %}goal-today-header{% endif %}">
+                            {{ day|date:"D" }}<br>
+                            <small class="text-muted">{{ day|date:"M j" }}</small>
+                          </th>
+                        {% endfor %}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for goal_row in goal_tracker.goals %}
+                        <tr>
+                          <td class="text-light small">
+                            {{ goal_row.name }}
+                            <span class="badge ms-1 {% if goal_row.goal_type == 'workout' %}bg-info{% else %}bg-secondary{% endif %}">
+                              {{ goal_row.goal_type|title }}
+                            </span>
+                          </td>
+                          {% for cell in goal_row.checks %}
+                            <td class="text-center {% if cell.is_today %}goal-today-cell{% endif %}">
+                              <form method="post" class="m-0 js-goal-check-form">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="toggle_goal_completion">
+                                <input type="hidden" name="goal_id" value="{{ goal_row.id }}">
+                                <input type="hidden" name="goal_date" value="{{ cell.date_iso }}">
+                                <input class="form-check-input js-auto-goal-check" type="checkbox" name="is_completed" value="1" {% if cell.completed %}checked{% endif %}>
+                              </form>
+                            </td>
+                          {% endfor %}
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              {% else %}
+                <div class="text-center py-4 bg-neurobin-dark rounded border border-secondary">
+                  <i class="fas fa-bullseye text-muted" style="font-size: 2rem;"></i>
+                  <h6 class="text-secondary mt-2 mb-1">No goals yet</h6>
+                  <p class="text-muted mb-0">Add a workout or health goal to start tracking this week.</p>
+                </div>
+              {% endif %}
+            </div>
+          {% endif %}
+
           <!-- Stacks Tab -->
           <div class="tab-pane fade {% if active_tab == 'stacks' %}show active{% endif %}" id="stacks" role="tabpanel" aria-labelledby="stacks-tab">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
@@ -510,11 +599,17 @@
 
           {% if has_analytics %}
             <div class="tab-pane fade {% if active_tab == 'analytics' %}show active{% endif %}" id="analytics" role="tabpanel" aria-labelledby="analytics-tab">
-              {% include "logs/_analytics_dashboard_content.html" with embed_in_profile=True %}
+              {% include "logs/_analytics_dashboard_content.html" with embed_in_profile=True show_effect_timeline=False %}
             </div>
           {% endif %}
         </div>
       </div>
+
+      {% if has_analytics %}
+        <div class="mt-4 {% if active_tab != 'analytics' %}d-none{% endif %}" id="profile-effect-timeline-block">
+          {% include "includes/effect_curves.html" with page_type='dashboard' %}
+        </div>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -546,6 +641,21 @@
 .profile-dropdown .dropdown-menu {
   z-index: 10000 !important;
 }
+
+.goal-week-table {
+  --bs-table-bg: transparent;
+  --bs-table-color: var(--text-primary);
+}
+
+.goal-week-table td,
+.goal-week-table th {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.goal-today-cell,
+.goal-today-header {
+  background: rgba(13, 202, 240, 0.08);
+}
 </style>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -559,6 +669,35 @@ document.addEventListener('DOMContentLoaded', function () {
       form.submit();
     });
   });
+
+  document.querySelectorAll('.js-auto-goal-check').forEach(function (input) {
+    input.addEventListener('change', function () {
+      const form = input.closest('.js-goal-check-form');
+      if (!form) {
+        return;
+      }
+      form.submit();
+    });
+  });
+
+  const timelineBlock = document.getElementById('profile-effect-timeline-block');
+  if (timelineBlock) {
+    const syncTimelineVisibility = function () {
+      const analyticsPane = document.getElementById('analytics');
+      const analyticsActive = analyticsPane &&
+        analyticsPane.classList.contains('show') &&
+        analyticsPane.classList.contains('active');
+      timelineBlock.classList.toggle('d-none', !analyticsActive);
+      if (analyticsActive) {
+        window.dispatchEvent(new Event('resize'));
+      }
+    };
+
+    syncTimelineVisibility();
+    document.querySelectorAll('#profileTabs [data-bs-toggle="tab"]').forEach(function (tabButton) {
+      tabButton.addEventListener('shown.bs.tab', syncTimelineVisibility);
+    });
+  }
 });
 </script>
 {% endblock %}

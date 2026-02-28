@@ -1,1 +1,0 @@
-# minimal stacks app

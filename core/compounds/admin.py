@@ -35,17 +35,21 @@ class CompoundAdmin(admin.ModelAdmin):
         'name',
         'slug',
         'chembl_id',
+        'bindingdb_id',
+        'pubchem_cid',
         'anabolic_rating_value',
         'androgenic_rating_value',
         'smiles',
     )
     prepopulated_fields = {'slug': ('name',)}
     filter_horizontal = ('categories',)
-    search_fields = ('name', 'aliases', 'description', 'chembl_id')
+    search_fields = ('name', 'aliases', 'description', 'chembl_id', 'bindingdb_id', 'pubchem_cid')
     fields = (
         'name',
         'slug',
         'chembl_id',
+        'bindingdb_id',
+        'pubchem_cid',
         'description',
         'aliases',
         'smiles',

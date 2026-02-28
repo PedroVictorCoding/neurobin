@@ -1,7 +1,10 @@
 import json
+import csv
 import hashlib
 import math
+import os
 import re
+import tempfile
 from io import StringIO
 from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 from urllib.parse import quote
@@ -31,6 +34,7 @@ from .models import (
     CompoundSteroidRating,
 )
 from .forms import CompoundForm, MechanismOfActionForm, CategoryForm, TargetForm
+from .enrichment import enrich_compound
 from .interaction_engine import canonicalize_mechanism
 
 try:
@@ -278,8 +282,24 @@ def _build_compound_depth1_graph(compound):
     return {"nodes": nodes, "edges": edges, "radius": radius}
 
 
+def _auto_enrich_compound_on_access(compound: Compound) -> None:
+    try:
+        enrich_compound(compound)
+    except Exception:
+        pass
+
+    if CompoundTargetInteraction.objects.filter(compound=compound).exists():
+        return
+
+    try:
+        _import_missing_mechanisms_for_compound(compound)
+    except Exception:
+        return
+
+
 def compound_detail(request, slug):
     compound = get_object_or_404(Compound.objects.select_related('steroid_ratings'), slug=slug)
+    _auto_enrich_compound_on_access(compound)
     try:
         steroid_ratings = compound.steroid_ratings
     except CompoundSteroidRating.DoesNotExist:
@@ -546,6 +566,9 @@ def _append_query_params(url: str, params: dict) -> str:
 _MOA_INTERACTION_CHOICES = {
     key for key, _ in CompoundMechanismOfAction.INTERACTION_TYPES
 }
+_CTI_MECHANISM_CHOICES = {
+    key for key, _ in CompoundTargetInteraction.MECHANISM_CHOICES
+}
 
 
 def _normalize_interaction(action_type: str = "", mechanism_text: str = "") -> str:
@@ -629,19 +652,36 @@ def _fetch_pubchem_mechanisms_for_compound(compound: Compound) -> list[dict]:
     if requests is None:
         return []
 
-    safe_name = quote(compound.name.strip())
-    cid_url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{safe_name}/cids/JSON"
-    cid_resp = requests.get(cid_url, timeout=20)
-    cid_resp.raise_for_status()
-    cid_payload = cid_resp.json() if cid_resp.content else {}
-    cids = (((cid_payload.get("IdentifierList") or {}).get("CID")) or [])[:1]
-    if not cids:
+    cid_value = (compound.pubchem_cid or "").strip()
+    try:
+        if not cid_value:
+            safe_name = quote((compound.name or "").strip())
+            if not safe_name:
+                return []
+            cid_url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{safe_name}/cids/JSON"
+            cid_resp = requests.get(cid_url, timeout=20)
+            if cid_resp.status_code == 404:
+                return []
+            cid_resp.raise_for_status()
+            cid_payload = cid_resp.json() if cid_resp.content else {}
+            cids = (((cid_payload.get("IdentifierList") or {}).get("CID")) or [])[:1]
+            if not cids:
+                return []
+            cid_value = str(cids[0]).strip()
+
+        if not cid_value:
+            return []
+
+        view_url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/{quote(cid_value)}/JSON"
+        view_resp = requests.get(view_url, timeout=20)
+        if view_resp.status_code == 404:
+            return []
+        view_resp.raise_for_status()
+        view_payload = view_resp.json() if view_resp.content else {}
+    except Exception:
+        # External API failures should not abort the full import flow.
         return []
 
-    view_url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/{cids[0]}/JSON"
-    view_resp = requests.get(view_url, timeout=20)
-    view_resp.raise_for_status()
-    view_payload = view_resp.json() if view_resp.content else {}
     record = view_payload.get("Record") or {}
     sections = record.get("Section") or []
 
@@ -682,6 +722,9 @@ def _fetch_zinc_mechanisms_for_compound(compound: Compound) -> list[dict]:
 
 def _import_missing_mechanisms_for_compound(compound: Compound) -> dict:
     existing_keys = _existing_mechanism_keys(compound)
+    existing_target_interactions = set(
+        CompoundTargetInteraction.objects.filter(compound=compound).values_list("target_id", "mechanism")
+    )
     imported = 0
     source_used = ""
     attempted_sources: list[str] = []
@@ -694,18 +737,20 @@ def _import_missing_mechanisms_for_compound(compound: Compound) -> dict:
 
     for source_name, fetcher in source_fetchers:
         attempted_sources.append(source_name)
-        rows = fetcher(compound) or []
+        try:
+            rows = fetcher(compound) or []
+        except Exception:
+            continue
         if not rows:
             continue
 
         added_this_source = 0
         for row in rows:
             interaction = (row.get("interaction") or "unknown").strip().lower()
+            cti_mechanism = interaction if interaction in _CTI_MECHANISM_CHOICES else "unknown"
             target_name_raw = (row.get("target_name") or "").strip()
             target_key = target_name_raw.lower()
             dedupe_key = (target_key, interaction)
-            if dedupe_key in existing_keys:
-                continue
 
             target_obj = None
             if target_name_raw:
@@ -721,14 +766,34 @@ def _import_missing_mechanisms_for_compound(compound: Compound) -> dict:
                     defaults=target_defaults,
                 )
 
-            moa, _ = CompoundMechanismOfAction.objects.get_or_create(
-                target_name=target_obj,
-                target_type=(row.get("target_type") or "other")[:100] or "other",
-                target_interaction=interaction if interaction in _MOA_INTERACTION_CHOICES else "unknown",
-                description=(row.get("description") or "")[:1000],
+            if dedupe_key not in existing_keys:
+                moa, _ = CompoundMechanismOfAction.objects.get_or_create(
+                    target_name=target_obj,
+                    target_type=(row.get("target_type") or "other")[:100] or "other",
+                    target_interaction=interaction if interaction in _MOA_INTERACTION_CHOICES else "unknown",
+                    description=(row.get("description") or "")[:1000],
+                )
+                compound.mechanism_of_action.add(moa)
+                existing_keys.add(dedupe_key)
+                imported += 1
+                added_this_source += 1
+
+            if not target_obj:
+                continue
+
+            cti_key = (target_obj.id, cti_mechanism)
+            if cti_key in existing_target_interactions:
+                continue
+
+            CompoundTargetInteraction.objects.create(
+                compound=compound,
+                target=target_obj,
+                mechanism=cti_mechanism,
+                affinity_level="unknown",
+                notes=(row.get("description") or "")[:1000],
+                source=(row.get("source") or source_name).upper()[:100],
             )
-            compound.mechanism_of_action.add(moa)
-            existing_keys.add(dedupe_key)
+            existing_target_interactions.add(cti_key)
             imported += 1
             added_this_source += 1
 
@@ -741,6 +806,761 @@ def _import_missing_mechanisms_for_compound(compound: Compound) -> dict:
         "source": source_used,
         "attempted": attempted_sources,
     }
+
+
+def _fetch_pubchem_compound_properties(pubchem_cid: str) -> dict:
+    if requests is None:
+        return {}
+
+    safe_cid = quote((pubchem_cid or "").strip())
+    if not safe_cid:
+        return {}
+
+    url = (
+        "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/"
+        f"{safe_cid}/property/"
+        "Title,CanonicalSMILES,SMILES,ConnectivitySMILES,IsomericSMILES,"
+        "InChI,InChIKey,IUPACName,MolecularFormula,MolecularWeight/JSON"
+    )
+    response = requests.get(url, timeout=20)
+    response.raise_for_status()
+    payload = response.json() if response.content else {}
+    properties = ((payload.get("PropertyTable") or {}).get("Properties")) or []
+    if not properties or not isinstance(properties[0], dict):
+        return {}
+
+    row = properties[0]
+    smiles_value = (
+        (row.get("CanonicalSMILES") or "")
+        or (row.get("SMILES") or "")
+        or (row.get("IsomericSMILES") or "")
+        or (row.get("ConnectivitySMILES") or "")
+    ).strip()
+    return {
+        "title": (row.get("Title") or "").strip(),
+        "smiles": smiles_value,
+        "inchi": (row.get("InChI") or "").strip(),
+        "inchi_key": (row.get("InChIKey") or "").strip(),
+        "iupac_name": (row.get("IUPACName") or "").strip(),
+        "molecular_formula": (row.get("MolecularFormula") or "").strip(),
+        "molecular_weight": str(row.get("MolecularWeight") or "").strip(),
+    }
+
+
+_CHEMBL_ID_RE = re.compile(r"^CHEMBL\d+$", flags=re.IGNORECASE)
+
+
+def _fetch_pubchem_registry_ids(pubchem_cid: str) -> list[str]:
+    if requests is None:
+        return []
+
+    cid = (pubchem_cid or "").strip()
+    if not cid:
+        return []
+
+    safe_cid = quote(cid)
+    url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{safe_cid}/xrefs/RegistryID/JSON"
+    try:
+        response = requests.get(url, timeout=20)
+        if response.status_code == 404:
+            return []
+        response.raise_for_status()
+        payload = response.json() if response.content else {}
+    except Exception:
+        return []
+
+    info_rows = ((payload.get("InformationList") or {}).get("Information")) or []
+    if not info_rows or not isinstance(info_rows[0], dict):
+        return []
+
+    registry_ids = info_rows[0].get("RegistryID") or []
+    if not isinstance(registry_ids, list):
+        return []
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in registry_ids:
+        text = (str(raw) if raw is not None else "").strip()
+        if not text:
+            continue
+        key = text.upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(text)
+    return out
+
+
+def _fetch_pubchem_synonyms(pubchem_cid: str) -> list[str]:
+    if requests is None:
+        return []
+
+    cid = (pubchem_cid or "").strip()
+    if not cid:
+        return []
+
+    safe_cid = quote(cid)
+    url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{safe_cid}/synonyms/JSON"
+    try:
+        response = requests.get(url, timeout=20)
+        if response.status_code == 404:
+            return []
+        response.raise_for_status()
+        payload = response.json() if response.content else {}
+    except Exception:
+        return []
+
+    info_rows = ((payload.get("InformationList") or {}).get("Information")) or []
+    if not info_rows or not isinstance(info_rows[0], dict):
+        return []
+
+    raw_synonyms = info_rows[0].get("Synonym") or []
+    if not isinstance(raw_synonyms, list):
+        return []
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_synonyms:
+        text = (str(raw) if raw is not None else "").strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(text)
+    return out
+
+
+def _iter_pubchem_sections(sections: list[dict]) -> list[dict]:
+    out: list[dict] = []
+    for section in sections or []:
+        if not isinstance(section, dict):
+            continue
+        out.append(section)
+        children = section.get("Section") or []
+        if children:
+            out.extend(_iter_pubchem_sections(children))
+    return out
+
+
+def _fetch_pubchem_summary(pubchem_cid: str) -> str:
+    if requests is None:
+        return ""
+
+    cid = (pubchem_cid or "").strip()
+    if not cid:
+        return ""
+
+    safe_cid = quote(cid)
+    url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/{safe_cid}/JSON"
+    try:
+        response = requests.get(url, timeout=20)
+        if response.status_code == 404:
+            return ""
+        response.raise_for_status()
+        payload = response.json() if response.content else {}
+    except Exception:
+        return ""
+
+    record = payload.get("Record") or {}
+    sections = _iter_pubchem_sections(record.get("Section") or [])
+    preferred: list[str] = []
+    fallback: list[str] = []
+
+    for section in sections:
+        heading = (section.get("TOCHeading") or "").strip().lower()
+        texts = [
+            re.sub(r"\s+", " ", text).strip()
+            for text in _iter_pubchem_section_text(section)
+        ]
+        texts = [text for text in texts if text]
+        if not texts:
+            continue
+        first = texts[0]
+        if heading in {"record description", "summary"}:
+            return first
+        if "description" in heading or "summary" in heading:
+            preferred.append(first)
+        elif "use" in heading or "drug" in heading:
+            fallback.append(first)
+
+    if preferred:
+        return preferred[0]
+    if fallback:
+        return fallback[0]
+    return ""
+
+
+def _fetch_pubchem_bindingdb_ids(pubchem_cid: str) -> list[str]:
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for raw in _fetch_pubchem_registry_ids(pubchem_cid):
+        text = raw.strip().upper()
+        match = re.search(r"\bBDBM(\d+)\b", text)
+        if not match:
+            continue
+        monomer_id = match.group(1).strip()
+        if not monomer_id or monomer_id in seen:
+            continue
+        seen.add(monomer_id)
+        candidates.append(monomer_id)
+    return candidates
+
+
+def _merge_compound_aliases(compound: Compound, candidates: list[str]) -> str:
+    names_to_skip = {
+        (compound.name or "").strip().lower(),
+        (compound.iupac_name or "").strip().lower(),
+    }
+    existing = [
+        part.strip()
+        for part in (compound.aliases or "").split(",")
+        if part.strip()
+    ]
+    merged: list[str] = []
+    seen: set[str] = set()
+
+    def _push(raw_value: str) -> None:
+        normalized = (raw_value or "").strip()
+        if not normalized:
+            return
+        cleaned = normalize_compound_name(normalized)
+        if not cleaned:
+            return
+        key = cleaned.lower()
+        if key in seen or key in names_to_skip:
+            return
+        if len(cleaned) > 120:
+            return
+        candidate_list = merged + [cleaned]
+        joined = ", ".join(candidate_list)
+        if len(joined) > 255:
+            return
+        seen.add(key)
+        merged.append(cleaned)
+
+    for alias in existing:
+        _push(alias)
+    for alias in candidates or []:
+        _push(alias)
+
+    return ", ".join(merged)
+
+
+def _compound_identifier_conflicts(compound: Compound, field_name: str, incoming: str) -> bool:
+    value = (incoming or "").strip()
+    if not value:
+        return False
+
+    queryset = Compound.objects.all()
+    if compound.pk:
+        queryset = queryset.exclude(pk=compound.pk)
+    return queryset.filter(**{f"{field_name}__iexact": value}).exists()
+
+
+def _apply_pubchem_metadata_backfill(compound: Compound) -> Compound:
+    cid = (compound.pubchem_cid or "").strip()
+    if not cid:
+        return compound
+
+    update_fields: set[str] = set()
+    try:
+        payload = _fetch_pubchem_compound_properties(cid)
+    except Exception:
+        payload = {}
+
+    def _set_if_blank(field_name: str, value: str, max_len: int | None = None) -> None:
+        incoming = (value or "").strip()
+        if not incoming:
+            return
+        current = getattr(compound, field_name, None)
+        current_text = str(current).strip() if current is not None else ""
+        if current_text:
+            return
+        if max_len is not None:
+            incoming = incoming[:max_len]
+        setattr(compound, field_name, incoming)
+        update_fields.add(field_name)
+
+    _set_if_blank("smiles", payload.get("smiles", ""), 1000)
+    _set_if_blank("inchi", payload.get("inchi", ""), 4000)
+    _set_if_blank("inchi_key", payload.get("inchi_key", ""), 64)
+    _set_if_blank("iupac_name", payload.get("iupac_name", ""), 1000)
+    _set_if_blank("molecular_formula", payload.get("molecular_formula", ""), 100)
+    _set_if_blank("molecular_weight", payload.get("molecular_weight", ""), 50)
+
+    if not (compound.chembl_id or "").strip():
+        resolved_chembl_id = _resolve_pubchem_chembl_id(cid, payload.get("inchi_key", "") or compound.inchi_key)
+        if resolved_chembl_id and not _compound_identifier_conflicts(compound, "chembl_id", resolved_chembl_id):
+            compound.chembl_id = resolved_chembl_id[:20]
+            update_fields.add("chembl_id")
+
+    if not (compound.bindingdb_id or "").strip():
+        bindingdb_ids = _fetch_pubchem_bindingdb_ids(cid)
+        if bindingdb_ids:
+            bindingdb_id = bindingdb_ids[0]
+            if not _compound_identifier_conflicts(compound, "bindingdb_id", bindingdb_id):
+                compound.bindingdb_id = bindingdb_id[:32]
+                update_fields.add("bindingdb_id")
+
+    merged_aliases = _merge_compound_aliases(compound, _fetch_pubchem_synonyms(cid))
+    if merged_aliases and merged_aliases != (compound.aliases or ""):
+        compound.aliases = merged_aliases
+        update_fields.add("aliases")
+
+    if not (compound.description or "").strip():
+        summary = _fetch_pubchem_summary(cid)
+        if summary:
+            compound.description = summary
+            update_fields.add("description")
+
+    if update_fields:
+        compound.save(update_fields=sorted(update_fields))
+    return compound
+
+
+def _run_chembl_backfill_import(compound: Compound) -> Compound:
+    chembl_id = (compound.chembl_id or "").strip().upper()
+    if not chembl_id or not chembl_id.startswith("CHEMBL"):
+        return compound
+
+    chembl_out = StringIO()
+    try:
+        call_command(
+            "import_chembl_interactions",
+            compounds=chembl_id,
+            batch_size=1,
+            create_compound_interactions=False,
+            update_existing=True,
+            stdout=chembl_out,
+            stderr=chembl_out,
+        )
+    except Exception:
+        return compound
+
+    refreshed = Compound.objects.filter(chembl_id__iexact=chembl_id).first()
+    return refreshed or compound
+
+
+def _pick_best_chembl_id(candidates: list[str]) -> str:
+    clean: list[str] = []
+    seen: set[str] = set()
+    for raw in candidates or []:
+        value = (raw or "").strip().upper()
+        if not _CHEMBL_ID_RE.fullmatch(value):
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        clean.append(value)
+
+    if not clean:
+        return ""
+
+    def _sort_key(chembl_id: str) -> tuple[int, int]:
+        num = chembl_id[6:]
+        try:
+            parsed = int(num)
+        except ValueError:
+            parsed = 10**12
+        return (parsed, len(chembl_id))
+
+    clean.sort(key=_sort_key)
+    return clean[0]
+
+
+def _fetch_chembl_id_by_inchikey(inchi_key: str) -> str:
+    if requests is None:
+        return ""
+
+    key = (inchi_key or "").strip()
+    if not key:
+        return ""
+
+    url = "https://www.ebi.ac.uk/chembl/api/data/molecule.json"
+    params = {
+        "molecule_structures__standard_inchi_key": key,
+        "limit": 5,
+    }
+    try:
+        response = requests.get(url, params=params, timeout=20)
+        response.raise_for_status()
+        payload = response.json() if response.content else {}
+    except Exception:
+        return ""
+
+    molecules = (payload.get("molecules") or [])
+    candidates = [
+        (row or {}).get("molecule_chembl_id", "")
+        for row in molecules
+        if isinstance(row, dict)
+    ]
+    return _pick_best_chembl_id(candidates)
+
+
+def _fetch_pubchem_chembl_ids(pubchem_cid: str) -> list[str]:
+    candidates = []
+    for raw in _fetch_pubchem_registry_ids(pubchem_cid):
+        text = (str(raw) if raw is not None else "").strip().upper()
+        match = re.search(r"CHEMBL\d+", text)
+        if match:
+            candidates.append(match.group(0))
+    return candidates
+
+
+def _resolve_pubchem_chembl_id(pubchem_cid: str, inchi_key: str) -> str:
+    from_inchi = _fetch_chembl_id_by_inchikey(inchi_key)
+    if from_inchi:
+        return from_inchi
+    return _pick_best_chembl_id(_fetch_pubchem_chembl_ids(pubchem_cid))
+
+
+def _build_unique_compound_name(
+    base_name: str,
+    identifier: str,
+    *,
+    fallback_label: str = "PubChem CID",
+) -> str:
+    seed = (base_name or "").strip() or f"{fallback_label} {identifier}"
+    seed = seed[:500]
+    if not Compound.objects.filter(name__iexact=seed).exists():
+        return seed
+
+    for idx in range(2, 1000):
+        suffix = f" ({idx})"
+        stem = seed[: max(1, 500 - len(suffix))]
+        candidate = f"{stem}{suffix}"
+        if not Compound.objects.filter(name__iexact=candidate).exists():
+            return candidate
+
+    fallback = f"{fallback_label} {identifier}"
+    return fallback[:500]
+
+
+def _import_compound_from_pubchem_cid(pubchem_cid: str) -> tuple[Compound | None, str]:
+    cid = (pubchem_cid or "").strip()
+    if not cid:
+        return None, "Enter a PubChem CID to import."
+    if not cid.isdigit():
+        return None, "PubChem CID must be numeric (example: 2244)."
+
+    payload = _fetch_pubchem_compound_properties(cid)
+    if not payload:
+        return None, f"No PubChem record found for CID {cid}."
+
+    base_name = (payload.get("title") or payload.get("iupac_name") or f"PubChem CID {cid}").strip()
+    resolved_chembl_id = _resolve_pubchem_chembl_id(cid, payload.get("inchi_key", ""))
+    compound = Compound.objects.filter(pubchem_cid=cid).first()
+
+    if compound is None:
+        if resolved_chembl_id:
+            matched_by_chembl = Compound.objects.filter(chembl_id__iexact=resolved_chembl_id).first()
+            if matched_by_chembl:
+                compound = matched_by_chembl
+        matched_by_name = Compound.objects.filter(name__iexact=base_name).first()
+        if compound is None and matched_by_name:
+            matched_cid = (matched_by_name.pubchem_cid or "").strip()
+            if not matched_cid:
+                compound = matched_by_name
+        if compound is None:
+            compound = Compound(name=_build_unique_compound_name(base_name, cid, fallback_label="PubChem CID"))
+
+    updated_fields = set()
+
+    def _has_identifier_conflict(field_name: str, incoming: str) -> bool:
+        if not incoming:
+            return False
+        qs = Compound.objects.all()
+        if compound.pk:
+            qs = qs.exclude(pk=compound.pk)
+        if field_name in {"chembl_id", "pubchem_cid", "bindingdb_id"}:
+            return qs.filter(**{f"{field_name}__iexact": incoming}).exists()
+        return qs.filter(**{field_name: incoming}).exists()
+
+    def _set_if_blank(field_name: str, value: str, max_len: int) -> None:
+        incoming = (value or "").strip()
+        if not incoming:
+            return
+        if _has_identifier_conflict(field_name, incoming):
+            return
+        current = getattr(compound, field_name, None)
+        current_text = str(current).strip() if current is not None else ""
+        if current_text:
+            return
+        setattr(compound, field_name, incoming[:max_len])
+        updated_fields.add(field_name)
+
+    _set_if_blank("pubchem_cid", cid, 32)
+    _set_if_blank("chembl_id", resolved_chembl_id, 20)
+    _set_if_blank("smiles", payload.get("smiles", ""), 1000)
+    _set_if_blank("inchi", payload.get("inchi", ""), 4000)
+    _set_if_blank("inchi_key", payload.get("inchi_key", ""), 64)
+    _set_if_blank("iupac_name", payload.get("iupac_name", ""), 1000)
+    _set_if_blank("molecular_formula", payload.get("molecular_formula", ""), 100)
+    _set_if_blank("molecular_weight", payload.get("molecular_weight", ""), 50)
+
+    if not (compound.description or "").strip():
+        compound.description = f"Imported from PubChem CID {cid}."
+        updated_fields.add("description")
+
+    if compound.pk is None or updated_fields:
+        compound.save()
+
+    chembl_backfill_id = (compound.chembl_id or "").strip().upper()
+    if chembl_backfill_id:
+        chembl_out = StringIO()
+        try:
+            call_command(
+                "import_chembl_interactions",
+                compounds=chembl_backfill_id,
+                batch_size=1,
+                create_compound_interactions=False,
+                update_existing=True,
+                stdout=chembl_out,
+                stderr=chembl_out,
+            )
+        except Exception:
+            pass
+        refreshed = Compound.objects.filter(chembl_id__iexact=chembl_backfill_id).first()
+        if refreshed:
+            compound = refreshed
+
+    enrich_compound(compound)
+    mechanism_result = _import_missing_mechanisms_for_compound(compound)
+    imported_count = int(mechanism_result.get("imported") or 0)
+    if imported_count > 0:
+        suffix = f" linked to {chembl_backfill_id}" if chembl_backfill_id else ""
+        return compound, f"Imported CID {cid}{suffix} with {imported_count} mechanism/interaction update(s)."
+    if chembl_backfill_id:
+        return compound, f"Imported CID {cid} and linked to {chembl_backfill_id}."
+    return compound, f"Imported CID {cid}."
+
+
+_BINDINGDB_MONOMER_ID_RE = re.compile(r"^(?:BDBM)?(\d+)$", flags=re.IGNORECASE)
+
+
+def _normalize_bindingdb_monomer_id(raw_value: str) -> str:
+    text = (raw_value or "").strip()
+    if not text:
+        return ""
+    match = _BINDINGDB_MONOMER_ID_RE.fullmatch(text)
+    return (match.group(1) if match else "").strip()
+
+
+def _extract_bindingdb_tsv_link(download_page_html: str) -> str:
+    if not download_page_html:
+        return ""
+    match = re.search(
+        r'href=["\']([^"\']*?/rwd/tmp/BindingDB_[^"\']+?\.tsv)["\']',
+        download_page_html,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return ""
+
+    link = (match.group(1) or "").strip()
+    if not link:
+        return ""
+    if link.startswith("http://") or link.startswith("https://"):
+        return link
+    if not link.startswith("/"):
+        link = f"/{link}"
+    return f"https://www.bindingdb.org{link}"
+
+
+def _fetch_bindingdb_tsv_for_monomer(bindingdb_monomer_id: str) -> str:
+    if requests is None:
+        return ""
+
+    monomer_id = _normalize_bindingdb_monomer_id(bindingdb_monomer_id)
+    if not monomer_id:
+        return ""
+
+    download_prepare_url = "https://www.bindingdb.org/rwd/bind/chemsearch/marvin/downloadMolStructure.jsp"
+    prepare_response = requests.get(
+        download_prepare_url,
+        params={"dimension": "TAB", "monomerid": monomer_id},
+        timeout=30,
+    )
+    prepare_response.raise_for_status()
+
+    tsv_url = _extract_bindingdb_tsv_link(prepare_response.text)
+    if not tsv_url:
+        return ""
+
+    tsv_response = requests.get(tsv_url, timeout=30)
+    tsv_response.raise_for_status()
+    payload = tsv_response.text or ""
+    if "BindingDB Reactant_set_id" not in payload:
+        return ""
+    return payload
+
+
+def _parse_bindingdb_tsv_rows(tsv_payload: str) -> list[dict[str, str]]:
+    if not tsv_payload:
+        return []
+
+    lines = [line for line in tsv_payload.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return []
+
+    rows: list[dict[str, str]] = []
+    reader = csv.DictReader(lines, delimiter="\t")
+    for row in reader:
+        if not isinstance(row, dict):
+            continue
+        cleaned = {
+            (key or "").strip(): (value or "").strip()
+            for key, value in row.items()
+            if key
+        }
+        if any(cleaned.values()):
+            rows.append(cleaned)
+    return rows
+
+
+def _import_compound_from_bindingdb_id(bindingdb_id: str) -> tuple[Compound | None, str]:
+    monomer_id = _normalize_bindingdb_monomer_id(bindingdb_id)
+    if not monomer_id:
+        return None, "BindingDB ID must be numeric or prefixed as BDBM<number> (example: 50058958 or BDBM50058958)."
+
+    tsv_payload = _fetch_bindingdb_tsv_for_monomer(monomer_id)
+    if not tsv_payload:
+        return None, f"No BindingDB record found for monomer ID {monomer_id}."
+
+    parsed_rows = _parse_bindingdb_tsv_rows(tsv_payload)
+    if not parsed_rows:
+        return None, f"BindingDB returned no interaction rows for monomer ID {monomer_id}."
+
+    with tempfile.NamedTemporaryFile("w", suffix=".tsv", delete=False, encoding="utf-8") as tmp_file:
+        tmp_file.write(tsv_payload)
+        tmp_path = tmp_file.name
+
+    out = StringIO()
+    try:
+        call_command(
+            "import_non_chembl_interactions",
+            bindingdb_file=tmp_path,
+            progress_every=0,
+            review_limit=5,
+            stdout=out,
+            stderr=out,
+        )
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    sample = parsed_rows[0]
+    ligand_name = (sample.get("BindingDB Ligand Name") or "").strip()
+    smiles = (sample.get("Ligand SMILES") or "").strip()
+    inchi = (sample.get("Ligand InChI") or "").strip()
+    inchi_key = (sample.get("Ligand InChI Key") or "").strip()
+    if inchi_key.lower().startswith("inchikey="):
+        inchi_key = inchi_key.split("=", 1)[-1].strip()
+    chembl_id = (sample.get("ChEMBL ID of Ligand") or "").strip().upper()
+    if chembl_id and not chembl_id.startswith("CHEMBL"):
+        chembl_id = ""
+    pubchem_cid = (sample.get("PubChem CID") or "").strip()
+
+    compound = Compound.objects.filter(bindingdb_id=monomer_id).first()
+    if compound is None and chembl_id:
+        compound = Compound.objects.filter(chembl_id__iexact=chembl_id).first()
+    if compound is None and smiles:
+        compound = Compound.objects.filter(smiles=smiles).first()
+    if compound is None and ligand_name:
+        compound = Compound.objects.filter(name__iexact=ligand_name).first()
+    if compound is None:
+        compound = Compound(
+            name=_build_unique_compound_name(
+                ligand_name,
+                monomer_id,
+                fallback_label="BindingDB Monomer",
+            )
+        )
+
+    updated_fields: set[str] = set()
+
+    def _set_if_blank(field_name: str, value: str, max_len: int) -> None:
+        incoming = (value or "").strip()
+        if not incoming:
+            return
+        current = getattr(compound, field_name, None)
+        current_text = str(current).strip() if current is not None else ""
+        if current_text:
+            return
+        setattr(compound, field_name, incoming[:max_len])
+        updated_fields.add(field_name)
+
+    if not (compound.bindingdb_id or "").strip():
+        compound.bindingdb_id = monomer_id[:32]
+        updated_fields.add("bindingdb_id")
+    _set_if_blank("chembl_id", chembl_id, 20)
+    _set_if_blank("pubchem_cid", pubchem_cid, 32)
+    _set_if_blank("smiles", smiles, 1000)
+    _set_if_blank("inchi", inchi, 4000)
+    _set_if_blank("inchi_key", inchi_key, 64)
+
+    if not (compound.description or "").strip():
+        compound.description = f"Imported from BindingDB monomer ID {monomer_id}."
+        updated_fields.add("description")
+
+    if compound.pk is None or updated_fields:
+        compound.save()
+
+    enrich_compound(compound)
+
+    target_names = {
+        (row.get("Target Name") or "").strip()
+        for row in parsed_rows
+        if (row.get("Target Name") or "").strip()
+    }
+    return (
+        compound,
+        f"Imported BindingDB {monomer_id}: {len(parsed_rows)} interaction row(s), {len(target_names)} target(s).",
+    )
+
+
+def _hydrate_compound_from_external_sources(compound: Compound) -> Compound:
+    if compound.pk is None:
+        return compound
+
+    has_supported_identifier = bool((compound.chembl_id or "").strip() or (compound.pubchem_cid or "").strip())
+    if not has_supported_identifier:
+        return compound
+
+    if (compound.pubchem_cid or "").strip():
+        try:
+            compound = _apply_pubchem_metadata_backfill(compound)
+        except Exception:
+            pass
+
+    if (compound.chembl_id or "").strip():
+        try:
+            compound = _run_chembl_backfill_import(compound)
+        except Exception:
+            pass
+
+    try:
+        enrich_compound(compound)
+    except Exception:
+        pass
+
+    if (compound.pubchem_cid or "").strip():
+        try:
+            compound = _apply_pubchem_metadata_backfill(compound)
+        except Exception:
+            pass
+
+    try:
+        _import_missing_mechanisms_for_compound(compound)
+    except Exception:
+        pass
+
+    refreshed = Compound.objects.filter(pk=compound.pk).first()
+    return refreshed or compound
 
 
 @login_required
@@ -902,6 +1722,14 @@ def add_compound(request):
     chembl_import_message = ''
     chembl_import_message_type = 'danger'
     chembl_import_output = ''
+    pubchem_import_cid = ''
+    pubchem_import_message = ''
+    pubchem_import_message_type = 'danger'
+    pubchem_import_output = ''
+    bindingdb_import_id = ''
+    bindingdb_import_message = ''
+    bindingdb_import_message_type = 'danger'
+    bindingdb_import_output = ''
 
     if request.method == 'POST':
         if request.POST.get('quick_import_chembl'):
@@ -940,11 +1768,97 @@ def add_compound(request):
                 'chembl_import_message': chembl_import_message,
                 'chembl_import_message_type': chembl_import_message_type,
                 'chembl_import_output': chembl_import_output,
+                'pubchem_import_cid': pubchem_import_cid,
+                'pubchem_import_message': pubchem_import_message,
+                'pubchem_import_message_type': pubchem_import_message_type,
+                'pubchem_import_output': pubchem_import_output,
+                'bindingdb_import_id': bindingdb_import_id,
+                'bindingdb_import_message': bindingdb_import_message,
+                'bindingdb_import_message_type': bindingdb_import_message_type,
+                'bindingdb_import_output': bindingdb_import_output,
+            })
+
+        if request.POST.get('quick_import_pubchem'):
+            pubchem_import_cid = (request.POST.get('pubchem_import_cid') or '').strip()
+            form = CompoundForm()
+
+            if not pubchem_import_cid:
+                pubchem_import_message = 'Enter a PubChem CID to import.'
+            elif not pubchem_import_cid.isdigit():
+                pubchem_import_message = 'PubChem CID must be numeric (example: 2244).'
+            else:
+                try:
+                    imported, import_message = _import_compound_from_pubchem_cid(pubchem_import_cid)
+                except Exception as exc:
+                    pubchem_import_message = f'Failed to import CID {pubchem_import_cid}: {exc}'
+                else:
+                    pubchem_import_output = (import_message or '').strip()
+                    if imported:
+                        return redirect('compound_detail', slug=imported.slug)
+                    pubchem_import_message = import_message or f'No compound could be imported from CID {pubchem_import_cid}.'
+                    pubchem_import_message_type = 'warning'
+
+            return render(request, 'compounds/add_compound.html', {
+                'form': form,
+                'chembl_import_id': chembl_import_id,
+                'chembl_import_message': chembl_import_message,
+                'chembl_import_message_type': chembl_import_message_type,
+                'chembl_import_output': chembl_import_output,
+                'pubchem_import_cid': pubchem_import_cid,
+                'pubchem_import_message': pubchem_import_message,
+                'pubchem_import_message_type': pubchem_import_message_type,
+                'pubchem_import_output': pubchem_import_output,
+                'bindingdb_import_id': bindingdb_import_id,
+                'bindingdb_import_message': bindingdb_import_message,
+                'bindingdb_import_message_type': bindingdb_import_message_type,
+                'bindingdb_import_output': bindingdb_import_output,
+            })
+
+        if request.POST.get('quick_import_bindingdb'):
+            bindingdb_import_id = (request.POST.get('bindingdb_import_id') or '').strip()
+            form = CompoundForm()
+
+            if not bindingdb_import_id:
+                bindingdb_import_message = 'Enter a BindingDB ID to import.'
+            elif not _normalize_bindingdb_monomer_id(bindingdb_import_id):
+                bindingdb_import_message = (
+                    'BindingDB ID must be numeric or in BDBM<number> format '
+                    '(example: 50058958 or BDBM50058958).'
+                )
+            else:
+                try:
+                    imported, import_message = _import_compound_from_bindingdb_id(bindingdb_import_id)
+                except Exception as exc:
+                    bindingdb_import_message = f'Failed to import BindingDB {bindingdb_import_id}: {exc}'
+                else:
+                    bindingdb_import_output = (import_message or '').strip()
+                    if imported:
+                        return redirect('compound_detail', slug=imported.slug)
+                    bindingdb_import_message = (
+                        import_message or f'No compound could be imported from BindingDB {bindingdb_import_id}.'
+                    )
+                    bindingdb_import_message_type = 'warning'
+
+            return render(request, 'compounds/add_compound.html', {
+                'form': form,
+                'chembl_import_id': chembl_import_id,
+                'chembl_import_message': chembl_import_message,
+                'chembl_import_message_type': chembl_import_message_type,
+                'chembl_import_output': chembl_import_output,
+                'pubchem_import_cid': pubchem_import_cid,
+                'pubchem_import_message': pubchem_import_message,
+                'pubchem_import_message_type': pubchem_import_message_type,
+                'pubchem_import_output': pubchem_import_output,
+                'bindingdb_import_id': bindingdb_import_id,
+                'bindingdb_import_message': bindingdb_import_message,
+                'bindingdb_import_message_type': bindingdb_import_message_type,
+                'bindingdb_import_output': bindingdb_import_output,
             })
 
         form = CompoundForm(request.POST)
         if form.is_valid():
             compound = form.save()
+            compound = _hydrate_compound_from_external_sources(compound)
             return redirect('compound_detail', slug=compound.slug)
     else:
         form = CompoundForm()
@@ -954,6 +1868,14 @@ def add_compound(request):
         'chembl_import_message': chembl_import_message,
         'chembl_import_message_type': chembl_import_message_type,
         'chembl_import_output': chembl_import_output,
+        'pubchem_import_cid': pubchem_import_cid,
+        'pubchem_import_message': pubchem_import_message,
+        'pubchem_import_message_type': pubchem_import_message_type,
+        'pubchem_import_output': pubchem_import_output,
+        'bindingdb_import_id': bindingdb_import_id,
+        'bindingdb_import_message': bindingdb_import_message,
+        'bindingdb_import_message_type': bindingdb_import_message_type,
+        'bindingdb_import_output': bindingdb_import_output,
     })
 
 
@@ -1288,6 +2210,20 @@ class CompoundViewSet(viewsets.ModelViewSet):
     serializer_class = CompoundSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     lookup_field = 'slug'
+
+    def perform_create(self, serializer):
+        compound = serializer.save()
+        serializer.instance = _hydrate_compound_from_external_sources(compound)
+
+    def perform_update(self, serializer):
+        compound = serializer.save()
+        serializer.instance = _hydrate_compound_from_external_sources(compound)
+
+    def retrieve(self, request, *args, **kwargs):
+        compound = self.get_object()
+        _auto_enrich_compound_on_access(compound)
+        serializer = self.get_serializer(compound)
+        return Response(serializer.data)
 
     @action(detail=True, methods=['get'])
     def ratings(self, request, slug=None):

@@ -10,6 +10,7 @@ from django.core.management import call_command
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from .interaction_engine import (
     build_interaction_context_key,
@@ -32,6 +33,7 @@ from .models import (
     Target,
 )
 from .admet_mechanisms import extract_predicted_mechanisms
+from .enrichment import enrich_compound
 from .knowledge_graph import generate_compound_knowledge_graph
 
 
@@ -47,6 +49,16 @@ class CompoundAdmetAiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("admet_ai_available", response.context)
         self.assertIn("admet_ai_prediction", response.context)
+
+    def test_compound_detail_renders_rotating_3d_structure_viewer(self):
+        response = self.client.get(
+            reverse("compound_detail", kwargs={"slug": self.compound.slug})
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'https://3Dmol.org/build/3Dmol-min.js')
+        self.assertContains(response, 'id="compoundStructureStage"')
+        self.assertContains(response, 'data-structure-mode-toggle="3d"')
+        self.assertContains(response, '3D Structure')
 
     def test_compound_search_api_returns_slug(self):
         resp = self.client.get('/api/compounds/compound-search/', data={'q': 'Test', 'limit': 5})
@@ -164,6 +176,217 @@ class CompoundAdmetAiTests(TestCase):
         self.assertEqual(pred.model_version, "test")
         self.assertEqual(pred.predictions.get("DILI"), 0.2)
         self.assertEqual(pred.uncertainty.get("DILI"), 0.1)
+
+
+class CompoundExternalEnrichmentTests(TestCase):
+    def test_enrich_compound_populates_missing_fields(self):
+        compound = Compound.objects.create(
+            name="Caffeine",
+            chembl_id="CHEMBL113",
+            smiles="Cn1c(=O)n(C)c2ncn(C)c2c1=O",
+        )
+
+        with (
+            patch("compounds.enrichment._fetch_chembl_molecule") as mock_chembl,
+            patch("compounds.enrichment._fetch_pubchem_cid_by_smiles", return_value="2519"),
+            patch("compounds.enrichment._fetch_pubchem_by_cid") as mock_pubchem,
+            patch("compounds.enrichment._fetch_pubmed_interactions") as mock_pubmed,
+        ):
+            mock_chembl.return_value = {
+                "molecular_formula": "C8H10N4O2",
+                "molecular_weight": "194.19",
+                "mechanism_of_action_summary": "Adenosine receptor antagonist",
+            }
+            mock_pubchem.return_value = {
+                "inchi": "InChI=1S/C8H10N4O2/c1-12-6-5(8(14)11-2)9-3-10-7(6)13/h3H,1-2H3,(H,9,10,13,14)",
+                "inchi_key": "RYYVLZVUVIJVGH-UHFFFAOYSA-N",
+                "iupac_name": "1,3,7-trimethylpurine-2,6-dione",
+                "molecular_formula": "C8H10N4O2",
+                "molecular_weight": "194.19",
+            }
+            mock_pubmed.return_value = [
+                {
+                    "pmid": "12345",
+                    "title": "Interaction study",
+                    "url": "https://pubmed.ncbi.nlm.nih.gov/12345/",
+                }
+            ]
+
+            enrich_compound(compound)
+
+        compound.refresh_from_db()
+        self.assertEqual(compound.pubchem_cid, "2519")
+        self.assertEqual(compound.inchi_key, "RYYVLZVUVIJVGH-UHFFFAOYSA-N")
+        self.assertEqual(compound.iupac_name, "1,3,7-trimethylpurine-2,6-dione")
+        self.assertEqual(compound.molecular_formula, "C8H10N4O2")
+        self.assertEqual(compound.molecular_weight, "194.19")
+        self.assertEqual(compound.mechanism_of_action_summary, "Adenosine receptor antagonist")
+        self.assertEqual(compound.pubmed_interactions[0]["pmid"], "12345")
+        self.assertIsNotNone(compound.enriched_at)
+
+    def test_enrich_compound_respects_retry_window(self):
+        compound = Compound.objects.create(
+            name="Retry Window Compound",
+            smiles="CCO",
+            pubchem_cid="702",
+            inchi="InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3",
+            inchi_key="LFQSCWFLJHTTHZ-UHFFFAOYSA-N",
+            iupac_name="ethanol",
+            molecular_formula="C2H6O",
+            molecular_weight="46.07",
+            mechanism_of_action_summary="Test mechanism",
+            pubmed_interactions=[{"pmid": "1"}],
+            enriched_at=timezone.now(),
+        )
+
+        with patch("compounds.enrichment._fetch_chembl_molecule") as mock_chembl:
+            enrich_compound(compound)
+
+        mock_chembl.assert_not_called()
+
+
+class PubChemIntensiveImportTests(TestCase):
+    @patch("compounds.views._import_missing_mechanisms_for_compound", return_value={"imported": 0})
+    @patch("compounds.views.enrich_compound")
+    @patch("compounds.views.call_command")
+    @patch("compounds.views._resolve_pubchem_chembl_id", return_value="CHEMBL123")
+    @patch("compounds.views._fetch_pubchem_compound_properties")
+    def test_pubchem_import_links_chembl_and_runs_backfill(
+        self,
+        mock_props,
+        _mock_resolve,
+        mock_call_command,
+        _mock_enrich,
+        _mock_mech,
+    ):
+        from .views import _import_compound_from_pubchem_cid
+
+        mock_props.return_value = {
+            "title": "Example Compound",
+            "smiles": "CCO",
+            "inchi": "InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3",
+            "inchi_key": "LFQSCWFLJHTTHZ-UHFFFAOYSA-N",
+            "iupac_name": "ethanol",
+            "molecular_formula": "C2H6O",
+            "molecular_weight": "46.07",
+        }
+
+        compound, message = _import_compound_from_pubchem_cid("702")
+
+        self.assertIsNotNone(compound)
+        self.assertIn("CHEMBL123", message)
+        compound.refresh_from_db()
+        self.assertEqual(compound.pubchem_cid, "702")
+        self.assertEqual(compound.chembl_id, "CHEMBL123")
+        self.assertEqual(compound.smiles, "CCO")
+
+        self.assertEqual(mock_call_command.call_args.args[0], "import_chembl_interactions")
+        self.assertEqual(mock_call_command.call_args.kwargs["compounds"], "CHEMBL123")
+        self.assertEqual(mock_call_command.call_args.kwargs["batch_size"], 1)
+        self.assertFalse(mock_call_command.call_args.kwargs["create_compound_interactions"])
+        self.assertTrue(mock_call_command.call_args.kwargs["update_existing"])
+
+
+class PubChemParsingTests(TestCase):
+    @patch("compounds.views.requests.get")
+    def test_fetch_pubchem_compound_properties_uses_smiles_fallback_keys(self, mock_get):
+        from .views import _fetch_pubchem_compound_properties
+
+        mock_response = Mock()
+        mock_response.content = b"{}"
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {
+            "PropertyTable": {
+                "Properties": [
+                    {
+                        "Title": "Example Compound",
+                        "SMILES": "CCO",
+                        "InChI": "InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3",
+                        "InChIKey": "LFQSCWFLJHTTHZ-UHFFFAOYSA-N",
+                        "IUPACName": "ethanol",
+                        "MolecularFormula": "C2H6O",
+                        "MolecularWeight": "46.07",
+                    }
+                ]
+            }
+        }
+        mock_get.return_value = mock_response
+
+        payload = _fetch_pubchem_compound_properties("702")
+
+        self.assertEqual(payload["smiles"], "CCO")
+        self.assertEqual(payload["iupac_name"], "ethanol")
+
+    @patch("compounds.enrichment.requests.get")
+    def test_fetch_pubchem_by_cid_uses_smiles_fallback_keys(self, mock_get):
+        from .enrichment import _fetch_pubchem_by_cid
+
+        mock_response = Mock()
+        mock_response.content = b"{}"
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {
+            "PropertyTable": {
+                "Properties": [
+                    {
+                        "SMILES": "CCO",
+                        "InChI": "InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3",
+                        "InChIKey": "LFQSCWFLJHTTHZ-UHFFFAOYSA-N",
+                        "IUPACName": "ethanol",
+                        "MolecularFormula": "C2H6O",
+                        "MolecularWeight": "46.07",
+                        "Title": "Ethanol",
+                    }
+                ]
+            }
+        }
+        mock_get.return_value = mock_response
+
+        payload = _fetch_pubchem_by_cid("702")
+
+        self.assertEqual(payload["smiles"], "CCO")
+        self.assertEqual(payload["name"], "Ethanol")
+
+
+class CompoundAccessEnrichmentTriggerTests(TestCase):
+    def setUp(self):
+        self.compound = Compound.objects.create(name="Access Trigger Compound")
+
+    @patch("compounds.views._import_missing_mechanisms_for_compound")
+    @patch("compounds.views.enrich_compound")
+    def test_compound_detail_triggers_enrichment(self, mock_enrich, mock_import):
+        response = self.client.get(
+            reverse("compound_detail", kwargs={"slug": self.compound.slug})
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_enrich.assert_called_once_with(self.compound)
+        mock_import.assert_called_once_with(self.compound)
+
+    @patch("compounds.views._import_missing_mechanisms_for_compound")
+    @patch("compounds.views.enrich_compound")
+    def test_compound_api_retrieve_triggers_enrichment(self, mock_enrich, mock_import):
+        response = self.client.get(
+            reverse("compound-detail", kwargs={"slug": self.compound.slug})
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_enrich.assert_called_once_with(self.compound)
+        mock_import.assert_called_once_with(self.compound)
+
+    @patch("compounds.views._import_missing_mechanisms_for_compound")
+    @patch("compounds.views.enrich_compound")
+    def test_compound_detail_skips_mechanism_import_when_interactions_exist(self, mock_enrich, mock_import):
+        target = Target.objects.create(name="Existing Target")
+        CompoundTargetInteraction.objects.create(
+            compound=self.compound,
+            target=target,
+            mechanism="inhibitor",
+        )
+
+        response = self.client.get(
+            reverse("compound_detail", kwargs={"slug": self.compound.slug})
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_enrich.assert_called_once_with(self.compound)
+        mock_import.assert_not_called()
 
 
 class CompoundSnippetReviewTests(TestCase):
@@ -328,6 +551,127 @@ class AddCompoundQuickImportTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("login"), response["Location"])
 
+    @patch("compounds.views._import_compound_from_pubchem_cid")
+    def test_staff_pubchem_quick_import_redirects_to_imported_compound(self, mock_pubchem_import):
+        imported = Compound.objects.create(name="Imported from CID", pubchem_cid="2244")
+        mock_pubchem_import.return_value = (imported, "Imported CID 2244.")
+
+        self.client.login(username="staff_import", password="pass")
+        response = self.client.post(
+            self.url,
+            {
+                "quick_import_pubchem": "1",
+                "pubchem_import_cid": "2244",
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("compound_detail", kwargs={"slug": imported.slug}),
+        )
+        mock_pubchem_import.assert_called_once_with("2244")
+
+    @patch("compounds.views._import_compound_from_pubchem_cid")
+    def test_pubchem_quick_import_rejects_invalid_cid(self, mock_pubchem_import):
+        self.client.login(username="staff_import", password="pass")
+
+        response = self.client.post(
+            self.url,
+            {
+                "quick_import_pubchem": "1",
+                "pubchem_import_cid": "CID-ABC",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "PubChem CID must be numeric")
+        mock_pubchem_import.assert_not_called()
+
+    @patch("compounds.views._import_compound_from_bindingdb_id")
+    def test_staff_bindingdb_quick_import_redirects_to_imported_compound(self, mock_bindingdb_import):
+        imported = Compound.objects.create(name="Imported from BindingDB", bindingdb_id="50058958")
+        mock_bindingdb_import.return_value = (imported, "Imported BindingDB 50058958.")
+
+        self.client.login(username="staff_import", password="pass")
+        response = self.client.post(
+            self.url,
+            {
+                "quick_import_bindingdb": "1",
+                "bindingdb_import_id": "BDBM50058958",
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("compound_detail", kwargs={"slug": imported.slug}),
+        )
+        mock_bindingdb_import.assert_called_once_with("BDBM50058958")
+
+    @patch("compounds.views._import_compound_from_bindingdb_id")
+    def test_bindingdb_quick_import_rejects_invalid_bindingdb_id(self, mock_bindingdb_import):
+        self.client.login(username="staff_import", password="pass")
+
+        response = self.client.post(
+            self.url,
+            {
+                "quick_import_bindingdb": "1",
+                "bindingdb_import_id": "BDBM-ABC",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "BindingDB ID must be numeric or in BDBM")
+        mock_bindingdb_import.assert_not_called()
+
+
+class CompoundExternalBackfillTriggerTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="compound_editor",
+            password="pass",
+            is_staff=True,
+        )
+        self.add_url = reverse("add_compound")
+
+    @patch("compounds.views._hydrate_compound_from_external_sources")
+    def test_add_compound_post_triggers_identifier_backfill(self, mock_hydrate):
+        mock_hydrate.side_effect = lambda compound: compound
+        self.client.login(username="compound_editor", password="pass")
+
+        response = self.client.post(
+            self.add_url,
+            {
+                "name": "Backfill Compound",
+                "pubchem_cid": "2244",
+            },
+        )
+
+        compound = Compound.objects.get(name="Backfill Compound")
+        self.assertRedirects(
+            response,
+            reverse("compound_detail", kwargs={"slug": compound.slug}),
+        )
+        mock_hydrate.assert_called_once()
+        self.assertEqual(mock_hydrate.call_args.args[0].pk, compound.pk)
+
+    @patch("compounds.views._hydrate_compound_from_external_sources")
+    def test_compound_api_patch_triggers_identifier_backfill(self, mock_hydrate):
+        mock_hydrate.side_effect = lambda compound: compound
+        compound = Compound.objects.create(name="Patch Target")
+        self.client.login(username="compound_editor", password="pass")
+
+        response = self.client.patch(
+            reverse("compound-detail", kwargs={"slug": compound.slug}),
+            data=json.dumps({"chembl_id": "CHEMBL25"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        mock_hydrate.assert_called_once()
+        self.assertEqual(mock_hydrate.call_args.args[0].pk, compound.pk)
+        compound.refresh_from_db()
+        self.assertEqual(compound.chembl_id, "CHEMBL25")
+
 
 class CompoundInteractionModelTests(TestCase):
     def setUp(self):
@@ -478,6 +822,56 @@ class CompoundMechanismImportQueueTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("login"), response["Location"])
+
+    @patch("compounds.views._fetch_pubchem_mechanisms_for_compound", return_value=[])
+    @patch("compounds.views._fetch_zinc_mechanisms_for_compound", return_value=[])
+    @patch("compounds.views._fetch_chembl_mechanisms_for_compound")
+    def test_import_missing_mechanisms_creates_target_interactions(
+        self,
+        mock_chembl,
+        _mock_zinc,
+        _mock_pubchem,
+    ):
+        from .views import _import_missing_mechanisms_for_compound
+
+        mock_chembl.return_value = [
+            {
+                "source": "chembl",
+                "target_name": "Adenosine A2A receptor",
+                "target_chembl_id": "CHEMBL251",
+                "target_type": "receptor",
+                "interaction": "antagonist",
+                "description": "Adenosine receptor antagonism (ChEMBL)",
+            }
+        ]
+
+        result = _import_missing_mechanisms_for_compound(self.compound)
+
+        self.assertGreaterEqual(result["imported"], 1)
+        self.assertTrue(
+            CompoundTargetInteraction.objects.filter(
+                compound=self.compound,
+                target__name="Adenosine A2A receptor",
+                mechanism="antagonist",
+            ).exists()
+        )
+
+    @patch("compounds.views._fetch_pubchem_mechanisms_for_compound", side_effect=Exception("PubChem down"))
+    @patch("compounds.views._fetch_zinc_mechanisms_for_compound", return_value=[])
+    @patch("compounds.views._fetch_chembl_mechanisms_for_compound", return_value=[])
+    def test_import_missing_mechanisms_skips_source_errors(
+        self,
+        _mock_chembl,
+        _mock_zinc,
+        _mock_pubchem,
+    ):
+        from .views import _import_missing_mechanisms_for_compound
+
+        result = _import_missing_mechanisms_for_compound(self.compound)
+
+        self.assertEqual(result["imported"], 0)
+        self.assertEqual(result["source"], "")
+        self.assertEqual(result["attempted"], ["chembl", "zinc", "pubchem"])
 
 
 class ChemblImportInferenceTests(TestCase):
