@@ -81,6 +81,47 @@
     </div>
   </div>
 
+  {% if is_own_profile %}
+  <!-- Goal Skin Picker -->
+  <div class="row mb-3 justify-content-center">
+    <div class="col-12" style="max-width: 700px;">
+      <div class="bg-neurobin-card p-4">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <h6 class="text-light mb-0">
+            <i class="fas fa-bullseye me-2" style="color: var(--accent-primary);"></i>Research Goal
+          </h6>
+          <span class="badge" style="background: var(--accent-primary); color: #000; font-weight: 700;">
+            {{ user_skin.label }}
+          </span>
+        </div>
+        <form method="post" id="skinPickerForm">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="set_goal_skin">
+          <input type="hidden" name="goal_skin" id="goalSkinInput" value="{{ user_profile.goal_skin|default:'general' }}">
+          <div class="skin-picker-grid mb-3">
+            {% for skin in goal_skins %}
+            <button
+              type="button"
+              class="skin-card {% if user_profile.goal_skin == skin.key %}skin-card--active{% elif not user_profile.goal_skin and skin.key == 'general' %}skin-card--active{% endif %}"
+              data-skin="{{ skin.key }}"
+              style="--card-accent: {{ skin.accent_primary }};"
+              title="{{ skin.description }}"
+            >
+              <div class="skin-swatch"></div>
+              <i class="fas {{ skin.icon }} skin-icon"></i>
+              <div class="skin-label">{{ skin.label }}</div>
+            </button>
+            {% endfor %}
+          </div>
+          <button type="submit" class="btn btn-sm w-100" style="background: var(--accent-primary); color: #000; font-weight: 700; letter-spacing: 0.02em;">
+            <i class="fas fa-check me-1"></i>Apply Theme
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Statistics Cards -->
   <div class="row mb-1 justify-content-center">
     <div class="col-12" style="max-width: 700px;">
@@ -700,4 +741,69 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 });
 </script>
+
+{% if is_own_profile %}
+<style>
+  .skin-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+  }
+  .skin-card {
+    background: var(--bg-tertiary);
+    border: 2px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 0.65rem 0.4rem 0.5rem;
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+    color: var(--text-muted);
+    width: 100%;
+  }
+  .skin-card:hover {
+    border-color: var(--card-accent);
+    transform: translateY(-2px);
+  }
+  .skin-card--active {
+    border-color: var(--card-accent) !important;
+    box-shadow: 0 0 18px color-mix(in srgb, var(--card-accent) 40%, transparent);
+    background: color-mix(in srgb, var(--card-accent) 8%, var(--bg-tertiary));
+  }
+  .skin-swatch {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--card-accent);
+    margin: 0 auto 0.35rem;
+    box-shadow: 0 0 10px color-mix(in srgb, var(--card-accent) 55%, transparent);
+  }
+  .skin-icon {
+    color: var(--card-accent);
+    font-size: 0.85rem;
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+  .skin-label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+</style>
+<script>
+(function () {
+  var input = document.getElementById('goalSkinInput');
+  if (!input) return;
+  document.querySelectorAll('.skin-card').forEach(function (card) {
+    card.addEventListener('click', function () {
+      input.value = card.dataset.skin;
+      document.querySelectorAll('.skin-card').forEach(function (c) {
+        c.classList.remove('skin-card--active');
+      });
+      card.classList.add('skin-card--active');
+    });
+  });
+}());
+</script>
+{% endif %}
 {% endblock %}

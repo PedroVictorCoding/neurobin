@@ -13,13 +13,25 @@ def user_profile_image_path(instance, filename):
     filename = f'profile_{instance.user.id}.{ext}'
     return os.path.join('profile_images', filename)
 
+GOAL_SKIN_CHOICES = [
+    ('general',     'General'),
+    ('anabolic',    'Anabolic'),
+    ('longevity',   'Longevity'),
+    ('cognition',   'Cognition'),
+    ('performance', 'Performance'),
+    ('recovery',    'Recovery'),
+    ('sleep',       'Sleep'),
+    ('fat-loss',    'Fat Loss'),
+]
+
+
 class UserProfile(models.Model):
     """
     Extended user profile with additional fields including profile image.
     """
     user = models.OneToOneField(
-        User, 
-        on_delete=models.CASCADE, 
+        User,
+        on_delete=models.CASCADE,
         related_name='profile'
     )
     profile_image = models.ImageField(
@@ -29,18 +41,24 @@ class UserProfile(models.Model):
         help_text="Upload a profile picture"
     )
     bio = models.TextField(
-        max_length=500, 
+        max_length=500,
         blank=True,
         help_text="Tell us about yourself"
     )
     location = models.CharField(
-        max_length=100, 
+        max_length=100,
         blank=True,
         help_text="Your location"
     )
     website = models.URLField(
         blank=True,
         help_text="Your personal website or social media"
+    )
+    goal_skin = models.CharField(
+        max_length=20,
+        choices=GOAL_SKIN_CHOICES,
+        default='general',
+        help_text="Your primary goal defines the app color theme"
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -804,6 +804,31 @@
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
   <!-- Brutalist cyberpunk theme overrides -->
   <link href="{% static 'css/cyberpunk.css' %}?v=20260228-21" rel="stylesheet" />
+  {% if user_skin %}
+  <style>
+    /* Goal skin override — loaded last to win cascade over cyberpunk.css */
+    :root {
+      --accent-primary: {{ user_skin.accent_primary }};
+      --accent-hover:   {{ user_skin.accent_hover }};
+      --accent-subtle:  rgba({{ user_skin.rgb }}, 0.14);
+      --accent-glow:    rgba({{ user_skin.rgb }}, 0.22);
+      --border-primary: rgba({{ user_skin.rgb }}, 0.55);
+      --border-light:   rgba({{ user_skin.rgb }}, 0.75);
+      --surface-soft-active: linear-gradient(180deg, rgba({{ user_skin.rgb }}, 0.16), rgba({{ user_skin.rgb }}, 0.03));
+      --surface-soft-border-strong: rgba({{ user_skin.rgb }}, 0.22);
+    }
+    body::before {
+      background:
+        radial-gradient(1200px 700px at 70% -10%, rgba({{ user_skin.rgb }}, 0.22), transparent 60%),
+        radial-gradient(900px 600px at -10% 80%,  rgba({{ user_skin.rgb }}, 0.16), transparent 60%),
+        radial-gradient(900px 600px at 110% 70%,  rgba(182, 255, 59, 0.12), transparent 60%),
+        linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+      background-size: auto, auto, auto, 64px 64px, 64px 64px;
+      background-position: center, center, center, 0 0, 0 0;
+    }
+  </style>
+  {% endif %}
 </head>
 
 <body id="body" class="text-light" style="background-color: var(--bg-primary);">
