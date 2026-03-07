@@ -184,6 +184,13 @@
                     type="button" role="tab" aria-controls="stacks" aria-selected="{% if active_tab == 'stacks' %}true{% else %}false{% endif %}">
               <i class="fas fa-layer-group me-2"></i>Stacks
             </button>
+            {% if has_bloodwork %}
+              <button class="nav-link bg-transparent border-0 {% if active_tab == 'bloodwork' %}text-neurobin-accent border-bottom border-3{% else %}text-secondary{% endif %}" 
+                      id="bloodwork-tab" data-bs-toggle="tab" data-bs-target="#bloodwork" 
+                      type="button" role="tab" aria-controls="bloodwork" aria-selected="{% if active_tab == 'bloodwork' %}true{% else %}false{% endif %}">
+                <i class="fas fa-vial me-2"></i>Bloodwork
+              </button>
+            {% endif %}
             {% if has_analytics %}
               <button class="nav-link bg-transparent border-0 {% if active_tab == 'analytics' %}text-neurobin-accent border-bottom border-3{% else %}text-secondary{% endif %}" 
                       id="analytics-tab" data-bs-toggle="tab" data-bs-target="#analytics" 
@@ -597,6 +604,94 @@
             {% endif %}
           </div>
 
+          {% if has_bloodwork %}
+            <div class="tab-pane fade {% if active_tab == 'bloodwork' %}show active{% endif %}" id="bloodwork" role="tabpanel" aria-labelledby="bloodwork-tab">
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <h5 class="text-light mb-0">
+                  Bloodwork History
+                  <span class="text-muted fs-6">({{ bloodwork_entries|length }})</span>
+                </h5>
+                <a href="{% url 'bloodwork_dashboard' %}" class="btn btn-sm btn-outline-success">
+                  <i class="fas fa-vial me-1"></i>Manage Bloodwork
+                </a>
+              </div>
+
+              {% if bloodwork_entries %}
+                <div class="row">
+                  {% for entry in bloodwork_entries %}
+                    <div class="col-12 mb-3">
+                      <div class="bg-neurobin-dark p-3 rounded border border-secondary">
+                        <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-start gap-2 mb-3">
+                          <div>
+                            <h6 class="text-light mb-1">{{ entry.panel_name }}</h6>
+                            <div class="text-secondary small">
+                              <i class="fas fa-calendar-alt me-1"></i>{{ entry.collected_at|date:"M j, Y H:i" }}
+                              {% if entry.lab_name %}
+                                <span class="mx-2">•</span>{{ entry.lab_name }}
+                              {% endif %}
+                            </div>
+                          </div>
+                          <div class="d-flex flex-wrap gap-2">
+                            {% if entry.related_compound_names %}
+                              {% for compound_name in entry.related_compound_names %}
+                                <span class="badge bg-success">{{ compound_name }}</span>
+                              {% endfor %}
+                            {% else %}
+                              <span class="badge bg-secondary">No linked intake logs</span>
+                            {% endif %}
+                          </div>
+                        </div>
+
+                        <div class="table-responsive">
+                          <table class="table table-sm align-middle mb-0 profile-bloodwork-table">
+                            <thead>
+                              <tr>
+                                <th class="text-secondary">Marker</th>
+                                <th class="text-secondary">Value</th>
+                                <th class="text-secondary">Reference Range</th>
+                                <th class="text-secondary">Notes</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {% for measurement in entry.measurements.all %}
+                                <tr>
+                                  <td class="text-light fw-semibold">{{ measurement.marker_name }}</td>
+                                  <td class="text-light">
+                                    {{ measurement.value }}
+                                    {% if measurement.unit %}
+                                      <span class="text-muted">{{ measurement.unit }}</span>
+                                    {% endif %}
+                                  </td>
+                                  <td class="text-secondary">{{ measurement.reference_low|default_if_none:"--" }} to {{ measurement.reference_high|default_if_none:"--" }}</td>
+                                  <td class="text-secondary">{{ measurement.notes|default:"--" }}</td>
+                                </tr>
+                              {% endfor %}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {% if entry.notes %}
+                          <div class="small text-muted mt-3">
+                            <i class="fas fa-sticky-note me-1"></i>{{ entry.notes }}
+                          </div>
+                        {% endif %}
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="text-center py-5 bg-neurobin-dark rounded border border-secondary">
+                  <i class="fas fa-vial text-muted" style="font-size: 2.6rem;"></i>
+                  <h6 class="text-secondary mt-3 mb-1">No bloodwork logged yet</h6>
+                  <p class="text-muted mb-3">Add lab results and connect them to compounds you have taken.</p>
+                  <a href="{% url 'bloodwork_dashboard' %}" class="btn btn-outline-success">
+                    <i class="fas fa-plus me-2"></i>Add Bloodwork
+                  </a>
+                </div>
+              {% endif %}
+            </div>
+          {% endif %}
+
           {% if has_analytics %}
             <div class="tab-pane fade {% if active_tab == 'analytics' %}show active{% endif %}" id="analytics" role="tabpanel" aria-labelledby="analytics-tab">
               {% include "logs/_analytics_dashboard_content.html" with embed_in_profile=True show_effect_timeline=False %}
@@ -655,6 +750,16 @@
 .goal-today-cell,
 .goal-today-header {
   background: rgba(13, 202, 240, 0.08);
+}
+
+.profile-bloodwork-table {
+  --bs-table-bg: transparent;
+  --bs-table-color: var(--text-primary);
+}
+
+.profile-bloodwork-table td,
+.profile-bloodwork-table th {
+  border-color: rgba(255, 255, 255, 0.1);
 }
 </style>
 <script>

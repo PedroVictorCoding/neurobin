@@ -1,18 +1,29 @@
 import json
 from datetime import timedelta
+from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Sum
+from django.db import transaction
+from django.db.models import Count, Prefetch, Sum
+from django.forms import formset_factory
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 from collections import Counter, defaultdict
 from itertools import combinations
 
 from .ip_analytics import refresh_abuseipdb_profile
-from .models import IntakeLog, RequestIPPathStat, RequestIPProfile
-from .forms import IntakeLogForm
+from .models import (
+    BloodworkEntry,
+    BloodworkMeasurement,
+    BloodworkRelatedIntake,
+    IntakeLog,
+    RequestIPPathStat,
+    RequestIPProfile,
+)
+from .forms import BloodworkEntryForm, BloodworkMeasurementForm, BloodworkMeasurementFormSet, IntakeLogForm
 from compounds.models import Compound
 
 
@@ -28,6 +39,47 @@ _INTERACTION_BADGE_CLASSES = {
     "unknown": "secondary",
 }
 _CONFIDENCE_RANK = {"low": 1, "medium": 2, "high": 3}
+
+
+COMMON_BIOMARKERS = {
+    "Lipid Panel": [
+        "Total Cholesterol", "LDL Cholesterol", "HDL Cholesterol",
+        "Triglycerides", "Non-HDL Cholesterol", "VLDL Cholesterol",
+        "LDL/HDL Ratio", "Total Cholesterol/HDL Ratio",
+    ],
+    "Complete Metabolic Panel": [
+        "Glucose", "BUN", "Creatinine", "eGFR", "Sodium", "Potassium",
+        "Chloride", "CO2", "Calcium", "Total Protein", "Albumin",
+        "Total Bilirubin", "Alkaline Phosphatase", "AST", "ALT",
+    ],
+    "Basic Metabolic Panel": [
+        "Glucose", "BUN", "Creatinine", "eGFR", "Sodium", "Potassium",
+        "Chloride", "CO2", "Calcium",
+    ],
+    "CBC": [
+        "WBC", "RBC", "Hemoglobin", "Hematocrit", "MCV", "MCH", "MCHC",
+        "RDW", "Platelets", "Neutrophils", "Lymphocytes", "Monocytes",
+        "Eosinophils", "Basophils",
+    ],
+    "Thyroid": [
+        "TSH", "Free T4", "Free T3", "Total T4", "Total T3",
+        "Reverse T3", "TPO Antibodies", "Thyroglobulin Antibodies",
+    ],
+    "Hormones": [
+        "Total Testosterone", "Free Testosterone", "SHBG",
+        "Estradiol (E2)", "LH", "FSH", "Prolactin", "DHEA-S",
+        "Progesterone", "IGF-1", "Growth Hormone", "Cortisol", "ACTH", "DHT",
+    ],
+    "Inflammation / Immune": [
+        "CRP", "hs-CRP", "ESR", "Fibrinogen", "IL-6",
+        "Homocysteine", "Ferritin", "Iron", "TIBC",
+    ],
+    "Vitamins / Minerals": [
+        "Vitamin D (25-OH)", "Vitamin B12", "Folate", "Magnesium",
+        "Zinc", "Copper", "Selenium", "Vitamin A", "Vitamin E", "CoQ10",
+    ],
+}
+_ALL_MARKERS_FLAT = sorted({name for names in COMMON_BIOMARKERS.values() for name in names})
 
 
 def _pair_key(compound_a_id: int, compound_b_id: int) -> tuple[int, int]:
@@ -281,6 +333,279 @@ def log_intake(request):
         'initial_compound': initial_compound
     }
     return render(request, "logs/log_intake.html", context)
+
+
+def _measurement_rows_from_formset(measurement_formset):
+    rows = []
+    for index, form in enumerate(measurement_formset.forms):
+        cleaned_data = getattr(form, "cleaned_data", None) or {}
+        marker_name = (cleaned_data.get("marker_name") or "").strip()
+        value = cleaned_data.get("value")
+        unit = (cleaned_data.get("unit") or "").strip()
+        reference_low = cleaned_data.get("reference_low")
+        reference_high = cleaned_data.get("reference_high")
+        notes = (cleaned_data.get("notes") or "").strip()
+
+        if not any(
+            [
+                marker_name,
+                value is not None,
+                unit,
+                reference_low is not None,
+                reference_high is not None,
+                notes,
+            ]
+        ):
+            continue
+
+        rows.append(
+            {
+                "marker_name": marker_name,
+                "value": value,
+                "unit": unit,
+                "reference_low": reference_low,
+                "reference_high": reference_high,
+                "notes": notes,
+                "display_order": index,
+            }
+        )
+    return rows
+
+
+def build_bloodwork_entries(user):
+    entries = list(
+        BloodworkEntry.objects.filter(user=user).prefetch_related(
+            "measurements",
+            Prefetch(
+                "related_intakes",
+                queryset=BloodworkRelatedIntake.objects.select_related("intake_log__compound").order_by(
+                    "-intake_log__taken_at",
+                    "-created_at",
+                ),
+            ),
+        )
+    )
+
+    # For active-compound correlation: query all intake logs within a 7-day
+    # lookback from the earliest collection date, prefetching effect windows.
+    active_logs = []
+    if entries:
+        earliest = min(e.collected_at for e in entries)
+        lookback_start = earliest - timedelta(days=7)
+        active_logs = list(
+            IntakeLog.objects.filter(user=user, taken_at__gte=lookback_start)
+            .select_related("compound")
+            .prefetch_related("compound__effect_windows")
+        )
+
+    marker_trend_data: dict = defaultdict(list)
+
+    for entry in entries:
+        related_compound_names = []
+        related_log_rows = []
+        seen_compound_ids = set()
+
+        for relation in entry.related_intakes.all():
+            intake_log = relation.intake_log
+            related_log_rows.append(intake_log)
+            if intake_log.compound_id in seen_compound_ids:
+                continue
+            seen_compound_ids.add(intake_log.compound_id)
+            related_compound_names.append(intake_log.compound.name)
+
+        entry.related_compound_names = related_compound_names
+        entry.related_log_rows = related_log_rows
+
+        # Compute which intake logs were pharmacologically active at collection time
+        active_at_collection = []
+        for intake in active_logs:
+            duration_minutes = None
+            for ew in intake.compound.effect_windows.all():
+                if ew.duration_minutes and (duration_minutes is None or ew.duration_minutes > duration_minutes):
+                    duration_minutes = ew.duration_minutes
+            if duration_minutes is None:
+                duration_minutes = 24 * 60  # 24h fallback for compounds with no window data
+            window_end = intake.taken_at + timedelta(minutes=duration_minutes)
+            if intake.taken_at <= entry.collected_at <= window_end:
+                active_at_collection.append(intake)
+        entry.active_compounds = active_at_collection
+
+        # Accumulate marker trend data for charts
+        date_str = timezone.localtime(entry.collected_at).strftime("%Y-%m-%d")
+        for m in entry.measurements.all():
+            marker_trend_data[m.marker_name].append({
+                "date": date_str,
+                "value": float(m.value),
+                "ref_low": float(m.reference_low) if m.reference_low is not None else None,
+                "ref_high": float(m.reference_high) if m.reference_high is not None else None,
+            })
+
+    # Sort each marker's trend chronologically for Chart.js
+    for key in marker_trend_data:
+        marker_trend_data[key].sort(key=lambda x: x["date"])
+
+    return entries, dict(marker_trend_data)
+
+
+@login_required
+def bloodwork_dashboard(request):
+    measurement_error = None
+
+    if request.method == "POST":
+        entry_form = BloodworkEntryForm(request.POST, user=request.user)
+        measurement_formset = BloodworkMeasurementFormSet(request.POST, prefix="measurements")
+
+        if entry_form.is_valid() and measurement_formset.is_valid():
+            measurement_rows = _measurement_rows_from_formset(measurement_formset)
+            if not measurement_rows:
+                measurement_error = "Add at least one blood marker result before saving the panel."
+            else:
+                with transaction.atomic():
+                    entry = entry_form.save(commit=False)
+                    entry.user = request.user
+                    entry.save()
+
+                    related_logs = entry_form.cleaned_data.get("related_intake_logs")
+                    if related_logs:
+                        BloodworkRelatedIntake.objects.bulk_create(
+                            [
+                                BloodworkRelatedIntake(entry=entry, intake_log=intake_log)
+                                for intake_log in related_logs
+                            ]
+                        )
+
+                    BloodworkMeasurement.objects.bulk_create(
+                        [
+                            BloodworkMeasurement(entry=entry, **row)
+                            for row in measurement_rows
+                        ]
+                    )
+
+                return redirect(f"{reverse('bloodwork_dashboard')}?created=1")
+    else:
+        entry_form = BloodworkEntryForm(
+            user=request.user,
+            initial={
+                "collected_at": timezone.localtime().replace(second=0, microsecond=0).strftime(
+                    "%Y-%m-%dT%H:%M"
+                )
+            },
+        )
+        measurement_formset = BloodworkMeasurementFormSet(prefix="measurements")
+
+    entries, marker_trend_data = build_bloodwork_entries(request.user)
+    context = {
+        "entry_form": entry_form,
+        "measurement_formset": measurement_formset,
+        "measurement_error": measurement_error,
+        "entries": entries,
+        "marker_trend_data": marker_trend_data,
+        "panel_presets": COMMON_BIOMARKERS,
+        "all_markers": _ALL_MARKERS_FLAT,
+        "created": request.GET.get("created") == "1",
+        "deleted": request.GET.get("deleted") == "1",
+        "updated": request.GET.get("updated") == "1",
+    }
+    return render(request, "logs/bloodwork_dashboard.html", context)
+
+
+@login_required
+def bloodwork_edit(request, pk):
+    entry = get_object_or_404(BloodworkEntry, pk=pk, user=request.user)
+    measurement_error = None
+
+    if request.method == "POST":
+        entry_form = BloodworkEntryForm(request.POST, instance=entry, user=request.user)
+        measurement_formset = BloodworkMeasurementFormSet(request.POST, prefix="measurements")
+
+        if entry_form.is_valid() and measurement_formset.is_valid():
+            measurement_rows = _measurement_rows_from_formset(measurement_formset)
+            if not measurement_rows:
+                measurement_error = "Add at least one blood marker result before saving the panel."
+            else:
+                with transaction.atomic():
+                    updated_entry = entry_form.save(commit=False)
+                    updated_entry.user = request.user
+                    updated_entry.save()
+
+                    updated_entry.measurements.all().delete()
+                    BloodworkMeasurement.objects.bulk_create(
+                        [BloodworkMeasurement(entry=updated_entry, **row) for row in measurement_rows]
+                    )
+
+                    BloodworkRelatedIntake.objects.filter(entry=updated_entry).delete()
+                    related_logs = entry_form.cleaned_data.get("related_intake_logs")
+                    if related_logs:
+                        BloodworkRelatedIntake.objects.bulk_create(
+                            [BloodworkRelatedIntake(entry=updated_entry, intake_log=il) for il in related_logs]
+                        )
+
+                return redirect(f"{reverse('bloodwork_dashboard')}?updated=1")
+    else:
+        entry_form = BloodworkEntryForm(
+            instance=entry,
+            user=request.user,
+            initial={
+                "collected_at": timezone.localtime(entry.collected_at).strftime("%Y-%m-%dT%H:%M"),
+                "related_intake_logs": list(entry.related_intake_logs.values_list("id", flat=True)),
+            },
+        )
+        initial_measurements = [
+            {
+                "marker_name": m.marker_name,
+                "value": m.value,
+                "unit": m.unit,
+                "reference_low": m.reference_low,
+                "reference_high": m.reference_high,
+                "notes": m.notes,
+            }
+            for m in entry.measurements.all()
+        ]
+        measurement_formset = BloodworkMeasurementFormSet(prefix="measurements", initial=initial_measurements)
+
+    context = {
+        "entry": entry,
+        "entry_form": entry_form,
+        "measurement_formset": measurement_formset,
+        "measurement_error": measurement_error,
+        "all_markers": _ALL_MARKERS_FLAT,
+        "panel_presets": COMMON_BIOMARKERS,
+    }
+    return render(request, "logs/bloodwork_edit.html", context)
+
+
+@login_required
+@require_POST
+def bloodwork_delete(request, pk):
+    entry = get_object_or_404(BloodworkEntry, pk=pk, user=request.user)
+    entry.delete()
+    return redirect(f"{reverse('bloodwork_dashboard')}?deleted=1")
+
+
+@login_required
+def bloodwork_print(request, pk):
+    entry = get_object_or_404(BloodworkEntry, pk=pk, user=request.user)
+    measurements = list(entry.measurements.all())
+    for m in measurements:
+        if m.reference_low is not None and m.reference_high is not None:
+            if m.value < m.reference_low or m.value > m.reference_high:
+                m.range_status = "out"
+            else:
+                m.range_status = "in"
+        else:
+            m.range_status = None
+
+    related_intakes = list(
+        BloodworkRelatedIntake.objects.filter(entry=entry)
+        .select_related("intake_log__compound")
+        .order_by("-intake_log__taken_at")
+    )
+    return render(request, "logs/bloodwork_print.html", {
+        "entry": entry,
+        "measurements": measurements,
+        "related_intakes": related_intakes,
+    })
+
 
 @login_required
 def analytics_dashboard(request):

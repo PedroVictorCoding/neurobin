@@ -1,5 +1,9 @@
 from django.contrib import admin
+
 from .models import (
+    BloodworkEntry,
+    BloodworkMeasurement,
+    BloodworkRelatedIntake,
     IntakeLog,
     RequestIPPathStat,
     RequestIPProfile,
@@ -7,59 +11,106 @@ from .models import (
     UserGoalCompletion,
 )
 
+
 @admin.register(IntakeLog)
 class IntakeLogAdmin(admin.ModelAdmin):
-    list_display = ['user', 'compound', 'amount', 'unit', 'taken_at', 'notes_preview']
-    list_filter = ['compound', 'unit', 'taken_at', 'user']
-    search_fields = ['user__username', 'compound__name', 'notes']
-    date_hierarchy = 'taken_at'
-    ordering = ['-taken_at']
-    autocomplete_fields = ['compound']
-    
-    # Custom fields for the form
-    fields = ['user', 'compound', 'amount', 'unit', 'taken_at', 'notes']
-    
-    # Make certain fields readonly for safety
+    list_display = ["user", "compound", "amount", "unit", "taken_at", "notes_preview"]
+    list_filter = ["compound", "unit", "taken_at", "user"]
+    search_fields = ["user__username", "compound__name", "notes"]
+    date_hierarchy = "taken_at"
+    ordering = ["-taken_at"]
+    autocomplete_fields = ["compound"]
+
+    fields = ["user", "compound", "amount", "unit", "taken_at", "notes"]
     readonly_fields = []
-    
+    actions = ["export_as_csv"]
+
     def notes_preview(self, obj):
         """Show a preview of notes in the list view"""
         if obj.notes:
-            return obj.notes[:50] + ('...' if len(obj.notes) > 50 else '')
-        return '-'
-    notes_preview.short_description = 'Notes Preview'
-    
+            return obj.notes[:50] + ("..." if len(obj.notes) > 50 else "")
+        return "-"
+
+    notes_preview.short_description = "Notes Preview"
+
     def get_queryset(self, request):
         """Optimize queryset with select_related to reduce database queries"""
         queryset = super().get_queryset(request)
-        return queryset.select_related('user', 'compound')
-    
-    # Enable export actions
-    actions = ['export_as_csv']
-    
+        return queryset.select_related("user", "compound")
+
     def export_as_csv(self, request, queryset):
         """Export selected intake logs as CSV"""
         import csv
         from django.http import HttpResponse
-        
-        response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename="intake_logs.csv"'
-        
+
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = 'attachment; filename="intake_logs.csv"'
+
         writer = csv.writer(response)
-        writer.writerow(['User', 'Compound', 'Amount', 'Unit', 'Taken At', 'Notes'])
-        
+        writer.writerow(["User", "Compound", "Amount", "Unit", "Taken At", "Notes"])
+
         for intake in queryset:
-            writer.writerow([
-                intake.user.username,
-                intake.compound.name,
-                intake.amount,
-                intake.unit,
-                intake.taken_at.strftime('%Y-%m-%d %H:%M:%S'),
-                intake.notes
-            ])
-        
+            writer.writerow(
+                [
+                    intake.user.username,
+                    intake.compound.name,
+                    intake.amount,
+                    intake.unit,
+                    intake.taken_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    intake.notes,
+                ]
+            )
+
         return response
-    export_as_csv.short_description = 'Export selected intake logs as CSV'
+
+    export_as_csv.short_description = "Export selected intake logs as CSV"
+
+
+class BloodworkMeasurementInline(admin.TabularInline):
+    model = BloodworkMeasurement
+    extra = 0
+
+
+class BloodworkRelatedIntakeInline(admin.TabularInline):
+    model = BloodworkRelatedIntake
+    extra = 0
+    autocomplete_fields = ["intake_log"]
+
+
+@admin.register(BloodworkEntry)
+class BloodworkEntryAdmin(admin.ModelAdmin):
+    list_display = ["user", "panel_name", "lab_name", "collected_at", "created_at"]
+    list_filter = ["collected_at", "created_at"]
+    search_fields = ["user__username", "panel_name", "lab_name", "notes"]
+    autocomplete_fields = ["user"]
+    ordering = ["-collected_at", "-created_at"]
+    inlines = [BloodworkMeasurementInline, BloodworkRelatedIntakeInline]
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.select_related("user")
+
+
+@admin.register(BloodworkMeasurement)
+class BloodworkMeasurementAdmin(admin.ModelAdmin):
+    list_display = ["entry", "marker_name", "value", "unit", "display_order"]
+    list_filter = ["unit"]
+    search_fields = ["entry__panel_name", "entry__user__username", "marker_name", "notes"]
+    autocomplete_fields = ["entry"]
+    ordering = ["entry", "display_order", "id"]
+
+
+@admin.register(BloodworkRelatedIntake)
+class BloodworkRelatedIntakeAdmin(admin.ModelAdmin):
+    list_display = ["entry", "intake_log", "created_at"]
+    search_fields = [
+        "entry__panel_name",
+        "entry__user__username",
+        "intake_log__compound__name",
+        "intake_log__user__username",
+    ]
+    autocomplete_fields = ["entry", "intake_log"]
+    ordering = ["-created_at"]
 
 
 @admin.register(UserGoal)

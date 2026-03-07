@@ -21,6 +21,16 @@
         {% endif %}
         <span class="text-muted small">Created: {{ stack.created|date:"M d, Y" }}</span>
       </div>
+      <form method="post" class="d-flex flex-wrap gap-2 align-items-start mt-3 stack-rename-form">
+        {% csrf_token %}
+        <div style="min-width: 240px; max-width: 360px;">
+          {{ stack_form.name }}
+          {% if stack_form.name.errors %}
+            <div class="text-danger small mt-1">{{ stack_form.name.errors.0 }}</div>
+          {% endif %}
+        </div>
+        <button class="btn btn-outline-secondary" type="submit" name="update_stack_name">Rename</button>
+      </form>
     </div>
 
     <div class="d-flex flex-wrap gap-2 stack-actions">
@@ -63,77 +73,179 @@
     <div class="small text-muted">Use confidence levels, source context, and risk flags to verify before making decisions.</div>
   </div>
 
-  <div class="card mb-3">
-    <div class="card-header d-flex justify-content-between align-items-center stack-card-header">
-      <div class="fw-bold">Add Compound</div>
-      <div class="text-muted small">Uses fast search</div>
-    </div>
-    <form method="post" class="d-flex flex-wrap align-items-center gap-2 p-3 cp-stack-add" autocomplete="off">
-      {% csrf_token %}
-      {{ add_form.compound }}
-      {{ add_form.dosage_amount }}
-      {{ add_form.dosage_unit }}
-      {{ add_form.time_of_day }}
-      {{ add_form.intake_time }}
-      {{ add_form.recurrence_interval }}
-      {{ add_form.recurrence_unit }}
-      {{ add_form.notes }}
-      <button class="btn btn-galaxy btn-galaxy--sm" type="submit" name="add_compound_to_stack">
-        {% include "includes/galaxy_button_inner.html" with label="Add" %}
-      </button>
-      {% if add_form.errors %}
-        <div class="text-danger small">
-          {% for field, errs in add_form.errors.items %}
-            {{ field }}: {{ errs.0 }}<br>
-          {% endfor %}
-        </div>
-      {% endif %}
-    </form>
+  <div class="stack-add-launch mb-3">
+    <button
+      type="button"
+      class="btn btn-galaxy"
+      data-bs-toggle="modal"
+      data-bs-target="#stackAddCompoundModal"
+    >
+      {% include "includes/galaxy_button_inner.html" with label="Add Compound" %}
+    </button>
+    <div class="small text-muted">Open the add form in a floating modal.</div>
   </div>
 
-  {% if stack_risk %}
-    {% include "stacks/_risk_panel.html" %}
-  {% endif %}
-
-  <div class="card mb-3 text-light">
-    <div class="card-header d-flex justify-content-between align-items-center stack-card-header">
-      <div class="fw-bold">Enzymatic Overload</div>
-      <div class="text-muted small text-light">Affinity-weighted</div>
-    </div>
-    <div class="card-body">
-      <div class="d-flex flex-wrap gap-3 align-items-center">
-        <div>
-          <div class="text-muted small text-light">Score</div>
-          <div class="fs-5 fw-semibold">{{ enzymatic_overload.score|floatformat:2 }}</div>
-        </div>
-        <div>
-          <div class="text-muted small text-light">Distinct enzymes</div>
-          <div class="fw-semibold">{{ enzymatic_overload.distinct_enzymes }}</div>
-        </div>
-        <div>
-          <div class="text-muted small text-light">Interactions</div>
-          <div class="fw-semibold">{{ enzymatic_overload.total_interactions }}</div>
-        </div>
-        <div>
-          <div class="text-muted small text-light">Avg affinity per enzyme</div>
-          <div class="fw-semibold">{{ enzymatic_overload.avg_affinity_per_enzyme|floatformat:2 }}</div>
-        </div>
-      </div>
-      <div class="small text-muted text-light mt-2">
-        Formula: average affinity per enzyme × log(1 + distinct enzymes). Quantity still matters.
-      </div>
-      {% if enzymatic_overload.enzymes %}
-        <div class="mt-3">
-          <div class="text-muted small text-light mb-2">Top enzymes</div>
-          <div class="d-flex flex-wrap gap-2">
-            {% for row in enzymatic_overload.enzymes %}
-              <span class="badge bg-secondary text-light">
-                {{ row.name }} ({{ row.weight|floatformat:2 }})
-              </span>
-            {% endfor %}
+  <div class="modal fade" id="stackAddCompoundModal" tabindex="-1" aria-labelledby="stackAddCompoundModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered stack-add-modal-dialog">
+      <div class="modal-content stack-add-modal-content">
+        <div class="modal-header stack-card-header stack-add-modal-header">
+          <div>
+            <div class="fw-bold" id="stackAddCompoundModalLabel">Add Compound</div>
+            <div class="text-muted small">Fast search</div>
           </div>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
-      {% endif %}
+        <form method="post" autocomplete="off">
+          {% csrf_token %}
+          <div class="modal-body cp-stack-add">
+            <div class="row g-2 mx-0">
+              <div class="col-12 stack-add-field">
+                <label class="form-label" for="{{ add_form.compound.id_for_label }}">Compound</label>
+                <div class="stack-add-input">
+                  {{ add_form.compound }}
+                  {% if add_form.compound.errors %}
+                    <div class="text-danger small mt-1">{{ add_form.compound.errors.0 }}</div>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="col-12 stack-add-field">
+                <label class="form-label" for="{{ add_form.dosage_amount.id_for_label }}">Dosage</label>
+                <div class="stack-add-input">
+                  {{ add_form.dosage_amount }}
+                  {% if add_form.dosage_amount.errors %}
+                    <div class="text-danger small mt-1">{{ add_form.dosage_amount.errors.0 }}</div>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="col-12 stack-add-field">
+                <label class="form-label" for="{{ add_form.dosage_unit.id_for_label }}">Unit</label>
+                <div class="stack-add-input">
+                  {{ add_form.dosage_unit }}
+                  {% if add_form.dosage_unit.errors %}
+                    <div class="text-danger small mt-1">{{ add_form.dosage_unit.errors.0 }}</div>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="col-12 stack-add-field">
+                <label class="form-label" for="{{ add_form.time_of_day.id_for_label }}">Time Window</label>
+                <div class="stack-add-input">
+                  {{ add_form.time_of_day }}
+                  {% if add_form.time_of_day.errors %}
+                    <div class="text-danger small mt-1">{{ add_form.time_of_day.errors.0 }}</div>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="col-12 stack-add-field">
+                <label class="form-label" for="{{ add_form.intake_clock.id_for_label }}">Exact Intake Time</label>
+                <div class="stack-add-input">
+                  {{ add_form.intake_clock }}
+                  {% if add_form.intake_clock.errors %}
+                    <div class="text-danger small mt-1">{{ add_form.intake_clock.errors.0 }}</div>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="col-12 stack-add-field">
+                <label class="form-label" for="{{ add_form.recurrence_interval.id_for_label }}">Frequency</label>
+                <div class="stack-add-input">
+                  {{ add_form.recurrence_interval }}
+                  {% if add_form.recurrence_interval.errors %}
+                    <div class="text-danger small mt-1">{{ add_form.recurrence_interval.errors.0 }}</div>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="col-12 stack-add-field">
+                <label class="form-label" for="{{ add_form.recurrence_unit.id_for_label }}">Period</label>
+                <div class="stack-add-input">
+                  {{ add_form.recurrence_unit }}
+                  {% if add_form.recurrence_unit.errors %}
+                    <div class="text-danger small mt-1">{{ add_form.recurrence_unit.errors.0 }}</div>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="col-12 stack-add-field">
+                <label class="form-label" for="{{ add_form.doses_per_recurrence.id_for_label }}">{{ add_form.doses_per_recurrence.label }}</label>
+                <div class="stack-add-input">
+                  {{ add_form.doses_per_recurrence }}
+                  <div class="form-text text-muted small">{{ add_form.doses_per_recurrence.help_text }}</div>
+                  {% if add_form.doses_per_recurrence.errors %}
+                    <div class="text-danger small mt-1">{{ add_form.doses_per_recurrence.errors.0 }}</div>
+                  {% endif %}
+                </div>
+              </div>
+
+              {# Drug Holiday / Cycling #}
+              <div class="col-12">
+                <div class="text-muted small fw-semibold mt-1 mb-1" style="letter-spacing:.04em;">Drug Holiday / Cycling <span class="text-muted fw-normal">(optional)</span></div>
+              </div>
+              <div class="col-12 stack-add-field">
+                <label class="form-label" for="{{ add_form.cycle_on_days.id_for_label }}">{{ add_form.cycle_on_days.label }}</label>
+                <div class="stack-add-input">
+                  {{ add_form.cycle_on_days }}
+                  {% if add_form.cycle_on_days.errors %}
+                    <div class="text-danger small mt-1">{{ add_form.cycle_on_days.errors.0 }}</div>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="col-12 stack-add-field">
+                <label class="form-label" for="{{ add_form.cycle_off_days.id_for_label }}">{{ add_form.cycle_off_days.label }}</label>
+                <div class="stack-add-input">
+                  {{ add_form.cycle_off_days }}
+                  {% if add_form.cycle_off_days.errors %}
+                    <div class="text-danger small mt-1">{{ add_form.cycle_off_days.errors.0 }}</div>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="col-12 stack-add-field">
+                <label class="form-label" for="{{ add_form.cycle_reference_date.id_for_label }}">{{ add_form.cycle_reference_date.label }}</label>
+                <div class="stack-add-input">
+                  {{ add_form.cycle_reference_date }}
+                  <div class="form-text text-muted small">{{ add_form.cycle_reference_date.help_text }}</div>
+                  {% if add_form.cycle_reference_date.errors %}
+                    <div class="text-danger small mt-1">{{ add_form.cycle_reference_date.errors.0 }}</div>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="col-12 stack-add-field">
+                <label class="form-label" for="{{ add_form.notes.id_for_label }}">Notes</label>
+                <div class="stack-add-input">
+                  {{ add_form.notes }}
+                  {% if add_form.notes.errors %}
+                    <div class="text-danger small mt-1">{{ add_form.notes.errors.0 }}</div>
+                  {% endif %}
+                </div>
+              </div>
+
+              {% if add_form.non_field_errors %}
+                <div class="col-12">
+                  <div class="alert alert-danger py-2 mb-0">
+                    {% for err in add_form.non_field_errors %}
+                      <div class="small">{{ err }}</div>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endif %}
+
+              <div class="col-12 stack-add-actions">
+                <div></div>
+                <div class="d-flex flex-wrap align-items-center gap-2 pt-1">
+                  <button class="btn btn-galaxy btn-galaxy--sm" type="submit" name="add_compound_to_stack">
+                    {% include "includes/galaxy_button_inner.html" with label="Add" %}
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 
@@ -191,10 +303,10 @@
                   <option value="pre-event" {% if item.time_of_day == "pre-event" %}selected{% endif %}>Pre-event</option>
                 </select>
                 <input
-                  type="datetime-local"
+                  type="time"
                   name="intake_time"
                   class="form-control"
-                  value="{% if item.intake_time %}{{ item.intake_time|date:'Y-m-d\\TH:i' }}{% endif %}"
+                  value="{% if item.intake_time %}{{ item.intake_time|date:'H:i' }}{% endif %}"
                 >
                 <input
                   type="number"
@@ -225,19 +337,44 @@
 
             {% if edit_item_id == item.id and edit_form %}
               <div class="mt-3">
-                <form method="post" class="d-flex flex-wrap align-items-center gap-2 stack-edit-form" autocomplete="off">
+                <form method="post" class="stack-edit-form" autocomplete="off">
                   {% csrf_token %}
                   <input type="hidden" name="item_id" value="{{ item.id }}">
-                  {{ edit_form.compound }}
-                  {{ edit_form.dosage_amount }}
-                  {{ edit_form.dosage_unit }}
-                  {{ edit_form.time_of_day }}
-                  {{ edit_form.intake_time }}
-                  {{ edit_form.recurrence_interval }}
-                  {{ edit_form.recurrence_unit }}
-                  {{ edit_form.notes }}
-                  <button class="btn btn-sm btn-primary" type="submit" name="update_stack_item">Save</button>
-                  <a class="btn btn-sm btn-outline-secondary" href="{% url 'stack_detail' stack.id %}">Cancel</a>
+                  <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                    {{ edit_form.compound }}
+                    {{ edit_form.dosage_amount }}
+                    {{ edit_form.dosage_unit }}
+                    {{ edit_form.time_of_day }}
+                    {{ edit_form.intake_clock }}
+                    {{ edit_form.recurrence_interval }}
+                    {{ edit_form.recurrence_unit }}
+                    {{ edit_form.notes }}
+                  </div>
+                  <div class="d-flex flex-wrap gap-2 mb-2">
+                    <div>
+                      <label class="form-label mb-1 small" for="{{ edit_form.doses_per_recurrence.id_for_label }}">{{ edit_form.doses_per_recurrence.label }}</label>
+                      {{ edit_form.doses_per_recurrence }}
+                    </div>
+                  </div>
+                  <div class="text-muted small fw-semibold mb-1" style="letter-spacing:.04em;">Drug Holiday / Cycling <span class="fw-normal">(optional)</span></div>
+                  <div class="d-flex flex-wrap gap-2 mb-2">
+                    <div>
+                      <label class="form-label mb-1 small" for="{{ edit_form.cycle_on_days.id_for_label }}">{{ edit_form.cycle_on_days.label }}</label>
+                      {{ edit_form.cycle_on_days }}
+                    </div>
+                    <div>
+                      <label class="form-label mb-1 small" for="{{ edit_form.cycle_off_days.id_for_label }}">{{ edit_form.cycle_off_days.label }}</label>
+                      {{ edit_form.cycle_off_days }}
+                    </div>
+                    <div>
+                      <label class="form-label mb-1 small" for="{{ edit_form.cycle_reference_date.id_for_label }}">{{ edit_form.cycle_reference_date.label }}</label>
+                      {{ edit_form.cycle_reference_date }}
+                    </div>
+                  </div>
+                  <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-primary" type="submit" name="update_stack_item">Save</button>
+                    <a class="btn btn-sm btn-outline-secondary" href="{% url 'stack_detail' stack.id %}">Cancel</a>
+                  </div>
                 </form>
                 {% if edit_form.errors %}
                   <div class="text-danger small mt-2">
@@ -264,6 +401,78 @@
       {% endfor %}
     </ul>
   </div>
+
+
+  {% if stack_risk %}
+    {% include "stacks/_risk_panel.html" %}
+  {% endif %}
+
+  <div class="card mb-3 text-light">
+    <div class="card-header d-flex justify-content-between align-items-center stack-card-header">
+      <div class="fw-bold">Enzymatic Overload</div>
+      <div class="text-muted small text-light">Affinity-weighted</div>
+    </div>
+    <div class="card-body">
+      <div class="d-flex flex-wrap gap-3 align-items-center">
+        <div>
+          <div class="text-muted small text-light">Score</div>
+          <div class="fs-5 fw-semibold">{{ enzymatic_overload.score|floatformat:2 }}</div>
+        </div>
+        <div>
+          <div class="text-muted small text-light">Distinct enzymes</div>
+          <div class="fw-semibold">{{ enzymatic_overload.distinct_enzymes }}</div>
+        </div>
+        <div>
+          <div class="text-muted small text-light">Interactions</div>
+          <div class="fw-semibold">{{ enzymatic_overload.total_interactions }}</div>
+        </div>
+        <div>
+          <div class="text-muted small text-light">Avg affinity per enzyme</div>
+          <div class="fw-semibold">{{ enzymatic_overload.avg_affinity_per_enzyme|floatformat:2 }}</div>
+        </div>
+      </div>
+      <div class="small text-muted text-light mt-2">
+        Formula: average affinity per enzyme × log(1 + distinct enzymes). Quantity still matters.
+      </div>
+      {% if enzymatic_overload.enzymes %}
+        <div class="mt-3">
+          <div class="text-muted small text-light mb-2">Top enzymes</div>
+          <div class="d-flex flex-wrap gap-2">
+            {% for row in enzymatic_overload.enzymes %}
+              <span class="badge bg-secondary text-light">
+                {{ row.name }} ({{ row.weight|floatformat:2 }})
+              </span>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Smart timing suggestions ── #}
+  {% if timing_suggestions %}
+  <div class="card mb-3" style="border-color:rgba(255,193,7,0.3);">
+    <div class="card-header py-2" style="background:rgba(255,193,7,0.08);">
+      <span class="fw-semibold"><i class="fas fa-clock me-1 text-warning"></i>Timing Suggestions</span>
+    </div>
+    <div class="card-body py-2">
+      <div class="d-flex flex-column gap-2">
+        {% for s in timing_suggestions %}
+        <div class="small d-flex align-items-start gap-2">
+          <i class="fas fa-exclamation-circle text-warning mt-1"></i>
+          <span>
+            <strong>{{ s.compound_a }}</strong> ({{ s.mechanism_a }}) and
+            <strong>{{ s.compound_b }}</strong> ({{ s.mechanism_b }}) interact via
+            <em>{{ s.cyp_target }}</em>.
+            Consider spacing them by at least <strong>{{ s.suggestion_hours }}h</strong>
+            to reduce metabolic overlap.
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   <div class="card mb-3 stack-analysis-shell">
     <div class="card-header d-flex justify-content-between align-items-center stack-card-header">
@@ -358,7 +567,7 @@
                 </div>
                 <form method="post" class="mb-0">
                   {% csrf_token %}
-                  <div class="row g-3">
+                  <div class="row g-2">
                     <div class="col-12">
                       <div class="small text-muted mb-1">Category Selector (toggles)</div>
                       {% if grouping_sections %}
@@ -638,8 +847,175 @@
   </div>
 
 </div>
+<style>
+  .stack-add-launch {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .stack-add-launch .btn {
+    min-width: 220px;
+  }
+
+  #stackAddCompoundModal {
+    z-index: 3205 !important;
+  }
+
+  .modal-backdrop.show {
+    z-index: 3200 !important;
+  }
+
+  .stack-add-modal-dialog {
+    position: relative;
+    z-index: 1;
+    width: auto;
+    max-width: min(calc(100vw - 1rem), 760px);
+    margin: 0.5rem auto;
+  }
+
+  .stack-add-modal-content {
+    width: 100%;
+    overflow: hidden;
+    background: var(--surface-soft-elevated), var(--surface-soft-base) !important;
+    border: 1px solid var(--surface-soft-border-strong) !important;
+    border-radius: 20px !important;
+    box-shadow: var(--surface-soft-shadow), var(--surface-soft-inset);
+    color: var(--text-primary) !important;
+    backdrop-filter: blur(12px);
+    pointer-events: auto;
+  }
+
+  .stack-add-modal-header {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    align-items: center;
+  }
+
+  .stack-add-modal-content .modal-body {
+    max-height: min(78vh, 720px);
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .cp-stack-add {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0.95rem !important;
+  }
+
+  .cp-stack-add .row {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  .cp-stack-add .row > * {
+    min-width: 0;
+  }
+
+  .cp-stack-add .stack-add-field .form-control,
+  .cp-stack-add .stack-add-field .form-select,
+  .cp-stack-add .stack-add-field .select2,
+  .cp-stack-add .stack-add-field .select2-container {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .cp-stack-add .stack-add-field,
+  .cp-stack-add .stack-add-actions {
+    display: grid;
+    grid-template-columns: 150px minmax(0, 1fr);
+    align-items: center;
+    column-gap: 0.85rem;
+    row-gap: 0.25rem;
+  }
+
+  .cp-stack-add .stack-add-field .stack-add-input,
+  .cp-stack-add .stack-add-actions > :last-child {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .cp-stack-add .stack-add-field .form-label {
+    margin-bottom: 0 !important;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: right;
+  }
+
+  @media (max-width: 991.98px) {
+    .stack-page {
+      padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10.5rem);
+    }
+
+    .stack-add-launch {
+      position: fixed;
+      left: 50%;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 88px);
+      transform: translateX(-50%);
+      width: min(calc(100% - 1.5rem), 380px);
+      margin: 0;
+      z-index: 2010;
+    }
+
+    .stack-add-launch .btn {
+      width: 100%;
+      min-width: 0;
+    }
+
+    .stack-add-launch .small {
+      display: none;
+    }
+  }
+
+  @media (max-width: 767.98px) {
+    .cp-stack-add .stack-add-field,
+    .cp-stack-add .stack-add-actions {
+      grid-template-columns: 1fr;
+      align-items: stretch;
+      row-gap: 0.35rem;
+    }
+
+    .cp-stack-add .stack-add-field .form-label {
+      text-align: left;
+    }
+  }
+
+  @media (max-width: 576px) {
+    .stack-add-modal-dialog {
+      max-width: min(calc(100vw - 0.75rem), 760px);
+      margin: 0.375rem auto;
+    }
+  }
+</style>
+
 <script>
   document.addEventListener('DOMContentLoaded', function() {
+    const addCompoundModalEl = document.getElementById('stackAddCompoundModal');
+    if (addCompoundModalEl && window.bootstrap) {
+      if (addCompoundModalEl.parentElement !== document.body) {
+        document.body.appendChild(addCompoundModalEl);
+      }
+
+      const addCompoundModal = new window.bootstrap.Modal(addCompoundModalEl);
+
+      addCompoundModalEl.addEventListener('show.bs.modal', function() {
+        addCompoundModalEl.style.zIndex = '3205';
+        window.setTimeout(function() {
+          const backdrops = document.querySelectorAll('.modal-backdrop');
+          const latestBackdrop = backdrops[backdrops.length - 1];
+          if (latestBackdrop) {
+            latestBackdrop.style.zIndex = '3200';
+          }
+        }, 0);
+      });
+
+      {% if add_form.errors or add_form.non_field_errors %}
+        addCompoundModal.show();
+      {% endif %}
+    }
+
     const itemRows = Array.from(document.querySelectorAll('[data-stack-item-row]'));
     if (!itemRows.length) {
       return;
@@ -709,7 +1085,7 @@
       return badgeDateFormatter.format(date).replace(',', '');
     }
 
-    function toDatetimeLocalValue(value) {
+    function toTimeValue(value) {
       if (!value) {
         return '';
       }
@@ -718,7 +1094,59 @@
         return '';
       }
       const local = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
-      return local.toISOString().slice(0, 16);
+      return local.toISOString().slice(11, 16);
+    }
+
+    function formatDatetimeLocalForPayload(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      return year + '-' + month + '-' + day + 'T' + hours + ':' + minutes;
+    }
+
+    function advanceIntakeDate(date, interval, unit) {
+      if (unit === 'daily') {
+        return new Date(date.getTime() + ((24 * 60 * 60 * 1000) / interval));
+      }
+      if (unit === 'weekly') {
+        return new Date(date.getTime() + ((7 * 24 * 60 * 60 * 1000) / interval));
+      }
+      if (unit === 'monthly') {
+        const nextMonth = new Date(date.getTime());
+        nextMonth.setMonth(nextMonth.getMonth() + 1);
+        const spanMs = nextMonth.getTime() - date.getTime();
+        return new Date(date.getTime() + (spanMs / interval));
+      }
+      return new Date(date.getTime() + (24 * 60 * 60 * 1000));
+    }
+
+    function resolveNextIntakeTimeValue(clockValue, interval, unit) {
+      if (!clockValue) {
+        return null;
+      }
+      const parts = clockValue.split(':');
+      if (parts.length < 2) {
+        return null;
+      }
+      const hours = Number.parseInt(parts[0], 10);
+      const minutes = Number.parseInt(parts[1], 10);
+      if (!Number.isInteger(hours) || !Number.isInteger(minutes)) {
+        return null;
+      }
+
+      const now = new Date();
+      let scheduled = new Date(now.getTime());
+      scheduled.setSeconds(0, 0);
+      scheduled.setHours(hours, minutes, 0, 0);
+
+      let safetyCounter = 0;
+      while (scheduled <= now && safetyCounter < 96) {
+        scheduled = advanceIntakeDate(scheduled, interval, unit);
+        safetyCounter += 1;
+      }
+      return formatDatetimeLocalForPayload(scheduled);
     }
 
     function applyItemUpdate(row, payload) {
@@ -787,7 +1215,7 @@
       inlineForm.elements.dosage_amount.value = payload.dosage_amount ?? '';
       inlineForm.elements.dosage_unit.value = payload.dosage_unit || 'mg';
       inlineForm.elements.time_of_day.value = payload.time_of_day || '';
-      inlineForm.elements.intake_time.value = toDatetimeLocalValue(payload.intake_time);
+      inlineForm.elements.intake_time.value = toTimeValue(payload.intake_time);
       inlineForm.elements.recurrence_interval.value = payload.recurrence_interval || 1;
       inlineForm.elements.recurrence_unit.value = payload.recurrence_unit || 'daily';
       inlineForm.elements.notes.value = payload.notes || '';
@@ -842,13 +1270,14 @@
           return;
         }
 
+        const recurrenceUnit = form.elements.recurrence_unit.value || 'daily';
         const payload = {
           dosage_amount: (form.elements.dosage_amount.value || '').trim() || null,
           dosage_unit: form.elements.dosage_unit.value || 'mg',
           time_of_day: form.elements.time_of_day.value || null,
-          intake_time: (form.elements.intake_time.value || '').trim() || null,
+          intake_time: resolveNextIntakeTimeValue((form.elements.intake_time.value || '').trim(), recurrenceInterval, recurrenceUnit),
           recurrence_interval: recurrenceInterval,
-          recurrence_unit: form.elements.recurrence_unit.value || 'daily',
+          recurrence_unit: recurrenceUnit,
           notes: (form.elements.notes.value || '').trim(),
         };
 

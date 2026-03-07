@@ -25,8 +25,12 @@ from .metrics import compute_enzymatic_overload
 from .models import StackRiskAssessment
 from .models import StackTrait
 from logs.models import IntakeLog
+import json
 from .services import (
     annotate_occurrences_taken,
+    build_timeline_data,
+    compute_adherence_stats,
+    detect_timing_conflicts,
     get_schedule_window,
     iter_upcoming_occurrences,
     merge_taken_logs_into_occurrences,
@@ -367,16 +371,45 @@ def _build_calendar_context(
     while d < grid_end:
         day_occurrences = by_day.get(d, [])
         count = len(day_occurrences)
-        level = min(count, 4)
-        bar_height = min(100, count * 20)
+        is_past_or_today = d <= local_today
+
+        # Adherence heatmap for past/today; count-based for future.
+        taken_count = sum(
+            1 for o in day_occurrences
+            if getattr(o, 'is_taken', False) and not getattr(o, 'is_unstacked', False)
+        )
+        scheduled_count = sum(
+            1 for o in day_occurrences
+            if not getattr(o, 'is_unstacked', False)
+        )
+
+        if scheduled_count == 0:
+            level = 0
+        elif not is_past_or_today:
+            # Future: shade by scheduled count
+            level = min(scheduled_count, 4)
+        elif taken_count == scheduled_count:
+            level = 1  # green: perfect adherence
+        elif taken_count > 0:
+            level = 2  # yellow: partial
+        else:
+            level = 3  # orange: missed entirely
+
+        bar_height = min(100, scheduled_count * 20) if scheduled_count else 0
+        adherence_pct = int(round(taken_count / scheduled_count * 100)) if scheduled_count > 0 else None
+
         cells.append(
             {
                 'date': d,
                 'occurrences': day_occurrences,
                 'count': count,
+                'scheduled_count': scheduled_count,
+                'taken_count': taken_count,
+                'adherence_pct': adherence_pct,
                 'level': level,
                 'bar_height': bar_height,
                 'is_today': d == local_today,
+                'is_past': is_past_or_today and d != local_today,
                 'is_outside_month': (current_month is not None) and (d.month != current_month),
             }
         )
@@ -693,6 +726,16 @@ class StackDetailView(LoginRequiredMixin, TemplateView):
             context['edit_form'] = form
             return self.render_to_response(context)
 
+        if 'update_stack_name' in request.POST:
+            form = StackForm(request.POST, instance=self.stack)
+            if form.is_valid():
+                self.stack = form.save()
+                return redirect('stack_detail', stack_id=self.stack.id)
+
+            context = self.get_context_data(**kwargs)
+            context['stack_form'] = form
+            return self.render_to_response(context)
+
         if 'delete_stack_item' in request.POST:
             item_id = request.POST.get('item_id')
             item = StackItem.objects.filter(id=item_id, stack=self.stack).first()
@@ -852,6 +895,7 @@ class StackDetailView(LoginRequiredMixin, TemplateView):
         context['stack_recommendation_errors'] = []
         context['grouping_presets'] = grouping_preset_options()
 
+        context['stack_form'] = StackForm(instance=self.stack)
         context['add_form'] = AddCompoundForm()
         context['edit_item_id'] = edit_item_id
         context['edit_form'] = None
@@ -885,7 +929,187 @@ class StackDetailView(LoginRequiredMixin, TemplateView):
             )
         events.sort(key=lambda row: row['ts'], reverse=True)
         context['stack_activity_events'] = events[:10]
+
+        # Smart timing suggestions: flag CYP inhibitor↔substrate pairs in this stack.
+        context['timing_suggestions'] = _compute_timing_suggestions(list(context['items']))
+
         return context
+
+
+def _compute_timing_suggestions(items) -> list:
+    """
+    Return a list of dicts warning about CYP inhibitor↔substrate pairs in a stack.
+
+    Each dict: {compound_a, compound_b, cyp_target, mechanism_a, mechanism_b, suggestion_minutes}
+    """
+    from compounds.models import CompoundTargetInteraction, EffectWindow
+
+    compound_ids = [item.compound_id for item in items]
+    if len(compound_ids) < 2:
+        return []
+
+    cyp_rows = (
+        CompoundTargetInteraction.objects
+        .filter(compound_id__in=compound_ids, target__name__icontains='CYP')
+        .select_related('target', 'compound')
+        .values('compound_id', 'compound__name', 'target__name', 'mechanism')
+    )
+    cyp_map: dict = {}
+    for row in cyp_rows:
+        cid = row['compound_id']
+        cyp_map.setdefault(cid, {})
+        existing_mech = cyp_map[cid].get(row['target__name'])
+        if existing_mech is None or row['mechanism'] in ('inhibitor', 'inducer'):
+            cyp_map[cid][row['target__name']] = (row['mechanism'], row['compound__name'])
+
+    # EffectWindow durations for spacing suggestions
+    ew_qs = EffectWindow.objects.filter(compound_id__in=compound_ids).values('compound_id', 'duration_minutes')
+    ew_duration: dict = {}
+    for row in ew_qs:
+        if row['compound_id'] not in ew_duration:
+            ew_duration[row['compound_id']] = row['duration_minutes']
+
+    suggestions = []
+    seen = set()
+    for i, item_a in enumerate(items):
+        cyp_a = cyp_map.get(item_a.compound_id, {})
+        for item_b in items[i + 1:]:
+            if item_a.compound_id == item_b.compound_id:
+                continue
+            cyp_b = cyp_map.get(item_b.compound_id, {})
+            for cyp_name, (mech_a, name_a) in cyp_a.items():
+                if cyp_name not in cyp_b:
+                    continue
+                mech_b, name_b = cyp_b[cyp_name]
+                roles = {mech_a, mech_b}
+                if roles & {'inhibitor', 'inducer'} and 'substrate' in roles:
+                    pair = tuple(sorted([item_a.compound_id, item_b.compound_id]))
+                    if pair in seen:
+                        continue
+                    seen.add(pair)
+                    # Suggest spacing equal to the inhibitor's effect duration.
+                    inhibitor_id = item_a.compound_id if mech_a in ('inhibitor', 'inducer') else item_b.compound_id
+                    suggestion_minutes = ew_duration.get(inhibitor_id, 120)
+                    suggestions.append({
+                        'compound_a': name_a,
+                        'compound_b': name_b,
+                        'cyp_target': cyp_name,
+                        'mechanism_a': mech_a,
+                        'mechanism_b': mech_b,
+                        'suggestion_hours': round(suggestion_minutes / 60, 1),
+                    })
+    return suggestions
+
+
+@login_required
+def stack_schedule_ical(request):
+    """Live iCal subscription feed — one VEVENT+RRULE per stack item dose slot.
+
+    Calendar apps re-fetch this URL on their refresh schedule; each fetch
+    reflects the current scheduling rules without pre-expanding dates.
+    Cycling (drug holidays) cannot be expressed as a plain RRULE, so it is
+    noted in the event description and the calendar app will show every
+    recurrence — users should expect off-days to still appear.
+    """
+    from datetime import timezone as _dt_tz
+
+    items = (
+        StackItem.objects.filter(stack__user=request.user, stack__is_active=True)
+        .select_related('stack', 'compound')
+    )
+
+    def ical_escape(text: str) -> str:
+        return (
+            str(text or '')
+            .replace('\\', '\\\\')
+            .replace('\n', '\\n')
+            .replace(',', '\\,')
+            .replace(';', '\\;')
+        )
+
+    def fmt_dt(dt) -> str:
+        utc = dt.astimezone(_dt_tz.utc)
+        return utc.strftime('%Y%m%dT%H%M%SZ')
+
+    def rrule_for_item(item) -> str:
+        freq_map = {'daily': 'DAILY', 'weekly': 'WEEKLY', 'monthly': 'MONTHLY'}
+        freq = freq_map.get(item.recurrence_unit, 'DAILY')
+        interval = item.recurrence_interval or 1
+        return f'FREQ={freq};INTERVAL={interval}'
+
+    # Build the feed URL for REFRESH-INTERVAL / SOURCE
+    feed_url = request.build_absolute_uri(request.path)
+
+    cal_lines = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//Neurobin//Stack Schedule//EN',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+        'X-WR-CALNAME:Neurobin Stack Schedule',
+        # Ask clients to refresh every 3 hours
+        'REFRESH-INTERVAL;VALUE=DURATION:PT3H',
+        f'SOURCE;VALUE=URI:{feed_url}',
+        f'URL:{feed_url}',
+    ]
+
+    now_utc = timezone.now().astimezone(_dt_tz.utc)
+
+    for item in items:
+        # Determine the anchor DTSTART.  Use the stored intake_time if set;
+        # otherwise fall back to today at a time derived from time_of_day.
+        if item.intake_time:
+            anchor = item.intake_time.astimezone(_dt_tz.utc)
+        else:
+            fallback_hour = {'morning': 8, 'afternoon': 13, 'evening': 18, 'night': 21}.get(
+                item.time_of_day or '', 9
+            )
+            anchor = now_utc.replace(hour=fallback_hour, minute=0, second=0, microsecond=0)
+
+        doses = max(item.doses_per_recurrence or 1, 1)
+
+        # Compute the spacing between doses within a single recurrence period
+        freq_map = {'daily': 1440, 'weekly': 10080, 'monthly': 43200}
+        period_minutes = freq_map.get(item.recurrence_unit, 1440) // max(item.recurrence_interval or 1, 1)
+        dose_spacing = period_minutes // doses
+
+        summary_base = ical_escape(item.compound.name)
+        if item.dosage_amount:
+            summary_base += f' {ical_escape(item.dosage_amount)} {ical_escape(item.dosage_unit)}'
+
+        desc_parts = [f'Stack: {ical_escape(item.stack.name)}']
+        if item.cycle_on_days and item.cycle_off_days:
+            desc_parts.append(
+                f'Cycling: {item.cycle_on_days} days on / {item.cycle_off_days} days off'
+                ' (calendar shows all days; ignore off-days manually)'
+            )
+        description = ical_escape('\\n'.join(desc_parts))
+
+        rrule = rrule_for_item(item)
+
+        for dose_idx in range(doses):
+            dose_start = anchor + timedelta(minutes=dose_spacing * dose_idx)
+            dose_end = dose_start + timedelta(minutes=30)
+            uid = f'item-{item.pk}-dose-{dose_idx}@neurobin'
+
+            cal_lines += [
+                'BEGIN:VEVENT',
+                f'UID:{uid}',
+                f'DTSTART:{fmt_dt(dose_start)}',
+                f'DTEND:{fmt_dt(dose_end)}',
+                f'RRULE:{rrule}',
+                f'SUMMARY:{summary_base}',
+                f'DESCRIPTION:{description}',
+                f'LAST-MODIFIED:{fmt_dt(now_utc)}',
+                'END:VEVENT',
+            ]
+
+    cal_lines.append('END:VCALENDAR')
+    content = '\r\n'.join(cal_lines) + '\r\n'
+    response = HttpResponse(content, content_type='text/calendar; charset=utf-8')
+    # inline (not attachment) so calendar apps can subscribe directly
+    response['Content-Disposition'] = 'inline; filename="stack-schedule.ics"'
+    return response
 
 
 class StackScheduleView(LoginRequiredMixin, TemplateView):
@@ -999,6 +1223,17 @@ class StackScheduleView(LoginRequiredMixin, TemplateView):
             window_end=until,
             now=now,
         )
+
+        # Adherence stats bar
+        adherence = compute_adherence_stats(occurrences, user=self.request.user, now=now)
+        context.update(adherence)
+
+        # Effect-window timeline data (Chart.js horizontal floating bars)
+        context['timeline_data_json'] = json.dumps(build_timeline_data(occurrences, now=now))
+
+        # CYP conflict warnings
+        context['conflict_warnings'] = detect_timing_conflicts(occurrences, now=now)
+
         return context
 
 
@@ -1176,3 +1411,203 @@ class ExploreStacksView(LoginRequiredMixin, TemplateView):
         for s in context['public_stacks']:
             s.risk = _safe_get_risk_assessment(s)
         return context
+
+
+class StackBuilderView(LoginRequiredMixin, TemplateView):
+    """Interactive visual stack builder with functional taxonomy."""
+
+    template_name = 'stacks/stack_builder.html'
+
+    # Target-name substrings that indicate a compound belongs in the builder.
+    # This is the server-side pre-filter; JS does the fine-grained taxonomy.
+    _TARGET_KEYWORDS = [
+        'androgen', 'estrogen', 'progesterone', 'aromatase',
+        'dopamine', 'serotonin', '5-ht', 'gaba', 'glutamate', 'ampa', 'nmda',
+        'acetylcholin', 'muscarinic', 'nicotinic',
+        'norepinephrine', 'adrenergic', 'noradrenalin',
+        'opioid', 'cannabinoid', 'sigma',
+        'histamine', 'adenosine', 'melatonin',
+        'insulin', 'glucagon', 'thyroid', 'mtor', 'ampk',
+        'bdnf', 'ngf', 'trkb', 'vegf',
+        'calcium channel', 'ace inhibitor', 'angiotensin',
+        'cox', 'cyclooxygenase', 'interleukin', 'tnf',
+        'growth hormone', 'igf', 'ghrelin',
+        'prolactin', 'gonadotropin',
+    ]
+    _CATEGORY_KEYWORDS = [
+        'anabolic', 'androgen', 'steroid', 'sarm', 'peptide',
+        'nootropic', 'neuroenhancer', 'cognitive',
+        'antipsychotic', 'anxiolytic', 'antidepressant',
+        'opioid', 'cannabinoid', 'psychedelic',
+        'stimulant', 'sedative', 'hypnotic',
+        'anti-inflammatory', 'analgesic',
+        'cardiovascular', 'antihypertensive',
+        'antidiabetic', 'thyroid', 'metabolic',
+        'hormone', 'estrogen', 'contraceptive',
+        'anti-cancer', 'antineoplastic', 'antitumor',
+        'antibiotic', 'antiviral', 'antifungal',
+        'immunomodulat', 'immunosuppressant',
+        'longevity', 'anti-aging', 'neuroprotect',
+        'sex hormone', 'endocrine', 'anticancer',
+        'antiepileptic', 'anticonvulsant',
+        'mood stabilizer', 'psychostimulant',
+        'beta blocker', 'calcium channel',
+        'ace inhibitor', 'statin', 'lipid',
+        'weight management', 'obesity',
+        'antihistamine', 'anti-parkinson', 'antiparkinsonian',
+    ]
+    # Explicit compound-name substrings for compounds that may have no
+    # categories or MoA records in the DB (e.g. most anabolics/peptides).
+    _NAME_KEYWORDS = [
+        # Androgens / AAS
+        'testosterone', 'nandrolone', 'trenbolone', 'boldenone', 'stanozolol',
+        'oxandrolone', 'methandrostenolone', 'oxymetholone', 'drostanolone',
+        'methenolone', 'fluoxymesterone', 'trestolone', 'mesterolone',
+        'clostebol', 'epitestosterone', 'methyltestosterone', 'halotestin',
+        'superdrol', 'methasterone', 'dimethyltrienolone',
+        # SARMs / selective modulators
+        'ostarine', 'ligandrol', 'lgd4033', 'lgd-4033', 'rad-140',
+        'andarine', 'yk11', 'gw501516', 'cardarine', 'sr9009', 'ibutamoren',
+        'mk677', 'mk-677', 'enobosarm', 'ac-262',
+        # GH axis / secretagogues
+        'ipamorelin', 'sermorelin', 'hexarelin', 'ghrp', 'cjc-1295',
+        'tesamorelin', 'igf-1', 'aod-9604',
+        # Repair / tissue peptides
+        'bpc-157', 'tb-500', 'thymosin', 'ghk-cu',
+        # Estrogen modulators
+        'anastrozole', 'letrozole', 'exemestane', 'tamoxifen', 'clomiphene',
+        'raloxifene', 'fulvestrant', 'toremifene', 'enclomiphene',
+        # Ancillaries
+        'cabergoline', 'bromocriptine',
+        # Nootropics / racetams / peptide cognitives
+        'piracetam', 'aniracetam', 'oxiracetam', 'pramiracetam', 'noopept',
+        'phenylpiracetam', 'modafinil', 'armodafinil', 'huperzine',
+        'vinpocetine', 'citicoline', 'alpha-gpc', 'semax', 'selank',
+        'cerebrolysin', 'epitalon', 'epithalon', 'dsip', 'thymalin',
+        # Sleep / circadian
+        'melatonin', 'ramelteon', 'agomelatine', 'phenibut',
+        # Psychedelics
+        'psilocybin', 'psilocin', 'psilocybine', '5-meo-dmt', 'mescaline',
+        'ibogaine', 'dmt', 'lsd',
+        # Dissociatives / empathogens
+        'mdma', 'ketamine', 'esketamine', 'memantine',
+        # Stimulants
+        'clenbuterol', 'ephedrine', 'yohimbine', 'caffeine', 'theobromine',
+        # Longevity
+        'nicotinamide riboside', 'nicotinamide mononucleotide', 'berberine',
+        'resveratrol', 'pterostilbene', 'quercetin', 'curcumin',
+        'rapamycin', 'sirolimus', 'everolimus',
+        # Metabolic / GLP-1
+        'semaglutide', 'liraglutide', 'tirzepatide',
+        # Cardiovascular / ED
+        'sildenafil', 'tadalafil', 'vardenafil',
+        # Adaptogens
+        'ashwagandha', 'rhodiola', 'ginseng',
+    ]
+
+    def get_context_data(self, **kwargs):
+        from django.db.models import Q
+        from compounds.models import Compound
+
+        ctx = super().get_context_data(**kwargs)
+
+        # ── Compound IDs from user's own stacks (always include) ──────────────
+        user_compound_ids = set(
+            StackItem.objects.filter(stack__user=self.request.user)
+            .values_list('compound_id', flat=True)
+        )
+
+        # ── Compound IDs matched by target keywords ────────────────────────────
+        target_q = Q()
+        for kw in self._TARGET_KEYWORDS:
+            target_q |= Q(mechanism_of_action__target_name__name__icontains=kw)
+
+        # ── Compound IDs matched by category keywords ─────────────────────────
+        cat_q = Q()
+        for kw in self._CATEGORY_KEYWORDS:
+            cat_q |= Q(categories__name__icontains=kw)
+
+        # ── Compound IDs matched by explicit name keywords ────────────────────
+        name_q = Q()
+        for kw in self._NAME_KEYWORDS:
+            name_q |= Q(name__icontains=kw)
+
+        matched_ids = set(
+            Compound.objects.filter(target_q | cat_q | name_q)
+            .distinct()
+            .values_list('pk', flat=True)
+        )
+
+        all_ids = user_compound_ids | matched_ids
+
+        compounds_qs = (
+            Compound.objects.filter(pk__in=all_ids)
+            .prefetch_related('categories', 'mechanism_of_action__target_name')
+            .select_related('steroid_ratings', 'safety_screening')
+            .order_by('name')
+        )
+
+        compounds_data = []
+
+        for c in compounds_qs:
+            cats = [cat.name for cat in c.categories.all()]
+
+            rating = getattr(c, 'steroid_ratings', None)
+            safety = getattr(c, 'safety_screening', None)
+
+            anabolic = float(rating.anabolic_rating) if (rating and rating.anabolic_rating is not None) else 0
+            androgenic = float(rating.androgenic_rating) if (rating and rating.androgenic_rating is not None) else 0
+
+            estrogenic = 0
+            progestogenic = 0
+            mechanisms_list = []
+            for moa in c.mechanism_of_action.all():
+                target = moa.target_name
+                t_name = target.name.lower() if target else ''
+                action = (moa.target_interaction or '').lower()
+                if target:
+                    mechanisms_list.append(
+                        f"{target.name}|{action}" if action else target.name
+                    )
+                if 'estrogen' in t_name:
+                    estrogenic = max(estrogenic, 50) if 'agonist' in action else min(estrogenic, -30)
+                if 'progesterone' in t_name or 'progestin' in t_name:
+                    if 'agonist' in action:
+                        progestogenic = max(progestogenic, 50)
+
+            hepato = max(0, (safety.liver_toxicity - 1) * 25) if (safety and safety.liver_toxicity) else 0
+            suppression = max(0, (safety.hpta_suppression - 1) * 25) if (safety and safety.hpta_suppression) else 0
+
+            if not safety or not safety.liver_toxicity or safety.liver_toxicity <= 2:
+                hh = 'safe'
+            elif safety.liver_toxicity <= 3:
+                hh = 'caution'
+            else:
+                hh = 'contra'
+
+            compounds_data.append({
+                'id': c.pk,
+                'slug': c.slug,
+                'name': c.name,
+                'aka': c.aliases or '',
+                # raw DB categories sent as-is; taxonomy classification is JS-side
+                'dbCats': cats,
+                # mechanism strings as "TargetName|action" for JS keyword matching
+                'moa': mechanisms_list[:12],
+                'defaultDose': 100,
+                'unit': 'mg',
+                'testEquiv': round(anabolic / 100.0, 2) if anabolic > 0 else 1.0,
+                'props': {
+                    'anabolic': round(anabolic, 1),
+                    'androgenic': round(androgenic, 1),
+                    'estrogenic': estrogenic,
+                    'progestogenic': progestogenic,
+                    'hepato': hepato,
+                    'suppression': suppression,
+                },
+                'hh': hh,
+                'notes': (c.description[:200] if c.description else ''),
+            })
+
+        ctx['compounds_data'] = compounds_data
+        return ctx

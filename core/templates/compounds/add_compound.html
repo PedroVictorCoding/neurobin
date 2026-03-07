@@ -137,6 +137,53 @@
     </form>
   </div>
 
+  <div class="card bg-neurobin-card p-4 shadow mb-3">
+    <h5 class="text-light mb-2">Quick Summary Import</h5>
+    <p class="text-secondary small mb-3">Pull a readable description into the form below from PubChem, ChEMBL, or Wikipedia, then review and save the full compound record.</p>
+
+    {% if summary_import_message %}
+      <div class="alert alert-{{ summary_import_message_type }} py-2">
+        {{ summary_import_message }}
+      </div>
+    {% endif %}
+
+    {% if summary_import_preview %}
+      <details class="mb-3">
+        <summary class="text-info small" style="cursor:pointer;">Imported summary preview</summary>
+        <div class="bg-dark text-light p-3 mt-2 rounded small" style="white-space: pre-wrap;">{{ summary_import_preview }}</div>
+      </details>
+    {% endif %}
+
+    <form method="post" class="row g-2 align-items-end">
+      {% csrf_token %}
+      <div class="col-12 col-md-3">
+        <label for="summary_import_source" class="form-label text-light mb-1">Source</label>
+        <select id="summary_import_source" name="summary_import_source" class="form-control bg-dark text-light">
+          <option value="pubchem" {% if summary_import_source == 'pubchem' %}selected{% endif %}>PubChem</option>
+          <option value="chembl" {% if summary_import_source == 'chembl' %}selected{% endif %}>ChEMBL</option>
+          <option value="wikipedia" {% if summary_import_source == 'wikipedia' %}selected{% endif %}>Wikipedia</option>
+        </select>
+      </div>
+      <div class="col-12 col-md-6">
+        <label for="summary_import_query" class="form-label text-light mb-1">Lookup</label>
+        <input
+          type="text"
+          id="summary_import_query"
+          name="summary_import_query"
+          value="{{ summary_import_query }}"
+          class="form-control bg-dark text-light"
+          placeholder="2244, CHEMBL25, or Caffeine"
+          autocomplete="off"
+        >
+      </div>
+      <div class="col-12 col-md-3 d-grid">
+        <button type="submit" name="quick_import_summary" value="1" class="btn btn-outline-info">
+          Import Summary
+        </button>
+      </div>
+    </form>
+  </div>
+
   <form id="mainCompoundForm" method="post" enctype="multipart/form-data" class="card bg-neurobin-card p-4 shadow">
     {% csrf_token %}
     {% for field in form.visible_fields %}

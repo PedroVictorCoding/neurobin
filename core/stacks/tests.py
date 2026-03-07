@@ -18,7 +18,9 @@ from compounds.models import (
     Target,
 )
 from logs.models import IntakeLog
+from stacks.forms_add_compound import AddCompoundForm
 from stacks.models import Stack, StackDangerousPairRule, StackItem
+from stacks.risk import STACK_RISK_SCORE_VERSION, get_or_compute_stack_risk
 from stacks.trait_engine import grouping_preset_options
 
 
@@ -466,6 +468,19 @@ class StackSharingAndScheduleTests(TestCase):
         self.assertContains(resp, 'Risk Assessment')
         self.assertContains(resp, 'Risk:')
 
+    def test_stack_detail_can_rename_stack(self):
+        stack = Stack.objects.create(user=self.other, name='Original', visibility='private')
+
+        self.client.force_login(self.other)
+        resp = self.client.post(
+            f'/stacks/{stack.id}/',
+            data={'update_stack_name': '1', 'name': 'Renamed Stack'},
+        )
+
+        self.assertRedirects(resp, f'/stacks/{stack.id}/')
+        stack.refresh_from_db()
+        self.assertEqual(stack.name, 'Renamed Stack')
+
     def test_stack_risk_refresh_computes_missing_compound_predictions(self):
         compound2 = Compound.objects.create(name='Compound2', smiles='CCO')
         stack = Stack.objects.create(user=self.other, name='AutoRisk', visibility='private')
@@ -509,6 +524,98 @@ class StackSharingAndScheduleTests(TestCase):
             resp_attempted = self.client.get(f'/stacks/{stack.id}/?risk_autoload=1')
             self.assertEqual(resp_attempted.status_code, 200)
             self.assertNotContains(resp_attempted, 'id="stackRiskRefreshForm"')
+
+
+class AddCompoundFormTests(TestCase):
+    def setUp(self):
+        self.compound = Compound.objects.create(name='Timed Compound')
+
+    def test_intake_clock_saves_as_next_datetime_with_matching_clock_time(self):
+        form = AddCompoundForm(
+            data={
+                'compound': str(self.compound.id),
+                'dosage_amount': '',
+                'dosage_unit': 'mg',
+                'time_of_day': '',
+                'intake_clock': '08:30',
+                'recurrence_interval': '1',
+                'recurrence_unit': 'daily',
+                'notes': '',
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        item = form.save(commit=False)
+        self.assertIsNotNone(item.intake_time)
+        self.assertEqual(item.intake_time.hour, 8)
+        self.assertEqual(item.intake_time.minute, 30)
+        self.assertTrue(timezone.is_aware(item.intake_time))
+
+
+class StackRiskScoringTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='risk_user', password='pw')
+        self.compound_high = Compound.objects.create(name='High Signal')
+        self.compound_low = Compound.objects.create(name='Low Signal')
+
+    def test_stack_risk_uses_conservative_log_scaled_aggregation(self):
+        stack = Stack.objects.create(user=self.user, name='Tempered Risk', visibility='private')
+        StackItem.objects.create(stack=stack, compound=self.compound_high, recurrence_interval=1, recurrence_unit='daily')
+        StackItem.objects.create(stack=stack, compound=self.compound_low, recurrence_interval=1, recurrence_unit='daily')
+
+        CompoundADMETPrediction.objects.create(
+            compound=self.compound_high,
+            smiles='',
+            smiles_sha256='1' * 64,
+            model_version='test',
+            predictions={'DILI': 0.9},
+        )
+        CompoundADMETPrediction.objects.create(
+            compound=self.compound_low,
+            smiles='',
+            smiles_sha256='2' * 64,
+            model_version='test',
+            predictions={'DILI': 0.2},
+        )
+
+        result = get_or_compute_stack_risk(stack, items=list(stack.items.select_related('compound')))
+
+        self.assertEqual(result.assessment.risk_level, 'moderate')
+        self.assertLess(result.assessment.risk_score or 0.0, 0.5)
+        self.assertEqual(
+            result.assessment.details.get('summary', {}).get('score_model_version'),
+            STACK_RISK_SCORE_VERSION,
+        )
+
+    def test_outdated_cached_risk_is_recomputed_under_new_score_version(self):
+        stack = Stack.objects.create(user=self.user, name='Needs Refresh', visibility='private')
+        StackItem.objects.create(stack=stack, compound=self.compound_high, recurrence_interval=1, recurrence_unit='daily')
+
+        CompoundADMETPrediction.objects.create(
+            compound=self.compound_high,
+            smiles='',
+            smiles_sha256='3' * 64,
+            model_version='test',
+            predictions={'DILI': 0.95},
+        )
+
+        first = get_or_compute_stack_risk(stack, items=list(stack.items.select_related('compound')))
+        self.assertTrue(first.computed)
+
+        outdated_details = dict(first.assessment.details)
+        outdated_summary = dict(outdated_details.get('summary', {}))
+        outdated_summary.pop('score_model_version', None)
+        outdated_details['summary'] = outdated_summary
+        first.assessment.details = outdated_details
+        first.assessment.save(update_fields=['details'])
+
+        refreshed = get_or_compute_stack_risk(stack, items=list(stack.items.select_related('compound')))
+
+        self.assertTrue(refreshed.computed)
+        self.assertEqual(
+            refreshed.assessment.details.get('summary', {}).get('score_model_version'),
+            STACK_RISK_SCORE_VERSION,
+        )
 
 
 class StackTraitRecommendationTests(TestCase):

@@ -1,4 +1,5 @@
 import hashlib
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,6 +14,14 @@ TOX_ENDPOINTS = ("DILI", "AMES", "ClinTox", "Carcinogens_Lagunin")
 ABS_ENDPOINTS = ("Bioavailability_Ma", "HIA_Hou")
 BBB_ENDPOINTS = ("BBB_Martins",)
 RISK_CURVE_GAMMA = 2.2
+STACK_RISK_SCORE_VERSION = "stack-risk-log-v2"
+STACK_RISK_LOG_SCALE = 9.0
+STACK_RISK_PEAK_WEIGHT = 0.65
+STACK_RISK_MEAN_WEIGHT = 0.20
+STACK_RISK_ELEVATED_WEIGHT = 0.15
+STACK_RISK_ELEVATED_THRESHOLD = 0.5
+STACK_RISK_MODERATE_THRESHOLD = 0.38
+STACK_RISK_HIGH_THRESHOLD = 0.78
 
 
 def _as_prob(value: Any) -> float | None:
@@ -47,14 +56,58 @@ def _apply_risk_curve(value: float | None, gamma: float = RISK_CURVE_GAMMA) -> f
     return float(pow(v, gamma))
 
 
+def _aggregate_stack_risk(compound_risks: list[float]) -> tuple[float | None, dict[str, float]]:
+    valid = [max(0.0, min(1.0, float(risk))) for risk in compound_risks]
+    if not valid:
+        return None, {}
+
+    peak_risk = max(valid)
+    mean_risk = float(sum(valid) / len(valid))
+    elevated_support = float(
+        sum(risk for risk in valid if risk >= STACK_RISK_ELEVATED_THRESHOLD) / len(valid)
+    )
+    aggregate_signal = max(
+        0.0,
+        min(
+            1.0,
+            (peak_risk * STACK_RISK_PEAK_WEIGHT)
+            + (mean_risk * STACK_RISK_MEAN_WEIGHT)
+            + (elevated_support * STACK_RISK_ELEVATED_WEIGHT),
+        ),
+    )
+    return _logarithmic_risk_dampening(aggregate_signal), {
+        "peak_risk": peak_risk,
+        "mean_risk": mean_risk,
+        "elevated_support": elevated_support,
+        "aggregate_signal": aggregate_signal,
+    }
+
+
 def _risk_level(score: float | None, predicted_count: int) -> str:
     if predicted_count <= 0 or score is None:
         return "unknown"
-    if score >= 0.7:
+    if score >= STACK_RISK_HIGH_THRESHOLD:
         return "high"
-    if score >= 0.5:
+    if score >= STACK_RISK_MODERATE_THRESHOLD:
         return "moderate"
     return "low"
+
+
+def _logarithmic_risk_dampening(value: float | None, scale: float = STACK_RISK_LOG_SCALE) -> float | None:
+    if value is None:
+        return None
+    v = max(0.0, min(1.0, float(value)))
+    if v <= 0.0 or scale <= 0:
+        return v
+    if v >= 1.0:
+        return 1.0
+
+    denominator = math.log1p(scale)
+    if denominator <= 0.0:
+        return v
+
+    dampened = 1.0 - (math.log1p(scale * (1.0 - v)) / denominator)
+    return max(0.0, min(1.0, float(dampened)))
 
 
 def _stack_input_hash(
@@ -228,9 +281,15 @@ def get_or_compute_stack_risk(stack: Stack, items: list[StackItem] | None = None
     input_hash = _stack_input_hash(compound_ids, admet_map, molprop_map)
     existing = getattr(stack, "risk_assessment", None)
     if existing and existing.input_hash == input_hash:
-        # Backward-compatible: older cached assessments may not include newer fields like details.compounds.
+        # Older cached assessments may miss newer structure or use an outdated scoring model.
         details = existing.details
-        if isinstance(details, dict) and "compounds" in details:
+        summary = details.get("summary") if isinstance(details, dict) else None
+        if (
+            isinstance(details, dict)
+            and "compounds" in details
+            and isinstance(summary, dict)
+            and summary.get("score_model_version") == STACK_RISK_SCORE_VERSION
+        ):
             return StackRiskResult(assessment=existing, computed=False)
 
     per_compound = []
@@ -245,9 +304,9 @@ def get_or_compute_stack_risk(stack: Stack, items: list[StackItem] | None = None
             molprop_count += 1
         per_compound.append(_summarize_compound(item.compound, admet, molprop))
 
-    # Overall stack risk = max compound risk (heuristic).
+    # Overall stack risk uses a conservative weighted blend, then log-dampens the high end.
     risks = [c.get("compound_risk") for c in per_compound if isinstance(c.get("compound_risk"), (int, float))]
-    risk_score = float(max(risks)) if risks else None
+    risk_score, stack_risk_components = _aggregate_stack_risk(risks)
     level = _risk_level(risk_score, predicted_count)
 
     top = sorted(
@@ -271,7 +330,19 @@ def get_or_compute_stack_risk(stack: Stack, items: list[StackItem] | None = None
             "molprop_count": molprop_count,
         },
         "summary": {
+            "score_model_version": STACK_RISK_SCORE_VERSION,
             "risk_curve_gamma": RISK_CURVE_GAMMA,
+            "stack_log_scale": STACK_RISK_LOG_SCALE,
+            "stack_peak_weight": STACK_RISK_PEAK_WEIGHT,
+            "stack_mean_weight": STACK_RISK_MEAN_WEIGHT,
+            "stack_elevated_weight": STACK_RISK_ELEVATED_WEIGHT,
+            "stack_elevated_threshold": STACK_RISK_ELEVATED_THRESHOLD,
+            "stack_peak_risk": stack_risk_components.get("peak_risk"),
+            "stack_mean_risk": stack_risk_components.get("mean_risk"),
+            "stack_elevated_support": stack_risk_components.get("elevated_support"),
+            "stack_aggregate_signal": stack_risk_components.get("aggregate_signal"),
+            "moderate_threshold": STACK_RISK_MODERATE_THRESHOLD,
+            "high_threshold": STACK_RISK_HIGH_THRESHOLD,
             "tox_max": max(
                 [c.get("tox_score") for c in per_compound if isinstance(c.get("tox_score"), (int, float))] or [None]
             ),

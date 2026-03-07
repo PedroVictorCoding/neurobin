@@ -1,0 +1,665 @@
+{% extends "base.html" %}
+{% block title %}Bloodwork Tracker{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width: 1200px;">
+
+  {# ── Page header ── #}
+  <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 mb-4">
+    <div>
+      <h2 class="fw-bold mb-1">Bloodwork Tracker</h2>
+      <p class="text-muted mb-0">Store lab panels, track individual markers, and correlate results with your supplement intake.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a href="{% url 'log_intake' %}" class="btn btn-outline-light">
+        <i class="fas fa-plus me-2"></i>Log Intake
+      </a>
+      <a href="{% url 'analytics_dashboard' %}" class="btn btn-outline-info">
+        <i class="fas fa-chart-line me-2"></i>Analytics
+      </a>
+    </div>
+  </div>
+
+  {# ── Success / action banners ── #}
+  {% if created %}
+    <div class="alert alert-success border-0 shadow-sm">
+      <i class="fas fa-check-circle me-2"></i>Bloodwork panel saved.
+    </div>
+  {% endif %}
+  {% if updated %}
+    <div class="alert alert-success border-0 shadow-sm">
+      <i class="fas fa-check-circle me-2"></i>Panel updated successfully.
+    </div>
+  {% endif %}
+  {% if deleted %}
+    <div class="alert alert-warning border-0 shadow-sm">
+      <i class="fas fa-trash me-2"></i>Panel deleted.
+    </div>
+  {% endif %}
+
+  {# ── Trend chart modal (Feature 4) ── #}
+  <div class="modal fade" id="trendModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content bg-dark text-light border border-secondary">
+        <div class="modal-header border-secondary">
+          <h5 class="modal-title" id="trendModalTitle"></h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <canvas id="trendChart" height="120"></canvas>
+          <div id="trendNoData" class="text-center text-muted py-4" style="display:none;">
+            <i class="fas fa-chart-line fa-2x mb-2 d-block"></i>
+            Only one data point — need at least two panels to display a trend.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Main two-column layout ── #}
+  <div class="row g-4">
+
+    {# ════ LEFT COLUMN — Add / Edit form ════ #}
+    <div class="col-xl-5">
+      <div class="card bg-neurobin-card shadow h-100">
+        <div class="card-body p-4">
+          <div class="d-flex align-items-center justify-content-between mb-3">
+            <h4 class="text-white mb-0">Add Lab Panel</h4>
+            <span class="badge bg-primary">Dynamic markers</span>
+          </div>
+
+          {# Feature 9: Preset selector #}
+          <div class="mb-3">
+            <label class="form-label text-muted small mb-1">Quick-load a preset panel</label>
+            <select id="preset-select" class="form-select form-select-sm bg-dark text-light border-secondary">
+              <option value="">-- Load a preset --</option>
+            </select>
+          </div>
+
+          <form method="post" novalidate>
+            {% csrf_token %}
+
+            {% if entry_form.non_field_errors %}
+              <div class="alert alert-danger py-2">
+                {% for error in entry_form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+              </div>
+            {% endif %}
+
+            <div class="mb-3">
+              <label class="form-label text-light" for="{{ entry_form.collected_at.id_for_label }}">Collected At</label>
+              {{ entry_form.collected_at }}
+              {% for error in entry_form.collected_at.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label text-light" for="{{ entry_form.panel_name.id_for_label }}">Panel Name</label>
+              {{ entry_form.panel_name }}
+              {% for error in entry_form.panel_name.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label text-light" for="{{ entry_form.lab_name.id_for_label }}">Lab Name</label>
+              {{ entry_form.lab_name }}
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label text-light" for="{{ entry_form.related_intake_logs.id_for_label }}">Related Intake Logs</label>
+              {{ entry_form.related_intake_logs }}
+              <div class="form-text text-muted">{{ entry_form.related_intake_logs.help_text }}</div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label text-light" for="{{ entry_form.notes.id_for_label }}">Notes</label>
+              {{ entry_form.notes }}
+            </div>
+
+            {# Marker results with dynamic rows #}
+            <div class="mb-3">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <label class="form-label text-light mb-0">Marker Results</label>
+                <small class="text-muted">Blank rows are ignored</small>
+              </div>
+              {{ measurement_formset.management_form }}
+              {# Autocomplete datalist (Feature 5) #}
+              <datalist id="marker-suggestions"></datalist>
+
+              <div class="table-responsive bloodwork-entry-table-wrap">
+                <table class="table table-dark table-sm align-middle mb-0 bloodwork-entry-table">
+                  <thead>
+                    <tr>
+                      <th>Marker</th>
+                      <th>Value</th>
+                      <th>Unit</th>
+                      <th>Low</th>
+                      <th>High</th>
+                      <th>Notes</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="marker-rows">
+                    {% for form in measurement_formset %}
+                      <tr class="marker-row">
+                        <td>
+                          {{ form.marker_name }}
+                          {% for error in form.marker_name.errors %}
+                            <div class="invalid-feedback d-block">{{ error }}</div>
+                          {% endfor %}
+                        </td>
+                        <td>
+                          {{ form.value }}
+                          {% for error in form.value.errors %}
+                            <div class="invalid-feedback d-block">{{ error }}</div>
+                          {% endfor %}
+                        </td>
+                        <td>{{ form.unit }}</td>
+                        <td>{{ form.reference_low }}</td>
+                        <td>
+                          {{ form.reference_high }}
+                          {% for error in form.reference_high.errors %}
+                            <div class="invalid-feedback d-block">{{ error }}</div>
+                          {% endfor %}
+                        </td>
+                        <td>{{ form.notes }}</td>
+                        <td>
+                          <button type="button" class="btn btn-sm btn-outline-danger remove-marker-btn px-2 py-0">×</button>
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+
+              <button type="button" id="add-marker-btn"
+                      class="btn btn-sm btn-outline-secondary mt-2">
+                <i class="fas fa-plus me-1"></i>Add Marker
+              </button>
+
+              {% if measurement_error %}
+                <div class="alert alert-warning py-2 mt-3 mb-0">{{ measurement_error }}</div>
+              {% endif %}
+            </div>
+
+            <button type="submit" class="btn btn-primary w-100">
+              <i class="fas fa-vial me-2"></i>Save Bloodwork Panel
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    {# ════ RIGHT COLUMN — History ════ #}
+    <div class="col-xl-7">
+      <div class="card bg-neurobin-card shadow h-100">
+        <div class="card-body p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="text-white mb-0">Saved Panels</h4>
+            <span class="badge bg-secondary" id="visible-count">{{ entries|length }}</span>
+          </div>
+
+          {# Feature 7: Client-side filters #}
+          <div class="row g-2 mb-3">
+            <div class="col-12 col-md-6">
+              <input id="filter-panel" type="text" placeholder="Filter by panel name…"
+                     class="form-control form-control-sm bg-dark text-light border-secondary">
+            </div>
+            <div class="col-6 col-md-3">
+              <input id="filter-start" type="date"
+                     class="form-control form-control-sm bg-dark text-light border-secondary"
+                     title="From date">
+            </div>
+            <div class="col-6 col-md-3">
+              <input id="filter-end" type="date"
+                     class="form-control form-control-sm bg-dark text-light border-secondary"
+                     title="To date">
+            </div>
+          </div>
+
+          {% if entries %}
+            <div class="bloodwork-history-list">
+              {% for entry in entries %}
+                <div class="bloodwork-history-item bloodwork-card p-3 rounded-4 mb-3"
+                     data-panel-name="{{ entry.panel_name|lower }}"
+                     data-collected-date="{{ entry.collected_at|date:'Y-m-d' }}">
+
+                  {# Panel header with action buttons #}
+                  <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-2">
+                    <div>
+                      <h5 class="text-white mb-1">{{ entry.panel_name }}</h5>
+                      <div class="text-muted small">
+                        <i class="fas fa-calendar-alt me-1"></i>{{ entry.collected_at|date:"M j, Y H:i" }}
+                        {% if entry.lab_name %}
+                          <span class="mx-2">•</span>{{ entry.lab_name }}
+                        {% endif %}
+                      </div>
+                    </div>
+                    {# Feature 3 & 8: Edit / Delete / Print #}
+                    <div class="d-flex align-items-start gap-1 flex-shrink-0">
+                      <a href="{% url 'bloodwork_print' entry.id %}" target="_blank"
+                         class="btn btn-sm btn-outline-light" title="Print report">
+                        <i class="fas fa-print"></i>
+                      </a>
+                      <a href="{% url 'bloodwork_edit' entry.id %}"
+                         class="btn btn-sm btn-outline-secondary" title="Edit panel">
+                        <i class="fas fa-pen"></i>
+                      </a>
+                      <form method="post" action="{% url 'bloodwork_delete' entry.id %}"
+                            class="d-inline"
+                            onsubmit="return confirm('Delete "{{ entry.panel_name }}"? This cannot be undone.');">
+                        {% csrf_token %}
+                        <button class="btn btn-sm btn-outline-danger" title="Delete panel">
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+
+                  {# Linked compound badges #}
+                  <div class="mb-2">
+                    {% if entry.related_compound_names %}
+                      <div class="d-flex flex-wrap gap-1">
+                        <small class="text-muted me-1 align-self-center">Linked:</small>
+                        {% for compound_name in entry.related_compound_names %}
+                          <span class="badge bg-success">{{ compound_name }}</span>
+                        {% endfor %}
+                      </div>
+                    {% else %}
+                      <span class="badge bg-secondary">No linked intake logs</span>
+                    {% endif %}
+                  </div>
+
+                  {# Feature 6: Active compounds at collection time #}
+                  {% if entry.active_compounds %}
+                    <div class="mb-2">
+                      <div class="d-flex flex-wrap gap-1 align-items-center">
+                        <small class="text-muted me-1">Active at collection:</small>
+                        {% for intake in entry.active_compounds %}
+                          <span class="badge bg-info text-dark" title="{{ intake.taken_at|date:'M j H:i' }}">
+                            {{ intake.compound.name }}
+                          </span>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  {% endif %}
+
+                  {# Related intake timeline #}
+                  {% if entry.related_log_rows %}
+                    <div class="mb-3">
+                      <div class="small text-uppercase text-muted fw-semibold mb-2">Related Intake Timeline</div>
+                      <div class="d-flex flex-column gap-2">
+                        {% for log in entry.related_log_rows %}
+                          <div class="bloodwork-related-log rounded-3 px-3 py-2">
+                            <div class="d-flex flex-column flex-sm-row justify-content-between gap-2">
+                              <div>
+                                <strong class="text-light">{{ log.compound.name }}</strong>
+                                {% if log.amount %}
+                                  <span class="text-muted"> {{ log.amount }} {{ log.unit }}</span>
+                                {% endif %}
+                              </div>
+                              <small class="text-muted">{{ log.taken_at|date:"M j, Y H:i" }}</small>
+                            </div>
+                            {% if log.notes %}
+                              <div class="small text-secondary mt-1">{{ log.notes }}</div>
+                            {% endif %}
+                          </div>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  {% endif %}
+
+                  {# Measurements table with out-of-range indicators (Features 1 & 4) #}
+                  <div class="table-responsive">
+                    <table class="table table-dark table-sm align-middle mb-0">
+                      <thead>
+                        <tr>
+                          <th>Marker</th>
+                          <th>Value</th>
+                          <th>Reference Range</th>
+                          <th>Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for measurement in entry.measurements.all %}
+                          <tr>
+                            {# Feature 4: clickable marker name opens trend chart #}
+                            <td>
+                              <span class="trend-link text-light fw-semibold"
+                                    data-marker="{{ measurement.marker_name }}"
+                                    style="cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px;"
+                                    title="View trend for {{ measurement.marker_name }}">
+                                {{ measurement.marker_name }}
+                              </span>
+                            </td>
+                            {# Feature 1: out-of-range visual indicator #}
+                            <td>
+                              {% if measurement.reference_low != None and measurement.reference_high != None %}
+                                {% if measurement.value < measurement.reference_low or measurement.value > measurement.reference_high %}
+                                  <span class="badge bg-danger">{{ measurement.value }}</span>
+                                {% else %}
+                                  <span class="badge bg-success">{{ measurement.value }}</span>
+                                {% endif %}
+                              {% else %}
+                                {{ measurement.value }}
+                              {% endif %}
+                              {% if measurement.unit %}
+                                <span class="text-muted small"> {{ measurement.unit }}</span>
+                              {% endif %}
+                            </td>
+                            <td class="text-muted small">
+                              {{ measurement.reference_low|default_if_none:"--" }} – {{ measurement.reference_high|default_if_none:"--" }}
+                            </td>
+                            <td>
+                              {% if measurement.notes %}
+                                {{ measurement.notes }}
+                              {% else %}
+                                <span class="text-muted">--</span>
+                              {% endif %}
+                            </td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {% if entry.notes %}
+                    <div class="small text-secondary mt-3">
+                      <i class="fas fa-sticky-note me-1"></i>{{ entry.notes }}
+                    </div>
+                  {% endif %}
+                </div>
+              {% endfor %}
+
+              <div id="no-filter-results" class="text-center py-4 text-muted" style="display:none;">
+                <i class="fas fa-search fa-2x mb-2 d-block"></i>No panels match your filters.
+              </div>
+            </div>
+          {% else %}
+            <div class="text-center py-5">
+              <i class="fas fa-vial fa-3x text-muted mb-3"></i>
+              <h5 class="text-muted">No bloodwork saved yet</h5>
+              <p class="text-muted mb-0">Add your first panel to start comparing markers against your intake history.</p>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Hidden template row for dynamic formset (Feature 2) ── #}
+<template id="marker-row-template">
+  <tr class="marker-row">
+    <td><input type="text" name="measurements-__IDX__-marker_name"
+               id="id_measurements-__IDX__-marker_name"
+               class="form-control form-control-sm bg-dark text-light border-secondary"
+               placeholder="LDL" maxlength="160" list="marker-suggestions"></td>
+    <td><input type="number" name="measurements-__IDX__-value"
+               id="id_measurements-__IDX__-value"
+               class="form-control form-control-sm bg-dark text-light border-secondary"
+               placeholder="112" step="0.001"></td>
+    <td><input type="text" name="measurements-__IDX__-unit"
+               id="id_measurements-__IDX__-unit"
+               class="form-control form-control-sm bg-dark text-light border-secondary"
+               placeholder="mg/dL" maxlength="60"></td>
+    <td><input type="number" name="measurements-__IDX__-reference_low"
+               id="id_measurements-__IDX__-reference_low"
+               class="form-control form-control-sm bg-dark text-light border-secondary"
+               placeholder="40" step="0.001"></td>
+    <td><input type="number" name="measurements-__IDX__-reference_high"
+               id="id_measurements-__IDX__-reference_high"
+               class="form-control form-control-sm bg-dark text-light border-secondary"
+               placeholder="99" step="0.001"></td>
+    <td><input type="text" name="measurements-__IDX__-notes"
+               id="id_measurements-__IDX__-notes"
+               class="form-control form-control-sm bg-dark text-light border-secondary"
+               placeholder="Flagged high" maxlength="255"></td>
+    <td><button type="button" class="btn btn-sm btn-outline-danger remove-marker-btn px-2 py-0">×</button></td>
+  </tr>
+</template>
+
+{# ── JSON data blobs (Features 4, 5, 9) ── #}
+{{ marker_trend_data|json_script:"trend-data" }}
+{{ panel_presets|json_script:"preset-data" }}
+{{ all_markers|json_script:"all-markers-data" }}
+
+{# Chart.js (Feature 4) #}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<style>
+.bloodwork-entry-table-wrap {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.bloodwork-entry-table th,
+.bloodwork-entry-table td { min-width: 100px; }
+.bloodwork-entry-table th:first-child,
+.bloodwork-entry-table td:first-child { min-width: 140px; }
+.bloodwork-history-list {
+  max-height: 980px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+.bloodwork-history-item {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.bloodwork-related-log {
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+@media (max-width: 768px) {
+  .bloodwork-history-list { max-height: none; }
+  .bloodwork-entry-table th,
+  .bloodwork-entry-table td { min-width: 110px; }
+}
+</style>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── Data ──────────────────────────────────────────────────────────────────
+  const trendData    = JSON.parse(document.getElementById('trend-data').textContent);
+  const panelPresets = JSON.parse(document.getElementById('preset-data').textContent);
+  const allMarkers   = JSON.parse(document.getElementById('all-markers-data').textContent);
+
+  // ── Feature 5: Populate datalist ─────────────────────────────────────────
+  const dl = document.getElementById('marker-suggestions');
+  allMarkers.forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    dl.appendChild(opt);
+  });
+  // Apply datalist to any existing server-rendered marker_name inputs
+  document.querySelectorAll('[name$="-marker_name"]').forEach(el => {
+    el.setAttribute('list', 'marker-suggestions');
+  });
+
+  // ── Feature 2: Dynamic marker rows ───────────────────────────────────────
+  const totalFormsInput = document.getElementById('id_measurements-TOTAL_FORMS');
+  let totalForms = parseInt(totalFormsInput.value, 10);
+
+  function addMarkerRow(data) {
+    const tpl = document.getElementById('marker-row-template');
+    const clone = tpl.content.cloneNode(true);
+    const row = clone.querySelector('tr');
+    row.innerHTML = row.innerHTML.replaceAll('__IDX__', totalForms);
+    if (data) {
+      const inputs = row.querySelectorAll('input');
+      if (data.marker_name)    inputs[0].value = data.marker_name;
+      if (data.value)          inputs[1].value = data.value;
+      if (data.unit)           inputs[2].value = data.unit;
+      if (data.reference_low)  inputs[3].value = data.reference_low;
+      if (data.reference_high) inputs[4].value = data.reference_high;
+    }
+    document.getElementById('marker-rows').appendChild(clone);
+    totalForms++;
+    totalFormsInput.value = totalForms;
+  }
+
+  function clearMarkerRows() {
+    document.getElementById('marker-rows').innerHTML = '';
+    totalForms = 0;
+    totalFormsInput.value = 0;
+  }
+
+  function renumberRows() {
+    const rows = document.querySelectorAll('#marker-rows .marker-row');
+    rows.forEach((row, idx) => {
+      row.querySelectorAll('input').forEach(input => {
+        const n = input.getAttribute('name');
+        if (n) input.setAttribute('name', n.replace(/measurements-\d+-/, `measurements-${idx}-`));
+        const id = input.getAttribute('id');
+        if (id) input.setAttribute('id', id.replace(/id_measurements-\d+-/, `id_measurements-${idx}-`));
+      });
+    });
+    totalForms = rows.length;
+    totalFormsInput.value = totalForms;
+  }
+
+  document.getElementById('add-marker-btn').addEventListener('click', () => addMarkerRow(null));
+
+  document.getElementById('marker-rows').addEventListener('click', e => {
+    if (e.target.classList.contains('remove-marker-btn') || e.target.closest('.remove-marker-btn')) {
+      e.target.closest('tr').remove();
+      renumberRows();
+    }
+  });
+
+  // ── Feature 9: Panel presets ──────────────────────────────────────────────
+  const presetSelect = document.getElementById('preset-select');
+  Object.keys(panelPresets).forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    presetSelect.appendChild(opt);
+  });
+  presetSelect.addEventListener('change', () => {
+    const chosen = presetSelect.value;
+    if (!chosen) return;
+    const markers = panelPresets[chosen] || [];
+    const panelNameInput = document.getElementById('id_panel_name');
+    if (panelNameInput && !panelNameInput.value) {
+      panelNameInput.value = chosen;
+    }
+    clearMarkerRows();
+    markers.forEach(m => addMarkerRow({ marker_name: m }));
+    presetSelect.value = '';
+  });
+
+  // ── Feature 4: Trend chart modal ──────────────────────────────────────────
+  let trendChartInstance = null;
+
+  document.querySelectorAll('.trend-link').forEach(el => {
+    el.addEventListener('click', () => {
+      const markerName = el.dataset.marker;
+      const data = trendData[markerName] || [];
+      document.getElementById('trendModalTitle').textContent = markerName;
+
+      const noDataDiv   = document.getElementById('trendNoData');
+      const chartCanvas = document.getElementById('trendChart');
+
+      if (trendChartInstance) {
+        trendChartInstance.destroy();
+        trendChartInstance = null;
+      }
+
+      if (data.length < 2) {
+        noDataDiv.style.display  = '';
+        chartCanvas.style.display = 'none';
+      } else {
+        noDataDiv.style.display  = 'none';
+        chartCanvas.style.display = '';
+
+        const labels = data.map(d => d.date);
+        const values = data.map(d => d.value);
+        // Use first available reference range as guide lines
+        const refLow  = data.find(d => d.ref_low  !== null)?.ref_low  ?? null;
+        const refHigh = data.find(d => d.ref_high !== null)?.ref_high ?? null;
+
+        const datasets = [{
+          label: markerName,
+          data: values,
+          borderColor: '#0dcaf0',
+          backgroundColor: 'rgba(13,202,240,0.1)',
+          tension: 0.3,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+        }];
+
+        if (refLow !== null) {
+          datasets.push({
+            label: 'Low Ref',
+            data: Array(data.length).fill(refLow),
+            borderColor: 'rgba(255,193,7,0.55)',
+            borderDash: [6, 4],
+            pointRadius: 0,
+            fill: false,
+          });
+        }
+        if (refHigh !== null) {
+          datasets.push({
+            label: 'High Ref',
+            data: Array(data.length).fill(refHigh),
+            borderColor: 'rgba(255,193,7,0.55)',
+            borderDash: [6, 4],
+            pointRadius: 0,
+            fill: false,
+          });
+        }
+
+        trendChartInstance = new Chart(chartCanvas.getContext('2d'), {
+          type: 'line',
+          data: { labels, datasets },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: { labels: { color: '#adb5bd' } },
+            },
+            scales: {
+              x: { ticks: { color: '#adb5bd' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+              y: { ticks: { color: '#adb5bd' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+            },
+          },
+        });
+      }
+
+      new bootstrap.Modal(document.getElementById('trendModal')).show();
+    });
+  });
+
+  // ── Feature 7: Client-side filtering ─────────────────────────────────────
+  function applyFilters() {
+    const nameQ  = document.getElementById('filter-panel').value.toLowerCase().trim();
+    const startQ = document.getElementById('filter-start').value;
+    const endQ   = document.getElementById('filter-end').value;
+    const cards  = document.querySelectorAll('.bloodwork-card');
+    let visible  = 0;
+
+    cards.forEach(card => {
+      const panelName = card.dataset.panelName || '';
+      const colDate   = card.dataset.collectedDate || '';
+      let show = true;
+      if (nameQ  && !panelName.includes(nameQ))       show = false;
+      if (startQ && colDate < startQ)                  show = false;
+      if (endQ   && colDate > endQ)                    show = false;
+      card.classList.toggle('d-none', !show);
+      if (show) visible++;
+    });
+
+    document.getElementById('visible-count').textContent = visible;
+    const noResults = document.getElementById('no-filter-results');
+    if (noResults) noResults.style.display = (visible === 0 && cards.length > 0) ? '' : 'none';
+  }
+
+  ['filter-panel', 'filter-start', 'filter-end'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', applyFilters);
+  });
+
+})();
+</script>
+{% endblock %}

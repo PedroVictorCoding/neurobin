@@ -248,10 +248,18 @@ def profile_dashboard(request, username=None):
         from logs.views import build_analytics_dashboard_context
         analytics_context = build_analytics_dashboard_context(request.user)
 
+    has_bloodwork = is_own_profile and request.user.is_authenticated
+    bloodwork_entries = []
+    if has_bloodwork:
+        from logs.views import build_bloodwork_entries
+        bloodwork_entries = build_bloodwork_entries(request.user)
+
     allowed_tabs = {'research', 'comments', 'reviews', 'stacks'}
     if is_own_profile:
         allowed_tabs.add('goals')
     default_tab = 'stacks'
+    if has_bloodwork:
+        allowed_tabs.add('bloodwork')
     if has_analytics:
         allowed_tabs.add('analytics')
         default_tab = 'analytics'
@@ -286,6 +294,8 @@ def profile_dashboard(request, username=None):
         'profile_stacks': list(visible_stacks[:30]),
         'stack_query': stack_query,
         'has_analytics': has_analytics,
+        'has_bloodwork': has_bloodwork,
+        'bloodwork_entries': bloodwork_entries,
         'goal_tracker': goal_tracker,
     }
     context.update(analytics_context)

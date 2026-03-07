@@ -1,0 +1,771 @@
+{% extends "base.html" %}
+{% block title %}Stack Builder — Neurobin{% endblock %}
+
+{% block head_extra %}
+<style>
+  #sb-root {
+    /* Map site design tokens into builder variables */
+    --sb-bg: var(--bg-primary);
+    --sb-s:  var(--bg-secondary);
+    --sb-s2: var(--bg-tertiary);
+    --sb-s3: var(--bg-interactive);
+    --sb-bd: var(--border-secondary);
+    --sb-bd2: rgba(247,247,251,0.09);
+    --sb-a1: var(--accent-1);          /* cyan  */
+    --sb-a2: var(--accent-primary);    /* purple */
+    --sb-a3: #ff5c5c;                  /* danger */
+    --sb-a4: var(--accent-3);          /* lime   */
+    --sb-a5: var(--accent-hover);
+    --sb-a6: #ff9e60;
+    --sb-t:  var(--text-secondary);
+    --sb-dim:var(--text-muted);
+    --sb-br: var(--text-primary);
+    --mono: 'Space Mono', ui-monospace, monospace;
+    --serif:'Space Grotesk', sans-serif;
+    --sans: 'Space Grotesk', sans-serif;
+  }
+  #sb-root { background:var(--sb-bg); color:var(--sb-t); font-family:var(--sans); font-size:14px; line-height:1.6; margin:-1.5rem -15px 0; border-top:1px solid var(--border-primary); }
+  .sb-layout { display:grid; grid-template-columns:300px 1fr; height:calc(100vh - 64px); }
+
+  /* LEFT */
+  .sb-left { border-right:1px solid var(--border-primary); display:flex; flex-direction:column; background:var(--sb-s); overflow:hidden; }
+  .sb-left-top { padding:14px 14px 10px; border-bottom:1px solid var(--border-secondary); flex-shrink:0; }
+  .sb-panel-label { font-family:var(--mono); font-size:10px; letter-spacing:.2em; color:var(--accent-primary); text-transform:uppercase; margin-bottom:8px; }
+  .sb-search-wrap { position:relative; }
+  .sb-search-wrap input { width:100%; background:var(--sb-s2); border:1px solid var(--border-secondary); color:var(--sb-br); font-family:var(--mono); font-size:12px; padding:7px 11px 7px 30px; border-radius:8px; outline:none; transition:border-color .2s; }
+  .sb-search-wrap input:focus { border-color:var(--accent-primary); box-shadow:0 0 0 2px var(--accent-subtle); }
+  .sb-search-wrap input::placeholder { color:var(--sb-dim); }
+  .sb-si { position:absolute; left:9px; top:50%; transform:translateY(-50%); color:var(--sb-dim); font-size:13px; pointer-events:none; }
+
+  /* tree */
+  .sb-tree { flex:1; overflow-y:auto; padding:6px 0 4px; }
+  .sb-tree::-webkit-scrollbar { width:3px; }
+  .sb-tree::-webkit-scrollbar-thumb { background:var(--sb-bd2); border-radius:2px; }
+  .sb-all-btn { display:flex; align-items:center; gap:7px; padding:7px 14px; margin:3px 7px; cursor:pointer; border:1px solid var(--border-secondary); border-radius:8px; font-family:var(--mono); font-size:11px; color:var(--sb-dim); background:transparent; transition:all .13s; width:calc(100% - 14px); }
+  .sb-all-btn:hover,.sb-all-btn.active { border-color:var(--accent-primary); color:var(--accent-primary); background:var(--accent-subtle); }
+  .sb-group { margin-bottom:1px; }
+  .sb-group-hdr { display:flex; align-items:center; gap:7px; padding:6px 14px; cursor:pointer; user-select:none; transition:background .12s; font-family:var(--mono); font-size:11px; letter-spacing:.05em; color:var(--sb-t); font-weight:600; }
+  .sb-group-hdr:hover { background:var(--sb-s2); }
+  .sb-group-hdr.active { color:var(--sb-br); background:var(--accent-subtle); }
+  .sb-gi { font-size:12px; width:16px; text-align:center; flex-shrink:0; }
+  .sb-gl { flex:1; }
+  .sb-gc { font-size:10px; color:var(--sb-dim); }
+  .sb-chev { font-size:8px; color:var(--sb-dim); transition:transform .14s; }
+  .sb-group.open .sb-chev { transform:rotate(90deg); }
+  .sb-subs { display:none; }
+  .sb-group.open .sb-subs { display:block; }
+  .sb-sub { display:flex; align-items:center; padding:4px 14px 4px 36px; cursor:pointer; font-family:var(--mono); font-size:10px; color:var(--sb-dim); transition:all .12s; border-left:2px solid transparent; }
+  .sb-sub:hover { color:var(--sb-t); background:var(--sb-s2); }
+  .sb-sub.active { color:var(--accent-primary); border-left-color:var(--accent-primary); background:var(--accent-subtle); }
+  .sb-sub-c { margin-left:auto; font-size:9px; opacity:.6; }
+
+  /* compound list */
+  .sb-clist { flex:1; overflow-y:auto; padding:6px 7px; }
+  .sb-clist::-webkit-scrollbar { width:3px; }
+  .sb-clist::-webkit-scrollbar-thumb { background:var(--sb-bd2); border-radius:2px; }
+  .sb-cc { padding:8px 10px; border:1px solid var(--border-secondary); background:var(--sb-s2); border-radius:8px; cursor:pointer; margin-bottom:4px; position:relative; transition:all .12s; border-left:3px solid transparent; }
+  .sb-cc:hover { background:var(--sb-s3); border-left-color:var(--accent-primary); border-color:var(--accent-glow); }
+  .sb-cc.in-stack { background:rgba(182,255,59,.03); border-color:rgba(182,255,59,.3); border-left-color:var(--accent-3); }
+  .sb-cn { font-family:var(--mono); font-size:11px; font-weight:600; color:var(--sb-br); margin-bottom:1px; padding-right:20px; }
+  .sb-ca { font-size:10px; color:var(--sb-dim); margin-bottom:3px; }
+  .sb-ctags { display:flex; gap:3px; flex-wrap:wrap; align-items:center; }
+  .sb-tag { font-family:var(--mono); font-size:9px; padding:1px 5px; border-radius:4px; letter-spacing:.05em; text-transform:uppercase; background:var(--accent-subtle); color:var(--accent-primary); border:1px solid var(--accent-glow); }
+  .sb-add { position:absolute; right:7px; top:8px; font-size:14px; color:var(--sb-dim); line-height:1; font-family:var(--mono); transition:color .12s; }
+  .sb-cc:hover .sb-add { color:var(--sb-a2); }
+  .sb-cc.in-stack .sb-add { color:var(--sb-a3); }
+  .sb-hh { font-family:var(--mono); font-size:9px; padding:1px 4px; border-radius:2px; letter-spacing:.05em; text-transform:uppercase; }
+  .hh-s { background:rgba(182,255,59,.07); color:var(--accent-3); border:1px solid rgba(182,255,59,.2); }
+  .hh-c { background:rgba(232,201,106,.08); color:#e8c96a; border:1px solid rgba(232,201,106,.25); }
+  .hh-x { background:rgba(255,92,92,.07); color:#ff5c5c; border:1px solid rgba(255,92,92,.25); }
+  .sb-empty { font-family:var(--mono); font-size:11px; color:var(--sb-dim); padding:16px 8px; text-align:center; }
+
+  /* RIGHT */
+  .sb-right { overflow-y:auto; padding:24px 32px; background:var(--sb-bg); }
+  .sb-right::-webkit-scrollbar { width:4px; }
+  .sb-right::-webkit-scrollbar-thumb { background:var(--border-secondary); border-radius:2px; }
+  .sb-rhdr { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
+  .sb-rtitle { font-family:var(--serif); font-size:20px; font-weight:700; color:var(--text-primary); letter-spacing:-.01em; }
+  .sb-btn { font-family:var(--mono); font-size:10px; letter-spacing:.1em; padding:5px 14px; border-radius:8px; cursor:pointer; text-transform:uppercase; background:transparent; border:1px solid var(--border-secondary); color:var(--sb-dim); transition:all .13s; }
+  .sb-btn:hover { border-color:var(--accent-primary); color:var(--accent-primary); background:var(--accent-subtle); }
+
+  /* stack box */
+  .sb-sbox { background:var(--sb-s); border:1px solid var(--border-secondary); border-radius:12px; margin-bottom:22px; overflow:hidden; border-top:2px solid var(--border-primary); }
+  .sb-sbhdr { padding:11px 15px; border-bottom:1px solid var(--border-secondary); display:flex; align-items:center; gap:9px; }
+  .sb-dot { width:7px; height:7px; border-radius:50%; background:var(--accent-3); box-shadow:0 0 7px var(--accent-3); animation:sbpulse 2s infinite; }
+  @keyframes sbpulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .sb-slbl { font-family:var(--mono); font-size:10px; letter-spacing:.12em; color:var(--sb-dim); text-transform:uppercase; }
+  .sb-stot { margin-left:auto; font-family:var(--mono); font-size:10px; color:var(--sb-a1); }
+  .sb-sitems { padding:7px; display:flex; flex-direction:column; gap:5px; min-height:52px; }
+  .sb-si2 { background:var(--sb-s2); border:1px solid var(--border-secondary); border-radius:8px; padding:9px 11px; display:grid; grid-template-columns:1fr auto auto; align-items:center; gap:10px; animation:sbslide .16s ease; }
+  @keyframes sbslide{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:translateX(0)}}
+  .sb-in { font-family:var(--mono); font-size:11px; font-weight:600; color:var(--sb-br); margin-bottom:1px; }
+  .sb-isub { font-size:11px; color:var(--sb-dim); }
+  .sb-dr { display:flex; align-items:center; gap:5px; }
+  .sb-dr input { width:62px; background:var(--sb-s3); border:1px solid var(--border-secondary); color:var(--sb-br); font-family:var(--mono); font-size:11px; padding:4px 5px; text-align:center; border-radius:6px; outline:none; transition:border-color .13s; }
+  .sb-dr input:focus { border-color:var(--accent-primary); }
+  .sb-du { font-family:var(--mono); font-size:9px; color:var(--sb-dim); }
+  .sb-rm { background:transparent; border:1px solid transparent; color:var(--sb-dim); cursor:pointer; padding:2px 5px; font-size:13px; border-radius:6px; transition:all .12s; line-height:1; }
+  .sb-rm:hover { border-color:rgba(255,92,92,.4); color:#ff5c5c; }
+  .sb-empty-stack { padding:28px 14px; text-align:center; color:var(--sb-dim); font-family:var(--mono); font-size:11px; }
+  .sb-ei { font-size:22px; margin-bottom:7px; opacity:.25; }
+
+  /* equiv */
+  .sb-eq { background:var(--sb-s); border:1px solid var(--border-secondary); border-radius:12px; padding:15px; margin-bottom:20px; display:flex; align-items:center; gap:16px; border-top:2px solid var(--accent-subtle); }
+  .sb-eql { font-family:var(--mono); font-size:10px; letter-spacing:.13em; color:var(--sb-dim); text-transform:uppercase; white-space:nowrap; }
+  .sb-eqv { font-family:var(--serif); font-size:22px; color:var(--accent-1); white-space:nowrap; font-weight:700; }
+  .sb-eqb { flex:1; font-family:var(--mono); font-size:10px; color:var(--sb-dim); line-height:1.7; }
+  .sb-rating { font-family:var(--mono); font-size:10px; padding:4px 9px; border-radius:2px; white-space:nowrap; }
+  .r-mild    { background:var(--accent-subtle); color:var(--accent-primary); border:1px solid var(--accent-glow); }
+  .r-mod     { background:rgba(232,201,106,.1); color:#e8c96a; border:1px solid rgba(232,201,106,.3); }
+  .r-aggro   { background:rgba(255,92,92,.1); color:#ff5c5c; border:1px solid rgba(255,92,92,.3); }
+
+  /* analysis */
+  .sb-agrid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:20px; }
+  .sb-card { background:var(--sb-s); border:1px solid var(--border-secondary); border-radius:12px; padding:15px; }
+  .sb-ctitle { font-family:var(--mono); font-size:10px; letter-spacing:.18em; color:var(--accent-primary); text-transform:uppercase; margin-bottom:11px; }
+  .sb-pr { margin-bottom:9px; }
+  .sb-plr { display:flex; justify-content:space-between; margin-bottom:2px; }
+  .sb-pl { font-family:var(--mono); font-size:10px; color:var(--sb-t); }
+  .sb-pv { font-family:var(--mono); font-size:10px; color:var(--sb-dim); }
+  .sb-bbg { height:3px; background:var(--sb-s3); border-radius:2px; overflow:hidden; }
+  .sb-bf { height:100%; border-radius:2px; transition:width .5s cubic-bezier(.4,0,.2,1); }
+  .ba{background:var(--sb-a4)} .ban{background:var(--sb-a2)} .be{background:var(--sb-a6)} .bp{background:var(--sb-a5)} .bh{background:#ff9e60} .bs{background:var(--sb-a3)}
+  .sb-tbl { width:100%; border-collapse:collapse; }
+  .sb-tbl th { font-family:var(--mono); font-size:9px; letter-spacing:.1em; color:var(--sb-dim); text-transform:uppercase; text-align:left; padding:4px 5px; border-bottom:1px solid var(--border-secondary); }
+  .sb-tbl td { font-family:var(--mono); font-size:10px; padding:5px 5px; border-bottom:1px solid var(--border-secondary); vertical-align:middle; }
+  .sb-tbl tr:last-child td { border-bottom:none; }
+  .sb-tn { color:var(--sb-br); font-weight:600; }
+  .sb-mb { display:inline-flex; align-items:center; gap:4px; }
+  .sb-mbg { width:45px; height:3px; background:var(--sb-s3); border-radius:2px; overflow:hidden; display:inline-block; vertical-align:middle; }
+  .sb-mf { height:100%; border-radius:2px; background:var(--sb-a4); }
+
+  /* insights */
+  .sb-ins-section { margin-bottom:20px; }
+  .sb-ins-title { font-family:var(--mono); font-size:10px; letter-spacing:.18em; color:var(--accent-primary); text-transform:uppercase; margin-bottom:11px; }
+  .sb-ins { background:var(--sb-s); border:1px solid var(--border-secondary); border-radius:8px; padding:9px 12px; display:flex; gap:9px; align-items:flex-start; margin-bottom:6px; animation:sbfade .22s ease; }
+  @keyframes sbfade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+  .sb-ii { font-size:12px; line-height:1.5; flex-shrink:0; }
+  .sb-it { font-family:var(--mono); font-size:10px; font-weight:600; color:var(--sb-br); margin-bottom:1px; }
+  .sb-ib { font-size:11px; color:var(--sb-dim); line-height:1.4; }
+  .i-warn{border-color:rgba(255,92,92,.3);background:rgba(255,92,92,.04)}
+  .i-info{border-color:var(--accent-glow);background:var(--accent-subtle)}
+  .i-ok{border-color:rgba(182,255,59,.25);background:rgba(182,255,59,.04)}
+  .i-note{border-color:rgba(232,201,106,.3);background:rgba(232,201,106,.04)}
+
+  @media(max-width:900px){
+    .sb-layout{grid-template-columns:1fr;height:auto}
+    .sb-left{height:50vh;border-right:none;border-bottom:1px solid var(--border-secondary)}
+    .sb-agrid{grid-template-columns:1fr}
+    .sb-right{padding:18px 14px}
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="sb-root">
+  <div class="sb-layout">
+
+    <div class="sb-left">
+      <div class="sb-left-top">
+        <div class="sb-panel-label">// compound library</div>
+        <div class="sb-search-wrap">
+          <span class="sb-si">⌕</span>
+          <input type="text" id="sbSearch" placeholder="search compounds…" oninput="sbSearch_()">
+        </div>
+      </div>
+      <div class="sb-tree" id="sbTree">
+        <button class="sb-all-btn active" id="sbAllBtn" onclick="sbAll()">
+          <span>⬡</span><span>All Compounds</span>
+          <span class="sb-sub-c" id="sbAllCnt">—</span>
+        </button>
+      </div>
+      <div class="sb-clist" id="sbCList"></div>
+    </div>
+
+    <div class="sb-right">
+      <div class="sb-rhdr">
+        <div class="sb-rtitle">Active Stack</div>
+        <button class="sb-btn" onclick="sbClear()">Clear</button>
+      </div>
+
+      <div class="sb-sbox">
+        <div class="sb-sbhdr">
+          <div class="sb-dot"></div>
+          <div class="sb-slbl">Compounds</div>
+          <div class="sb-stot" id="sbTot">0 compounds</div>
+        </div>
+        <div class="sb-sitems" id="sbItems">
+          <div class="sb-empty-stack"><div class="sb-ei">⬡</div><div>Select compounds from the library to begin</div></div>
+        </div>
+      </div>
+
+      <div id="sbEqBar" style="display:none" class="sb-eq">
+        <div><div class="sb-eql">Test Equivalent</div><div class="sb-eqv" id="sbEqV">—</div></div>
+        <div class="sb-eqb" id="sbEqB"></div>
+        <div class="sb-rating" id="sbEqR"></div>
+      </div>
+
+      <div id="sbAGrid" style="display:none" class="sb-agrid">
+        <div class="sb-card">
+          <div class="sb-ctitle">// stack properties</div>
+          <div id="sbPBars"></div>
+        </div>
+        <div class="sb-card">
+          <div class="sb-ctitle">// compound breakdown</div>
+          <table class="sb-tbl">
+            <thead><tr><th>Compound</th><th>Dose</th><th>Anabolic</th><th>Liver</th></tr></thead>
+            <tbody id="sbTBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="sbInsSection" style="display:none" class="sb-ins-section">
+        <div class="sb-ins-title">// stack insights</div>
+        <div id="sbInsList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{{ compounds_data|json_script:"sbData" }}
+
+<script>
+const SB_ALL = JSON.parse(document.getElementById('sbData').textContent);
+
+// ── Helper matchers (operate on compound object) ──────────────────────────────
+function moaHas(c, ...kws) {
+  const t = (c.moa || []).join(' ').toLowerCase();
+  return kws.some(k => t.includes(k.toLowerCase()));
+}
+function catHas(c, ...kws) {
+  const t = (c.dbCats || []).join(' ').toLowerCase();
+  return kws.some(k => t.includes(k.toLowerCase()));
+}
+function nameIs(c, ...kws) {
+  const t = (c.name + ' ' + (c.aka || '')).toLowerCase();
+  return kws.some(k => t.includes(k.toLowerCase()));
+}
+
+// ── Taxonomy ──────────────────────────────────────────────────────────────────
+const TAXONOMY = [
+  { id:'anabolism', label:'Anabolism & Performance', icon:'⚡', subs:[
+    { id:'androgens', label:'Androgens / AAS', match: c =>
+        moaHas(c,'androgen receptor','ar agonist')
+        || catHas(c,'anabolic agent','anabolic steroid','sex hormone','androgenic')
+        || nameIs(c,'testosterone','nandrolone','trenbolone','boldenone',
+                    'stanozolol','oxandrolone','methandrostenolone','oxymetholone',
+                    'drostanolone','methenolone','fluoxymesterone','halotestin',
+                    'trestolone','ment','mesterolone','clostebol','methyltestosterone',
+                    'superdrol','methasterone','dimethyltrienolone','epitestosterone',
+                    'primobolan','winstrol','dianabol','anadrol','masteron','proviron') },
+    { id:'sarms', label:'SARMs', match: c =>
+        moaHas(c,'selective androgen')
+        || catHas(c,'sarm')
+        || nameIs(c,'ostarine','mk-2866','ligandrol','lgd4033','lgd-4033','lgd 4033',
+                    'rad-140','rad140','andarine','s4 ','yk11','s23','ac-262',
+                    'enobosarm','gsk2881078') },
+    { id:'estrogen_mod', label:'Estrogen Modulators (AI / SERM)', match: c =>
+        moaHas(c,'estrogen receptor','aromatase','cytochrome p450 19','cytochrome p450 11')
+        || catHas(c,'endocrine therapy','breast carcinoma','sex hormone')
+        || nameIs(c,'anastrozole','letrozole','exemestane','tamoxifen','clomiphene',
+                    'raloxifene','fulvestrant','toremifene','enclomiphene','arimidex',
+                    'aromasin','nolvadex','clomid','4-hydroxytamoxifen',
+                    'hydroxyclomiphene','desmethyl tamoxifen') },
+    { id:'gh_axis', label:'Growth Hormone Axis', match: c =>
+        moaHas(c,'growth hormone','ghrelin','igf-1','gh receptor',
+               'growth hormone receptor','ghrh')
+        || nameIs(c,'ipamorelin','sermorelin','hexarelin','ghrp-2','ghrp-6',
+                    'ghrp2','ghrp6','cjc-1295','cjc1295','tesamorelin',
+                    'ibutamoren','mk677','mk-677','igf-1','igf1',
+                    'aod-9604','aod9604','hgh','somatropin','mecasermin') },
+    { id:'peptides_repair', label:'Peptides (Repair & Tissue)', match: c =>
+        nameIs(c,'bpc-157','bpc157','tb-500','tb500','thymosin','ghk-cu',
+                 'ghk copper','mechano growth','mgf') },
+    { id:'sarms_ppar', label:'Metabolic Modulators (PPAR / AMPK)', match: c =>
+        moaHas(c,'ppar','peroxisome proliferator')
+        || catHas(c,'ppar')
+        || nameIs(c,'cardarine','gw501516','gw-501516','sr9009','stenabolic',
+                    'ibutamoren','mk677') },
+    { id:'ancillaries', label:'Ancillaries (hCG / Prolactin / Liver)', match: c =>
+        moaHas(c,'gonadotropin','prolactin','follicle stimulating','lh receptor',
+               'fsh receptor','lutenizing')
+        || catHas(c,'anti-parkinson','antiparkinsonian','gonadotropin','prolactin')
+        || nameIs(c,'cabergoline','bromocriptine','hcg','chorionic gonadotropin',
+                    'p5p','pyridoxal') },
+  ]},
+  { id:'cognition', label:'Cognition & Neuroscience', icon:'◈', subs:[
+    { id:'dopaminergic', label:'Dopaminergic', match: c =>
+        moaHas(c,'dopamine','d(1) dopamine','d(2) dopamine','d(3) dopamine',
+               'd(4) dopamine','dopamine transporter','mao-b')
+        || catHas(c,'anti-parkinson','antiparkinsonian','antipsychotic',
+                    'antipsychotics','dopamine','psychosis treatment') },
+    { id:'serotonergic', label:'Serotonergic', match: c =>
+        moaHas(c,'serotonin','5-ht','sert','serotonin transporter',
+               'serotonin receptor','5ht')
+        || catHas(c,'antidepressant','anxiolytic','ssri','snri','serotonin') },
+    { id:'gabaergic', label:'GABAergic', match: c =>
+        moaHas(c,'gaba','gaba-a','gaba-b','gabaa','gabab',
+               'benzodiazepine','anion channel')
+        || catHas(c,'anxiolytic','anxiolytics','benzodiazepine','barbiturate',
+                    'hypnotics','sedative','gaba') },
+    { id:'glutamatergic', label:'Glutamatergic (AMPA / NMDA / mGluR)', match: c =>
+        moaHas(c,'glutamate','ampa','nmda','kainate','mglur',
+               'metabotropic glutamate','glutamate receptor ionotropic',
+               'glutamate [nmda]')
+        || nameIs(c,'ketamine','esketamine','memantine','nmda','ampa',
+                    'dxm','dextromethorphan','mxe') },
+    { id:'cholinergic', label:'Cholinergic (AChE / Muscarinic / Nicotinic)', match: c =>
+        moaHas(c,'acetylcholin','muscarinic','nicotinic','cholinesterase',
+               'acetylcholinesterase')
+        || catHas(c,'cholinergic','parasympathomimetic','acetylcholinesterase')
+        || nameIs(c,'huperzine','alpha-gpc','cdp-choline','citicoline',
+                    'acetylcholine','galantamine','donepezil','rivastigmine') },
+    { id:'nootropics_gen', label:'Nootropics & Cognitive Enhancers', match: c =>
+        catHas(c,'nootropic','neuroenhancer','cognitive enhancer','cognition',
+                 'adhd treatment','dementia','psychostimulant')
+        || nameIs(c,'piracetam','aniracetam','oxiracetam','pramiracetam',
+                    'noopept','phenylpiracetam','modafinil','armodafinil',
+                    'vinpocetine','semax','selank','cerebrolysin','epitalon',
+                    'epithalon','dsip','thymalin','phenylpiracetam') },
+    { id:'noradrenergic', label:'Noradrenergic / NE Reuptake', match: c =>
+        moaHas(c,'norepinephrine transporter','norepinephrine','noradrenalin')
+        || catHas(c,'snri','norepinephrine reuptake') },
+    { id:'adrenergic', label:'Adrenergic (α / β)', match: c =>
+        moaHas(c,'adrenergic receptor','alpha-1','alpha-2','beta-1 adrenergic',
+               'beta-2 adrenergic','beta-3 adrenergic','adrenoceptor',
+               'adrenergic receptor alpha')
+        || catHas(c,'adrenergic','beta blocker','beta blockers','alpha blocker',
+                    'adrenergics') },
+    { id:'sigma_r', label:'Sigma Receptors', match: c =>
+        moaHas(c,'sigma','sigma-1','sigma-2','sigma non-opioid',
+               'sigma 1','sigma 2') },
+    { id:'histaminergic', label:'Histaminergic', match: c =>
+        moaHas(c,'histamine','h1 receptor','h2 receptor','h3 receptor',
+               'histamine receptor','histamine h')
+        || catHas(c,'antihistamine','antihistamines','h1 antagonist','h2 antagonist') },
+    { id:'opioidergic', label:'Opioidergic', match: c =>
+        moaHas(c,'opioid','mu-type opioid','delta opioid','kappa opioid',
+               'mu receptor','opioid receptor','delta-type opioid')
+        || catHas(c,'opioid','narcotic','opioid dependence','analgesic') },
+    { id:'adenosinergic', label:'Adenosinergic / Xanthines', match: c =>
+        moaHas(c,'adenosine receptor','adenosine a1','adenosine a2','adenosine a3')
+        || catHas(c,'adenosine')
+        || nameIs(c,'caffeine','theobromine','theacrine','dpcpx') },
+    { id:'cannabinoid', label:'Cannabinoids', match: c =>
+        moaHas(c,'cannabinoid','cb1','cb2','cannabis','endocannabinoid')
+        || catHas(c,'cannabinoid') },
+    { id:'monoamine_misc', label:'Monoamine / Mixed Antidepressants', match: c =>
+        catHas(c,'antidepressant','antidepressants','mood stabilizer',
+                 'other nervous system') },
+  ]},
+  { id:'psychedelics', label:'Psychedelics & Consciousness', icon:'◉', subs:[
+    { id:'serotonergic_psy', label:'Classical Psychedelics (5-HT2A)', match: c =>
+        moaHas(c,'serotonin 2a','5-ht2a','5ht2a','serotonin (5-ht) receptor')
+        || nameIs(c,'psilocybin','psilocin','psilocybine','lsd','dmt',
+                    '5-meo-dmt','5-bodmt','mescaline','4-ho-met',
+                    'ibogaine','noribogaine','ayahuasca') },
+    { id:'dissociatives', label:'Dissociatives (NMDA Antagonists)', match: c =>
+        nameIs(c,'ketamine','esketamine','pcp','dxm','dextromethorphan',
+                 'nitrous','memantine','mxe','tiletamine') },
+    { id:'empathogens', label:'Empathogens / Entactogens', match: c =>
+        nameIs(c,'mdma','mda','mbdb','5-mapb','6-apb','3,4-methylenedioxy') },
+    { id:'kappa_opi', label:'Kappa Opioid / Psychotomimetics', match: c =>
+        moaHas(c,'kappa opioid','kor ')
+        || nameIs(c,'salvinorin','ibogaine','nalfurafine') },
+  ]},
+  { id:'sleep', label:'Sleep & Circadian', icon:'◑', subs:[
+    { id:'melatonin_circ', label:'Melatonin / Circadian', match: c =>
+        moaHas(c,'melatonin receptor','mt1','mt2')
+        || catHas(c,'melatonin','insomnia treatment','hypnotics and sedatives')
+        || nameIs(c,'melatonin','ramelteon','agomelatine','dsip','delta sleep',
+                    'iodomelatonin','chloromelatonin','difluoroagomelatine') },
+    { id:'sleep_gaba', label:'GABAergic Sedatives / Hypnotics', match: c =>
+        (moaHas(c,'gaba','gabaa') && catHas(c,'hypnotic','sedative','insomnia'))
+        || catHas(c,'hypnotics and sedatives')
+        || nameIs(c,'zolpidem','eszopiclone','zaleplon','phenibut','ghb',
+                    'baclofen') },
+    { id:'orexin', label:'Orexin Antagonists', match: c =>
+        moaHas(c,'orexin','hypocretin')
+        || catHas(c,'orexin')
+        || nameIs(c,'suvorexant','lemborexant','daridorexant') },
+    { id:'adaptogens', label:'Adaptogens & Stress', match: c =>
+        catHas(c,'adaptogen')
+        || nameIs(c,'ashwagandha','ashwagandhanolide','withania','rhodiola',
+                    'eleuthero','ginseng','schisandra','l-theanine','theanine',
+                    'phosphatidylserine') },
+  ]},
+  { id:'longevity', label:'Longevity & Neuroprotection', icon:'♾', subs:[
+    { id:'nad_sirt', label:'NAD⁺ / Sirtuins / AMPK', match: c =>
+        moaHas(c,'sirtuin','ampk','nad','parp','nampt')
+        || nameIs(c,'nicotinamide riboside','nicotinamide mononucleotide',
+                    'betanmn','nr ','nmn','resveratrol','pterostilbene',
+                    'berberine','dihydroberberine','oxyberberine',
+                    'berberine chloride') },
+    { id:'mtor_autoph', label:'mTOR / Rapamycin / Autophagy', match: c =>
+        moaHas(c,'mtor','fkbp','rapamycin','mammalian target')
+        || nameIs(c,'rapamycin','sirolimus','everolimus','temsirolimus',
+                    'homotemsirolimus','28-o-methylrapamycin') },
+    { id:'antioxidants', label:'Antioxidants & ROS', match: c =>
+        nameIs(c,'quercetin','curcumin','resveratrol','pterostilbene',
+                 'astaxanthin','coq10','ubiquinone','lipoic acid','nac',
+                 'n-acetylcysteine','glutathione','methylquercetin',
+                 'didemethylcurcumin','trismethoxyresveratrol',
+                 'pentamethylquercetin','mono-o-demethylcurcumin',
+                 '3-o-methylquercetin') },
+    { id:'bdnf_nt', label:'BDNF / Neurotrophins', match: c =>
+        moaHas(c,'bdnf','ngf','neurotrophin','trkb','trka','trkb')
+        || nameIs(c,'acd856','cerebrolysin','nsi-189','semax') },
+    { id:'peptide_longevity', label:'Longevity Peptides', match: c =>
+        nameIs(c,'epitalon','epithalon','thymalin','thymulin','dsip',
+                 'pinealon','cortagen','vesugen') },
+  ]},
+  { id:'metabolic', label:'Metabolic & Body Composition', icon:'⚗', subs:[
+    { id:'insulin_glp', label:'Insulin / GLP-1 / Diabetes', match: c =>
+        moaHas(c,'insulin receptor','glucagon','glp-1','sglt','dpp-4',
+               'dipeptidyl peptidase','dipeptidyl peptidase 4')
+        || catHas(c,'antidiabetic','insulin','blood glucose','hypoglycemic')
+        || nameIs(c,'metformin','semaglutide','liraglutide','tirzepatide',
+                    'alogliptin','acarbose') },
+    { id:'lipid', label:'Lipid Metabolism / Statins', match: c =>
+        moaHas(c,'hmg-coa','hmg coa','lipoprotein','ppar alpha','bile acid',
+               'cholesterol','farnesyl diphosphate')
+        || catHas(c,'statin','statins','lipid-lowering','lipid','dyslipidemia') },
+    { id:'thyroid', label:'Thyroid Axis', match: c =>
+        moaHas(c,'thyroid receptor','tsh','thyroid hormone','t3 receptor')
+        || catHas(c,'thyroid')
+        || nameIs(c,'liothyronine','levothyroxine','cytomel','thyroid') },
+    { id:'lipolysis', label:'Lipolysis / Thermogenics', match: c =>
+        moaHas(c,'beta-2 adrenergic','beta-3 adrenergic')
+        || nameIs(c,'clenbuterol','ephedrine','yohimbine','beta-yohimbine',
+                    'pseudoephedrine','phenylephrine','cardarine','sr9009') },
+    { id:'corticosteroids', label:'Corticosteroids', match: c =>
+        moaHas(c,'glucocorticoid receptor','mineralocorticoid receptor')
+        || catHas(c,'corticosteroid','corticosteroids','anti-inflammatory') },
+  ]},
+  { id:'cardiovascular', label:'Cardiovascular', icon:'♥', subs:[
+    { id:'beta_adren', label:'Beta-Adrenergic Agents', match: c =>
+        moaHas(c,'beta-1 adrenergic','beta-2 adrenergic','adrenergic receptor beta',
+               'beta adrenoceptor')
+        || catHas(c,'beta blocker','beta blockers','beta agonist') },
+    { id:'calcium_ch', label:'Calcium Channel Blockers', match: c =>
+        moaHas(c,'calcium channel','l-type calcium','voltage-gated calcium')
+        || catHas(c,'calcium channel blocker','calcium channel blockers') },
+    { id:'raas', label:'RAAS / ACE / Angiotensin', match: c =>
+        moaHas(c,'angiotensin','angiotensin-converting','renin','ace ',
+               'type-1 angiotensin')
+        || catHas(c,'ace inhibitor','ace inhibitors','antihypertensive',
+                    'antihypertensives') },
+    { id:'vasodilators', label:'Vasodilators / NO Pathway / ED', match: c =>
+        moaHas(c,'phosphodiesterase 5','pde5','nitric oxide','nos ',
+               'guanylate cyclase','prostanoid','prostacyclin','prostanoid ip',
+               'prostanoid ep1','prostanoid ep2','prostanoid dp')
+        || catHas(c,'cardiac therapy','cardiovascular disease','vasodilator',
+                    'vasoprotective','vasoprotectives')
+        || nameIs(c,'sildenafil','tadalafil','vardenafil','alprostadil',
+                    'iloprost','nortadalafil') },
+    { id:'antiarrhythmic', label:'Antiarrhythmics', match: c =>
+        catHas(c,'antiarrhythmic','atrial fibrillation') },
+    { id:'anticoag', label:'Anticoagulants / Antiplatelet', match: c =>
+        moaHas(c,'purinergic receptor p2y12','thrombin','factor xa',
+               'platelet')
+        || catHas(c,'anticoagulant','antiplatelet','antithrombotic',
+                    'myocardial infarction treatment') },
+  ]},
+  { id:'immunology', label:'Immunology & Inflammation', icon:'🛡', subs:[
+    { id:'cox_nsaid', label:'COX Inhibitors / NSAIDs', match: c =>
+        moaHas(c,'cyclooxygenase','cyclooxygenase-2','cox-1','cox-2',
+               'prostaglandin','arachidonate 5-lipoxygenase')
+        || catHas(c,'nsaid','nsaids','anti-inflammatory','analgesic') },
+    { id:'cytokine', label:'Cytokine / TNF / IL Modulators', match: c =>
+        moaHas(c,'interleukin','tnf','tumor necrosis factor','interferon',
+               'nf-kb','il-','macrophage colony')
+        || catHas(c,'immunosuppressant','immunomodulat','cytokine','anti-tnf',
+                    'rheumatic disease') },
+    { id:'jaki', label:'JAK / TYK Inhibitors', match: c =>
+        moaHas(c,'tyrosine-protein kinase jak','tyk2','janus kinase',
+               'tyrosine-protein kinase tyk')
+        || catHas(c,'jak inhibitor','jaki') },
+    { id:'mast_hist2', label:'Antihistamines', match: c =>
+        moaHas(c,'histamine h1','histamine h2','histamine h3')
+        || catHas(c,'antihistamine','antihistamines','allergic disease') },
+  ]},
+  { id:'oncology', label:'Oncology', icon:'⊕', subs:[
+    { id:'kinase_inh', label:'Kinase Inhibitors', match: c =>
+        moaHas(c,'tyrosine kinase','protein kinase','egfr','her2','mek ',
+               'raf ','ephrin','receptor protein-tyrosine kinase',
+               'vascular endothelial growth factor receptor',
+               'stem cell growth factor receptor',
+               'platelet-derived growth factor receptor',
+               'tyrosine-protein kinase receptor flt3',
+               'tyrosine-protein kinase receptor ret',
+               'alk tyrosine kinase')
+        || catHas(c,'kinase inhibitor','antineoplastics','anticancer',
+                    'antitumor','neoplasm treatment','renal cell carcinoma',
+                    'non-small cell lung') },
+    { id:'hormone_cancer', label:'Hormone-Sensitive Cancer', match: c =>
+        catHas(c,'breast carcinoma','breast neoplasm','prostate cancer',
+                 'hormone-sensitive','endocrine therapy','androgen deprivation',
+                 'adrenal cortex') },
+    { id:'hdac', label:'HDAC Inhibitors / Epigenetic', match: c =>
+        moaHas(c,'histone deacetylase','hdac') },
+    { id:'smoothened', label:'Hedgehog / Smoothened', match: c =>
+        moaHas(c,'smoothened') },
+  ]},
+  { id:'antimicrobial', label:'Antimicrobial', icon:'⊗', subs:[
+    { id:'antibacterial', label:'Antibacterial', match: c =>
+        moaHas(c,'bacterial','bacterial urease','dna gyrase',
+               'penicillin','beta-lactam','bacterial penicillin')
+        || catHas(c,'antibiotic','antibacterial','antibiotics','beta-lactam',
+                    'cephalosporin','quinolone','aminoglycoside',
+                    'osteomyelitis','antibiotics (dermatological)') },
+    { id:'antiviral', label:'Antiviral', match: c =>
+        moaHas(c,'viral','hiv','hepatitis','influenza','rna-dependent')
+        || catHas(c,'antiviral','antivirals','aids','hiv') },
+    { id:'antifungal', label:'Antifungal', match: c =>
+        moaHas(c,'fungal','lanosterol','ergosterol')
+        || catHas(c,'antifungal','antifungals','tinea','fungal') },
+  ]},
+  { id:'ophth', label:'Ophthalmology & Other', icon:'◎', subs:[
+    { id:'ophthalm', label:'Ophthalmologicals', match: c =>
+        catHas(c,'ophthalmolog','ocular','glaucoma','macular') },
+    { id:'derm', label:'Dermatological', match: c =>
+        catHas(c,'dermatolog','acne','skin disease','eczema') },
+    { id:'gi', label:'Gastrointestinal', match: c =>
+        catHas(c,'gastrointestinal','antispasmodic','antidiarrheal',
+                 'antidiarrheals','nausea') },
+    { id:'resp', label:'Respiratory', match: c =>
+        catHas(c,'airway obstruction','bronchospasm','obstructive airway',
+                 'chronic obstructive','nasal','respiratory') },
+    { id:'urology', label:'Urology / Reproductive', match: c =>
+        catHas(c,'urolog','bladder','benign prostatic','gynecolog',
+                 'reproductive','obstetric') },
+  ]},
+];
+
+// ── Build compound→subs index ─────────────────────────────────────────────────
+const C_SUBS = new Map();   // compoundId → Set<subId>
+const SUB_CNT = {};
+const GRP_CNT = {};
+
+(function buildIndex() {
+  SB_ALL.forEach(c => {
+    const subs = new Set();
+    TAXONOMY.forEach(g => {
+      let hit = false;
+      g.subs.forEach(s => {
+        if (s.match(c)) { subs.add(s.id); SUB_CNT[s.id] = (SUB_CNT[s.id]||0)+1; hit=true; }
+      });
+      if (hit) GRP_CNT[g.id] = (GRP_CNT[g.id]||0)+1;
+    });
+    C_SUBS.set(c.id, subs);
+  });
+})();
+
+// ── Build taxonomy tree ────────────────────────────────────────────────────────
+(function buildTree() {
+  document.getElementById('sbAllCnt').textContent = SB_ALL.length;
+  const tree = document.getElementById('sbTree');
+  TAXONOMY.forEach(g => {
+    const cnt = GRP_CNT[g.id] || 0;
+    if (!cnt) return;
+    const div = document.createElement('div');
+    div.className = 'sb-group';
+    div.id = 'sbG_' + g.id;
+    div.innerHTML = `
+      <div class="sb-group-hdr" onclick="sbTogGrp('${g.id}',this)">
+        <span class="sb-gi">${g.icon}</span>
+        <span class="sb-gl">${g.label}</span>
+        <span class="sb-gc">${cnt}</span>
+        <span class="sb-chev">▶</span>
+      </div>
+      <div class="sb-subs">
+        ${g.subs.filter(s => SUB_CNT[s.id]).map(s=>`
+          <div class="sb-sub" id="sbS_${s.id}" onclick="sbSelSub('${g.id}','${s.id}')">
+            <span>${s.label}</span>
+            <span class="sb-sub-c">${SUB_CNT[s.id]||0}</span>
+          </div>`).join('')}
+      </div>`;
+    tree.appendChild(div);
+  });
+})();
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let sbStack = [];
+let sbActiveSub = null;
+let sbActiveGrp = null;
+let sbQ = '';
+
+function sbTogGrp(gid, hdr) {
+  document.getElementById('sbG_' + gid).classList.toggle('open');
+}
+function sbAll() {
+  sbActiveSub = null; sbActiveGrp = null;
+  document.querySelectorAll('.sb-sub,.sb-group-hdr').forEach(e=>e.classList.remove('active'));
+  document.getElementById('sbAllBtn').classList.add('active');
+  sbRenderList();
+}
+function sbSelSub(gid, sid) {
+  sbActiveSub = sid; sbActiveGrp = gid;
+  document.getElementById('sbAllBtn').classList.remove('active');
+  document.querySelectorAll('.sb-sub').forEach(e=>e.classList.remove('active'));
+  const el = document.getElementById('sbS_' + sid);
+  if (el) el.classList.add('active');
+  document.getElementById('sbG_' + gid).classList.add('open');
+  sbRenderList();
+}
+function sbSearch_() {
+  sbQ = document.getElementById('sbSearch').value.trim().toLowerCase();
+  sbRenderList();
+}
+
+// ── Compound list ─────────────────────────────────────────────────────────────
+function sbRenderList() {
+  const el = document.getElementById('sbCList');
+  const filtered = SB_ALL.filter(c => {
+    if (sbQ) {
+      if (!(c.name+' '+(c.aka||'')+' '+(c.notes||'')).toLowerCase().includes(sbQ)) return false;
+    }
+    if (sbActiveSub) {
+      return (C_SUBS.get(c.id)||new Set()).has(sbActiveSub);
+    }
+    return true;
+  });
+  if (!filtered.length) {
+    el.innerHTML = '<div class="sb-empty">No compounds found</div>'; return;
+  }
+  const hhMap = {safe:'hh-s Safe',caution:'hh-c Caution',contra:'hh-x Hepatotoxic'};
+  el.innerHTML = filtered.slice(0,250).map(c => {
+    const inStk = sbStack.some(s=>s.compound.id===c.id);
+    const [hhCls,hhTxt] = (hhMap[c.hh]||'hh-s Safe').split(' ');
+    const subs = C_SUBS.get(c.id)||new Set();
+    const tags = [];
+    TAXONOMY.forEach(g=>g.subs.forEach(s=>{ if(subs.has(s.id)) tags.push(s.label.split('(')[0].trim().split('/')[0].trim()); }));
+    const tagHtml = tags.slice(0,2).map(t=>`<span class="sb-tag">${t}</span>`).join('');
+    return `<div class="sb-cc${inStk?' in-stack':''}" onclick="sbToggle(${c.id})">
+      <div class="sb-cn">${c.name}</div>
+      ${c.aka?`<div class="sb-ca">${c.aka}</div>`:''}
+      <div class="sb-ctags">${tagHtml}<span class="sb-hh ${hhCls}">${hhTxt}</span></div>
+      <span class="sb-add">${inStk?'×':'+'}</span>
+    </div>`;
+  }).join('');
+  if (filtered.length > 250) el.innerHTML += `<div class="sb-empty">+${filtered.length-250} more — refine search or select subcategory</div>`;
+}
+
+// ── Stack ─────────────────────────────────────────────────────────────────────
+function sbToggle(id) {
+  const c = SB_ALL.find(x=>x.id===id); if (!c) return;
+  const idx = sbStack.findIndex(s=>s.compound.id===id);
+  if (idx>=0) sbStack.splice(idx,1); else sbStack.push({compound:c,dose:c.defaultDose||100});
+  sbRenderAll();
+}
+function sbClear() { sbStack=[]; sbRenderAll(); }
+function sbUpdDose(i,v) { sbStack[i].dose=parseFloat(v)||0; sbRenderAnalysis(); }
+function sbRmv(i) { sbStack.splice(i,1); sbRenderAll(); }
+
+function sbRenderStack() {
+  const el = document.getElementById('sbItems');
+  const tot = document.getElementById('sbTot');
+  if (!sbStack.length) {
+    el.innerHTML='<div class="sb-empty-stack"><div class="sb-ei">⬡</div><div>Select compounds from the library to begin</div></div>';
+    tot.textContent='0 compounds'; return;
+  }
+  const mg = sbStack.reduce((s,x)=>s+(x.dose||0),0);
+  tot.textContent=`${sbStack.length} compound${sbStack.length!==1?'s':''} · ${mg} mg`;
+  el.innerHTML=sbStack.map(({compound:c,dose},i)=>{
+    const subs=C_SUBS.get(c.id)||new Set();
+    let lbl='';
+    outer:for(const g of TAXONOMY){for(const s of g.subs){if(subs.has(s.id)){lbl=s.label.split('(')[0].split('/')[0].trim();break outer;}}}
+    return `<div class="sb-si2">
+      <div><div class="sb-in">${c.name}</div><div class="sb-isub">${lbl}</div></div>
+      <div class="sb-dr">
+        <input type="number" min="0" step="10" value="${dose}" onchange="sbUpdDose(${i},this.value)" onclick="event.stopPropagation()">
+        <span class="sb-du">${c.unit||'mg'}</span>
+      </div>
+      <button class="sb-rm" onclick="sbRmv(${i})">×</button>
+    </div>`;
+  }).join('');
+}
+
+// ── Analysis ─────────────────────────────────────────────────────────────────
+function sbRenderAnalysis() {
+  const show = sbStack.length > 0;
+  document.getElementById('sbEqBar').style.display = show ? 'flex' : 'none';
+  document.getElementById('sbAGrid').style.display = show ? 'grid' : 'none';
+  document.getElementById('sbInsSection').style.display = show ? 'block' : 'none';
+  if (!show) return;
+
+  const totDose = sbStack.reduce((s,x)=>s+(x.dose||0),0)||1;
+  const props = {anabolic:0,androgenic:0,estrogenic:0,progestogenic:0,hepato:0,suppression:0};
+  sbStack.forEach(({compound:c,dose})=>{
+    const w=dose/totDose;
+    for(const k of Object.keys(props)) props[k]+=((c.props||{})[k]||0)*w;
+  });
+  const teq = sbStack.reduce((s,{compound:c,dose})=>s+dose*(c.testEquiv||1),0);
+
+  // equiv
+  document.getElementById('sbEqV').textContent=`${Math.round(teq)} mg eq`;
+  document.getElementById('sbEqB').innerHTML=sbStack.map(({compound:c,dose})=>
+    `${c.name}: ${dose}mg × ${(c.testEquiv||1).toFixed(1)}× = ${Math.round(dose*(c.testEquiv||1))} mg eq`
+  ).join('<br>');
+  const rEl=document.getElementById('sbEqR');
+  const [rc,rt]=teq>600?['r-aggro','Aggressive']:teq>300?['r-mod','Moderate']:['r-mild','Mild'];
+  rEl.className=`sb-rating ${rc}`; rEl.textContent=rt;
+
+  // bars
+  const bars=[
+    {k:'anabolic',l:'Anabolic',c:'ba',sc:5},{k:'androgenic',l:'Androgenic',c:'ban',sc:5},
+    {k:'estrogenic',l:'Estrogenic',c:'be',sc:1},{k:'progestogenic',l:'Progestogenic',c:'bp',sc:1},
+    {k:'hepato',l:'Liver Stress',c:'bh',sc:1},{k:'suppression',l:'HPTA Suppression',c:'bs',sc:1},
+  ];
+  document.getElementById('sbPBars').innerHTML=bars.map(b=>{
+    const raw=props[b.k]||0, pct=Math.min(100,Math.max(0,raw/b.sc));
+    return `<div class="sb-pr"><div class="sb-plr"><span class="sb-pl">${b.l}</span><span class="sb-pv">${Math.round(raw)}</span></div><div class="sb-bbg"><div class="sb-bf ${b.c}" style="width:${pct}%"></div></div></div>`;
+  }).join('');
+
+  // table
+  const maxA=Math.max(...sbStack.map(s=>(s.compound.props?.anabolic||0)),1);
+  const hhMap={safe:'hh-s Safe',caution:'hh-c Caution',contra:'hh-x High'};
+  document.getElementById('sbTBody').innerHTML=sbStack.map(({compound:c,dose})=>{
+    const ana=c.props?.anabolic||0, pct=ana/maxA*100;
+    const [hcls,htxt]=(hhMap[c.hh]||'hh-s Safe').split(' ');
+    return `<tr><td class="sb-tn">${c.name}</td><td style="color:var(--sb-dim)">${dose}${c.unit||'mg'}</td>
+      <td><span class="sb-mb"><span class="sb-mbg"><span class="sb-mf" style="width:${pct}%"></span></span><span style="font-size:9px;color:var(--sb-dim);margin-left:3px">${Math.round(ana)}</span></span></td>
+      <td><span class="sb-hh ${hcls}">${htxt}</span></td></tr>`;
+  }).join('');
+
+  // insights
+  const ins=[];
+  const moaAll=sbStack.flatMap(s=>(s.compound.moa||[]).map(m=>m.toLowerCase()));
+  const allSubs=new Set(sbStack.flatMap(s=>[...(C_SUBS.get(s.compound.id)||[])]));
+  const hasAndrogen=allSubs.has('androgens')||allSubs.has('sarms');
+  const hasEstMod=allSubs.has('estrogen_mod');
+  const has19nor=moaAll.some(m=>m.includes('progesterone')||m.includes('progestin'));
+  const hasLiver=sbStack.some(s=>s.compound.hh==='contra');
+  const highEst=props.estrogenic>20;
+  const highSupp=props.suppression>60;
+  const hasPsych=allSubs.has('serotonergic_psy')||allSubs.has('dissociatives')||allSubs.has('empathogens');
+  const hasOpioid=allSubs.has('opioidergic');
+  const hasStimulant=allSubs.has('lipolysis')||allSubs.has('adenosinergic');
+
+  if(hasLiver) ins.push({t:'warn',i:'⚠',h:'Hepatotoxic compound present',b:'One or more compounds carry a high liver-stress rating. Monitor AST/ALT regularly and consider NAC or TUDCA support.'});
+  if(highEst&&!hasEstMod) ins.push({t:'warn',i:'⚠',h:'Estrogenic load — no AI/SERM detected',b:'Stack has significant estrogenic activity. Consider adding anastrozole, letrozole, or tamoxifen for estrogen management.'});
+  if(highEst&&hasEstMod) ins.push({t:'ok',i:'✓',h:'Estrogen management present',b:'AI or SERM detected alongside estrogenic compounds.'});
+  if(has19nor) ins.push({t:'note',i:'⬡',h:'19-Nor / Progestogenic compound',b:'Progesterone receptor activity detected. Monitor prolactin levels; consider cabergoline if prolactin becomes elevated.'});
+  if(hasAndrogen&&!hasEstMod) ins.push({t:'info',i:'i',h:'Androgen stack — ancillaries recommended',b:'Exogenous androgens suppress HPTA. Plan PCT (clomiphene, tamoxifen) or TRT bridge; consider hCG to preserve testicular function.'});
+  if(highSupp) ins.push({t:'info',i:'i',h:'Significant HPTA suppression expected',b:'This combination is likely to fully suppress endogenous testosterone production.'});
+  if(hasPsych&&hasStimulant) ins.push({t:'warn',i:'⚠',h:'Psychedelic + stimulant combination',b:'Combining psychedelics with stimulants (caffeine, ephedrine, clenbuterol) can significantly increase cardiovascular strain.'});
+  if(hasOpioid&&hasStimulant) ins.push({t:'warn',i:'⚠',h:'Opioid + stimulant interaction',b:'Opioids and stimulants have opposing CNS effects and concurrent use carries interaction risks.'});
+  if(sbStack.length>=4) ins.push({t:'info',i:'i',h:`${sbStack.length}-compound polypharmacy`,b:'Multi-compound stacks increase the risk of interactions and cumulative side effects. Add compounds sequentially and monitor carefully.'});
+  if(!ins.length) ins.push({t:'ok',i:'✓',h:'No major flags detected',b:'No obvious high-risk patterns in this combination. This is not medical advice — consult a healthcare professional.'});
+
+  document.getElementById('sbInsList').innerHTML=ins.map(x=>`
+    <div class="sb-ins i-${x.t}">
+      <span class="sb-ii">${x.i}</span>
+      <div><div class="sb-it">${x.h}</div><div class="sb-ib">${x.b}</div></div>
+    </div>`).join('');
+}
+
+function sbRenderAll() { sbRenderList(); sbRenderStack(); sbRenderAnalysis(); }
+sbRenderAll();
+</script>
+{% endblock %}

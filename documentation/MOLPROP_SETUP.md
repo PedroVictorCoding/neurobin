@@ -2,6 +2,10 @@
 
 Neurobin can run MolProp predictions through a command bridge.
 
+This repo already ships a working bundled MolPROP runtime under
+`core/molprop_runtime`. The provided `scripts/dev_run.sh` and `scripts/prod_run.sh`
+now force Django to use that bundled runtime by default.
+
 ## 1) Create a MolProp environment
 
 MolPROP is not pip-installable as a normal package. Use its own repo and environment.
@@ -9,9 +13,14 @@ MolPROP is not pip-installable as a normal package. Use its own repo and environ
 Example:
 
 ```bash
+git lfs install
 git clone https://github.com/Merck/MolPROP.git /opt/MolPROP
+cd /opt/MolPROP
+git lfs pull
 conda env create --name molprop --file /opt/MolPROP/molprop.yml
 ```
+
+The upstream README references `molprop.yaml` in one spot, but the repo ships `molprop.yml`.
 
 ## 2) Create bridge config
 
@@ -34,6 +43,9 @@ venv/bin/python core/manage.py generate_molprop_bridge_config \
 
 This discovers `setup*.json` + `*.pth` pairs. Review endpoint names and class direction
 (`positive_class_index`) before production use.
+
+If the bridge complains about Git LFS pointer files, the clone is incomplete. Re-run
+`git lfs pull` inside the MolPROP checkout before generating config or serving requests.
 
 ## 3) Enable bridge for Django
 

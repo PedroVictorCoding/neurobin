@@ -3,7 +3,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from stacks.models import Stack
-from logs.models import UserGoal, UserGoalCompletion
+from logs.models import BloodworkEntry, BloodworkMeasurement, UserGoal, UserGoalCompletion
 
 
 class RegistrationTests(TestCase):
@@ -164,3 +164,54 @@ class ProfileDashboardGoalTrackerTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertFalse(UserGoalCompletion.objects.filter(goal=goal).exists())
+
+
+class ProfileDashboardBloodworkTabTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="bloodowner",
+            email="bloodowner@example.com",
+            password="StrongPass123!",
+        )
+        self.other_user = User.objects.create_user(
+            username="bloodviewer",
+            email="bloodviewer@example.com",
+            password="StrongPass123!",
+        )
+
+    def test_owner_profile_can_view_bloodwork_tab(self):
+        entry = BloodworkEntry.objects.create(
+            user=self.user,
+            collected_at=timezone.now(),
+            panel_name="CBC",
+            lab_name="Labcorp",
+            notes="Routine check",
+        )
+        BloodworkMeasurement.objects.create(
+            entry=entry,
+            marker_name="Ferritin",
+            value="72.5",
+            unit="ng/mL",
+            display_order=0,
+        )
+
+        self.client.login(username="bloodowner", password="StrongPass123!")
+        response = self.client.get(f"{reverse('profile_dashboard')}?tab=bloodwork")
+
+        self.assertEqual(response.context["active_tab"], "bloodwork")
+        self.assertContains(response, "Manage Bloodwork")
+        self.assertContains(response, "CBC")
+        self.assertContains(response, "Ferritin")
+
+    def test_other_profile_does_not_show_bloodwork_tab(self):
+        BloodworkEntry.objects.create(
+            user=self.user,
+            collected_at=timezone.now(),
+            panel_name="CMP",
+        )
+
+        self.client.login(username="bloodviewer", password="StrongPass123!")
+        response = self.client.get(reverse("user_profile", kwargs={"username": "bloodowner"}))
+
+        self.assertNotContains(response, "Manage Bloodwork")
+        self.assertNotContains(response, "Bloodwork History")

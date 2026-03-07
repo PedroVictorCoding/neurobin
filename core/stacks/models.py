@@ -88,6 +88,26 @@ class StackItem(models.Model):
     completed = models.BooleanField(default=False)
     added = models.DateTimeField(auto_now_add=True)
 
+    # Multi-dose: emit this many equally-spaced doses per recurrence period.
+    doses_per_recurrence = models.PositiveIntegerField(
+        default=1,
+        help_text="Number of equally-spaced doses per recurrence period (e.g. 2 = morning + evening).",
+    )
+
+    # Drug holiday / cycling support.
+    cycle_on_days = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Active days per cycle (e.g. 5 for 5-on/2-off). Leave blank to disable cycling.",
+    )
+    cycle_off_days = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Rest days per cycle (e.g. 2 for 5-on/2-off).",
+    )
+    cycle_reference_date = models.DateField(
+        null=True, blank=True,
+        help_text="Day 1 of the first cycle. Defaults to item creation date if cycling is enabled.",
+    )
+
     class Meta:
         ordering = ['order', 'added']
 

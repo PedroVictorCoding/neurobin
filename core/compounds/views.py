@@ -992,6 +992,354 @@ def _fetch_pubchem_summary(pubchem_cid: str) -> str:
     return ""
 
 
+def _normalize_summary_text(raw_value: str) -> str:
+    return re.sub(r"\s+", " ", str(raw_value or "")).strip()
+
+
+def _join_summary_sentences(parts: list[str]) -> str:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for raw_part in parts or []:
+        text = _normalize_summary_text(raw_part)
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if text[-1] not in '.!?':
+            text = f"{text}."
+        merged.append(text)
+    return " ".join(merged)
+
+
+def _join_alias_candidates(values: list[str], *, max_items: int = 6, max_length: int = 255) -> str:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values or []:
+        cleaned = normalize_compound_name(raw_value)
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        candidate = ", ".join(merged + [cleaned])
+        if len(candidate) > max_length:
+            break
+        seen.add(key)
+        merged.append(cleaned)
+        if len(merged) >= max_items:
+            break
+    return ", ".join(merged)
+
+
+def _build_pubchem_summary_fallback(pubchem_cid: str, payload: dict) -> str:
+    cid = (pubchem_cid or "").strip()
+    name = _normalize_summary_text(payload.get("title") or payload.get("iupac_name") or f"PubChem CID {cid}")
+    formula = _normalize_summary_text(payload.get("molecular_formula"))
+    weight = _normalize_summary_text(payload.get("molecular_weight"))
+    iupac_name = _normalize_summary_text(payload.get("iupac_name"))
+
+    parts: list[str] = []
+    if name:
+        intro = f"{name} is listed in PubChem"
+        details: list[str] = []
+        if formula:
+            details.append(f"formula {formula}")
+        if weight:
+            details.append(f"molecular weight {weight} g/mol")
+        if details:
+            intro = f"{intro} with {' and '.join(details)}"
+        parts.append(intro)
+    if iupac_name and iupac_name.lower() != name.lower():
+        parts.append(f"IUPAC name: {iupac_name}")
+    return _join_summary_sentences(parts)
+
+
+def _fetch_chembl_summary_snapshot(chembl_id: str) -> dict:
+    if requests is None:
+        return {}
+
+    chembl_key = (chembl_id or "").strip().upper()
+    if not _CHEMBL_ID_RE.fullmatch(chembl_key):
+        return {}
+
+    molecule_url = f"https://www.ebi.ac.uk/chembl/api/data/molecule/{quote(chembl_key)}.json"
+    mechanism_url = (
+        "https://www.ebi.ac.uk/chembl/api/data/mechanism.json?"
+        f"molecule_chembl_id={quote(chembl_key)}&limit=5"
+    )
+    indication_url = (
+        "https://www.ebi.ac.uk/chembl/api/data/drug_indication.json?"
+        f"molecule_chembl_id={quote(chembl_key)}&limit=5"
+    )
+    headers = {"Accept": "application/json"}
+
+    try:
+        molecule_resp = requests.get(molecule_url, headers=headers, timeout=20)
+        if molecule_resp.status_code == 404:
+            return {}
+        molecule_resp.raise_for_status()
+        molecule_payload = molecule_resp.json() if molecule_resp.content else {}
+    except Exception:
+        return {}
+
+    try:
+        mechanism_resp = requests.get(mechanism_url, headers=headers, timeout=20)
+        mechanism_resp.raise_for_status()
+        mechanism_payload = mechanism_resp.json() if mechanism_resp.content else {}
+    except Exception:
+        mechanism_payload = {}
+
+    try:
+        indication_resp = requests.get(indication_url, headers=headers, timeout=20)
+        indication_resp.raise_for_status()
+        indication_payload = indication_resp.json() if indication_resp.content else {}
+    except Exception:
+        indication_payload = {}
+
+    molecule_properties = molecule_payload.get("molecule_properties") or {}
+    molecule_structures = molecule_payload.get("molecule_structures") or {}
+    mechanisms = mechanism_payload.get("mechanisms") or []
+    indications = indication_payload.get("drug_indications") or []
+
+    mechanism_bits: list[str] = []
+    for row in mechanisms:
+        if not isinstance(row, dict):
+            continue
+        mechanism_text = _normalize_summary_text(row.get("mechanism_of_action"))
+        action_type = _normalize_summary_text(row.get("action_type"))
+        target_name = _normalize_summary_text(row.get("target_pref_name") or row.get("target_name"))
+        descriptor = mechanism_text or action_type
+        if target_name and descriptor:
+            descriptor = f"{descriptor} at {target_name}"
+        elif target_name:
+            descriptor = f"targeting {target_name}"
+        if descriptor:
+            mechanism_bits.append(descriptor)
+
+    indication_bits: list[str] = []
+    for row in indications:
+        if not isinstance(row, dict):
+            continue
+        label = _normalize_summary_text(row.get("mesh_heading") or row.get("efo_term") or row.get("indication_refs"))
+        if label:
+            indication_bits.append(label)
+
+    synonym_bits: list[str] = []
+    for row in (molecule_payload.get("molecule_synonyms") or []):
+        if not isinstance(row, dict):
+            continue
+        synonym = _normalize_summary_text(row.get("molecule_synonym"))
+        if synonym:
+            synonym_bits.append(synonym)
+
+    name = _normalize_summary_text(molecule_payload.get("pref_name")) or chembl_key
+    molecule_type = _normalize_summary_text(molecule_payload.get("molecule_type"))
+    max_phase_raw = molecule_payload.get("max_phase")
+    try:
+        max_phase = int(max_phase_raw)
+    except (TypeError, ValueError):
+        max_phase = 0
+    first_approval = _normalize_summary_text(molecule_payload.get("first_approval"))
+
+    summary_parts: list[str] = []
+    intro = f"{name} is listed in ChEMBL"
+    if molecule_type:
+        intro = f"{intro} as a {molecule_type.lower()}"
+    summary_parts.append(intro)
+
+    if bool(molecule_payload.get("therapeutic_flag")):
+        summary_parts.append("ChEMBL flags it as a therapeutic molecule")
+    if max_phase > 0:
+        summary_parts.append(f"Recorded max clinical phase: {max_phase}")
+    if first_approval:
+        summary_parts.append(f"First approval year: {first_approval}")
+    if mechanism_bits:
+        summary_parts.append(f"Reported mechanism notes: {'; '.join(mechanism_bits[:3])}")
+    if indication_bits:
+        summary_parts.append(f"Indications include {'; '.join(indication_bits[:3])}")
+
+    return {
+        "name": name,
+        "description": _join_summary_sentences(summary_parts),
+        "chembl_id": chembl_key,
+        "smiles": _normalize_summary_text(molecule_structures.get("canonical_smiles")),
+        "inchi": _normalize_summary_text(molecule_structures.get("standard_inchi")),
+        "inchi_key": _normalize_summary_text(molecule_structures.get("standard_inchi_key")),
+        "iupac_name": name,
+        "molecular_formula": _normalize_summary_text(molecule_properties.get("full_molformula")),
+        "molecular_weight": _normalize_summary_text(molecule_properties.get("full_mwt")),
+        "mechanism_of_action_summary": _join_summary_sentences([f"Reported mechanism notes: {'; '.join(mechanism_bits[:3])}"]) if mechanism_bits else "",
+        "aliases": _join_alias_candidates(synonym_bits),
+    }
+
+
+def _fetch_wikipedia_summary_snapshot(query: str) -> dict:
+    if requests is None:
+        return {}
+
+    lookup = _normalize_summary_text(query)
+    if not lookup:
+        return {}
+
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Neurobin/1.0 (compound summary importer)",
+    }
+
+    try:
+        search_resp = requests.get(
+            "https://en.wikipedia.org/w/api.php",
+            params={
+                "action": "query",
+                "list": "search",
+                "srsearch": lookup,
+                "format": "json",
+                "utf8": 1,
+                "srlimit": 1,
+            },
+            headers=headers,
+            timeout=20,
+        )
+        search_resp.raise_for_status()
+        search_payload = search_resp.json() if search_resp.content else {}
+    except Exception:
+        return {}
+
+    search_rows = ((search_payload.get("query") or {}).get("search")) or []
+    title = ""
+    if search_rows and isinstance(search_rows[0], dict):
+        title = _normalize_summary_text(search_rows[0].get("title"))
+    if not title:
+        title = lookup
+
+    summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{quote(title)}"
+    try:
+        summary_resp = requests.get(summary_url, headers=headers, timeout=20)
+        if summary_resp.status_code == 404:
+            return {}
+        summary_resp.raise_for_status()
+        summary_payload = summary_resp.json() if summary_resp.content else {}
+    except Exception:
+        return {}
+
+    description = _normalize_summary_text(summary_payload.get("extract"))
+    if not description:
+        return {}
+
+    page_url = _normalize_summary_text(
+        (((summary_payload.get("content_urls") or {}).get("desktop") or {}).get("page"))
+    )
+    resolved_title = _normalize_summary_text(summary_payload.get("title")) or title
+    return {
+        "name": resolved_title,
+        "description": description,
+        "wikipedia_url": page_url,
+    }
+
+
+def _fetch_best_external_summary(*, pubchem_cid: str = "", chembl_id: str = "", name: str = "") -> str:
+    cid = (pubchem_cid or "").strip()
+    chembl_key = (chembl_id or "").strip().upper()
+    fallback_name = _normalize_summary_text(name)
+
+    if cid:
+        summary = _fetch_pubchem_summary(cid)
+        if summary:
+            return summary
+
+    if chembl_key:
+        snapshot = _fetch_chembl_summary_snapshot(chembl_key)
+        description = _normalize_summary_text(snapshot.get("description"))
+        if description:
+            return description
+
+    if fallback_name:
+        snapshot = _fetch_wikipedia_summary_snapshot(fallback_name)
+        description = _normalize_summary_text(snapshot.get("description"))
+        if description:
+            return description
+
+    return ""
+
+
+def _prepare_summary_import_initial(source: str, query: str) -> tuple[dict, str]:
+    source_key = (source or "").strip().lower()
+    lookup = _normalize_summary_text(query)
+
+    if source_key == "pubchem":
+        if not lookup:
+            return {}, "Enter a PubChem CID to import a summary."
+        if not lookup.isdigit():
+            return {}, 'PubChem CID must be numeric (example: 2244).'
+
+        payload = _fetch_pubchem_compound_properties(lookup)
+        if not payload:
+            return {}, f"No PubChem record found for CID {lookup}."
+
+        description = _fetch_pubchem_summary(lookup) or _build_pubchem_summary_fallback(lookup, payload)
+        if not description:
+            return {}, f"No importable summary was found for CID {lookup}."
+
+        inchi_key = _normalize_summary_text(payload.get("inchi_key"))
+        return {
+            "name": _normalize_summary_text(payload.get("title") or payload.get("iupac_name") or f"PubChem CID {lookup}"),
+            "description": description,
+            "pubchem_cid": lookup,
+            "chembl_id": _resolve_pubchem_chembl_id(lookup, inchi_key),
+            "smiles": _normalize_summary_text(payload.get("smiles")),
+            "inchi": _normalize_summary_text(payload.get("inchi")),
+            "inchi_key": inchi_key,
+            "iupac_name": _normalize_summary_text(payload.get("iupac_name")),
+            "molecular_formula": _normalize_summary_text(payload.get("molecular_formula")),
+            "molecular_weight": _normalize_summary_text(payload.get("molecular_weight")),
+            "aliases": _join_alias_candidates(_fetch_pubchem_synonyms(lookup)),
+        }, ""
+
+    if source_key == "chembl":
+        if not lookup:
+            return {}, "Enter a CHEMBL ID to import a summary."
+        if not lookup.upper().startswith("CHEMBL"):
+            return {}, 'CHEMBL ID must start with "CHEMBL" (example: CHEMBL25).'
+
+        snapshot = _fetch_chembl_summary_snapshot(lookup)
+        description = _normalize_summary_text(snapshot.get("description"))
+        if not description:
+            return {}, f"No importable ChEMBL summary was found for {lookup.upper()}."
+
+        return {
+            "name": _normalize_summary_text(snapshot.get("name")) or lookup.upper(),
+            "description": description,
+            "chembl_id": _normalize_summary_text(snapshot.get("chembl_id")) or lookup.upper(),
+            "smiles": _normalize_summary_text(snapshot.get("smiles")),
+            "inchi": _normalize_summary_text(snapshot.get("inchi")),
+            "inchi_key": _normalize_summary_text(snapshot.get("inchi_key")),
+            "iupac_name": _normalize_summary_text(snapshot.get("iupac_name")),
+            "molecular_formula": _normalize_summary_text(snapshot.get("molecular_formula")),
+            "molecular_weight": _normalize_summary_text(snapshot.get("molecular_weight")),
+            "mechanism_of_action_summary": _normalize_summary_text(snapshot.get("mechanism_of_action_summary")),
+            "aliases": _normalize_summary_text(snapshot.get("aliases")),
+        }, ""
+
+    if source_key == "wikipedia":
+        if not lookup:
+            return {}, "Enter a compound name to import a Wikipedia summary."
+
+        snapshot = _fetch_wikipedia_summary_snapshot(lookup)
+        description = _normalize_summary_text(snapshot.get("description"))
+        if not description:
+            return {}, f'No importable Wikipedia summary was found for "{lookup}".'
+
+        return {
+            "name": _normalize_summary_text(snapshot.get("name")) or lookup,
+            "description": description,
+        }, ""
+
+    return {}, "Choose PubChem, ChEMBL, or Wikipedia before importing a summary."
+
+
+
 def _fetch_pubchem_bindingdb_ids(pubchem_cid: str) -> list[str]:
     candidates: list[str] = []
     seen: set[str] = set()
@@ -1301,8 +1649,14 @@ def _import_compound_from_pubchem_cid(pubchem_cid: str) -> tuple[Compound | None
     _set_if_blank("molecular_weight", payload.get("molecular_weight", ""), 50)
 
     if not (compound.description or "").strip():
-        compound.description = f"Imported from PubChem CID {cid}."
-        updated_fields.add("description")
+        summary_text = _fetch_best_external_summary(
+            pubchem_cid=cid,
+            chembl_id=resolved_chembl_id,
+            name=base_name,
+        ) or _build_pubchem_summary_fallback(cid, payload)
+        if summary_text:
+            compound.description = summary_text
+            updated_fields.add("description")
 
     if compound.pk is None or updated_fields:
         compound.save()
@@ -1554,6 +1908,19 @@ def _hydrate_compound_from_external_sources(compound: Compound) -> Compound:
         except Exception:
             pass
 
+    if not (compound.description or "").strip():
+        try:
+            summary_text = _fetch_best_external_summary(
+                pubchem_cid=(compound.pubchem_cid or "").strip(),
+                chembl_id=(compound.chembl_id or "").strip(),
+                name=compound.name,
+            )
+        except Exception:
+            summary_text = ""
+        if summary_text:
+            compound.description = summary_text
+            compound.save(update_fields=["description"])
+
     try:
         _import_missing_mechanisms_for_compound(compound)
     except Exception:
@@ -1730,6 +2097,33 @@ def add_compound(request):
     bindingdb_import_message = ''
     bindingdb_import_message_type = 'danger'
     bindingdb_import_output = ''
+    summary_import_source = 'pubchem'
+    summary_import_query = ''
+    summary_import_message = ''
+    summary_import_message_type = 'danger'
+    summary_import_preview = ''
+
+    def _render_add_compound_page(form):
+        return render(request, 'compounds/add_compound.html', {
+            'form': form,
+            'chembl_import_id': chembl_import_id,
+            'chembl_import_message': chembl_import_message,
+            'chembl_import_message_type': chembl_import_message_type,
+            'chembl_import_output': chembl_import_output,
+            'pubchem_import_cid': pubchem_import_cid,
+            'pubchem_import_message': pubchem_import_message,
+            'pubchem_import_message_type': pubchem_import_message_type,
+            'pubchem_import_output': pubchem_import_output,
+            'bindingdb_import_id': bindingdb_import_id,
+            'bindingdb_import_message': bindingdb_import_message,
+            'bindingdb_import_message_type': bindingdb_import_message_type,
+            'bindingdb_import_output': bindingdb_import_output,
+            'summary_import_source': summary_import_source,
+            'summary_import_query': summary_import_query,
+            'summary_import_message': summary_import_message,
+            'summary_import_message_type': summary_import_message_type,
+            'summary_import_preview': summary_import_preview,
+        })
 
     if request.method == 'POST':
         if request.POST.get('quick_import_chembl'):
@@ -1762,21 +2156,7 @@ def add_compound(request):
                     chembl_import_message_type = 'warning'
                     chembl_import_output = out.getvalue().strip()
 
-            return render(request, 'compounds/add_compound.html', {
-                'form': form,
-                'chembl_import_id': chembl_import_id,
-                'chembl_import_message': chembl_import_message,
-                'chembl_import_message_type': chembl_import_message_type,
-                'chembl_import_output': chembl_import_output,
-                'pubchem_import_cid': pubchem_import_cid,
-                'pubchem_import_message': pubchem_import_message,
-                'pubchem_import_message_type': pubchem_import_message_type,
-                'pubchem_import_output': pubchem_import_output,
-                'bindingdb_import_id': bindingdb_import_id,
-                'bindingdb_import_message': bindingdb_import_message,
-                'bindingdb_import_message_type': bindingdb_import_message_type,
-                'bindingdb_import_output': bindingdb_import_output,
-            })
+            return _render_add_compound_page(form)
 
         if request.POST.get('quick_import_pubchem'):
             pubchem_import_cid = (request.POST.get('pubchem_import_cid') or '').strip()
@@ -1798,21 +2178,7 @@ def add_compound(request):
                     pubchem_import_message = import_message or f'No compound could be imported from CID {pubchem_import_cid}.'
                     pubchem_import_message_type = 'warning'
 
-            return render(request, 'compounds/add_compound.html', {
-                'form': form,
-                'chembl_import_id': chembl_import_id,
-                'chembl_import_message': chembl_import_message,
-                'chembl_import_message_type': chembl_import_message_type,
-                'chembl_import_output': chembl_import_output,
-                'pubchem_import_cid': pubchem_import_cid,
-                'pubchem_import_message': pubchem_import_message,
-                'pubchem_import_message_type': pubchem_import_message_type,
-                'pubchem_import_output': pubchem_import_output,
-                'bindingdb_import_id': bindingdb_import_id,
-                'bindingdb_import_message': bindingdb_import_message,
-                'bindingdb_import_message_type': bindingdb_import_message_type,
-                'bindingdb_import_output': bindingdb_import_output,
-            })
+            return _render_add_compound_page(form)
 
         if request.POST.get('quick_import_bindingdb'):
             bindingdb_import_id = (request.POST.get('bindingdb_import_id') or '').strip()
@@ -1839,21 +2205,22 @@ def add_compound(request):
                     )
                     bindingdb_import_message_type = 'warning'
 
-            return render(request, 'compounds/add_compound.html', {
-                'form': form,
-                'chembl_import_id': chembl_import_id,
-                'chembl_import_message': chembl_import_message,
-                'chembl_import_message_type': chembl_import_message_type,
-                'chembl_import_output': chembl_import_output,
-                'pubchem_import_cid': pubchem_import_cid,
-                'pubchem_import_message': pubchem_import_message,
-                'pubchem_import_message_type': pubchem_import_message_type,
-                'pubchem_import_output': pubchem_import_output,
-                'bindingdb_import_id': bindingdb_import_id,
-                'bindingdb_import_message': bindingdb_import_message,
-                'bindingdb_import_message_type': bindingdb_import_message_type,
-                'bindingdb_import_output': bindingdb_import_output,
-            })
+            return _render_add_compound_page(form)
+
+        if request.POST.get('quick_import_summary'):
+            summary_import_source = (request.POST.get('summary_import_source') or 'pubchem').strip().lower() or 'pubchem'
+            summary_import_query = (request.POST.get('summary_import_query') or '').strip()
+            initial_values, error_message = _prepare_summary_import_initial(summary_import_source, summary_import_query)
+            if error_message:
+                summary_import_message = error_message
+                summary_import_message_type = 'warning'
+                form = CompoundForm()
+            else:
+                summary_import_message = 'Summary loaded into the form below. Review the fields and save when ready.'
+                summary_import_message_type = 'success'
+                summary_import_preview = (initial_values.get('description') or '').strip()
+                form = CompoundForm(initial=initial_values)
+            return _render_add_compound_page(form)
 
         form = CompoundForm(request.POST)
         if form.is_valid():
@@ -1862,21 +2229,7 @@ def add_compound(request):
             return redirect('compound_detail', slug=compound.slug)
     else:
         form = CompoundForm()
-    return render(request, 'compounds/add_compound.html', {
-        'form': form,
-        'chembl_import_id': chembl_import_id,
-        'chembl_import_message': chembl_import_message,
-        'chembl_import_message_type': chembl_import_message_type,
-        'chembl_import_output': chembl_import_output,
-        'pubchem_import_cid': pubchem_import_cid,
-        'pubchem_import_message': pubchem_import_message,
-        'pubchem_import_message_type': pubchem_import_message_type,
-        'pubchem_import_output': pubchem_import_output,
-        'bindingdb_import_id': bindingdb_import_id,
-        'bindingdb_import_message': bindingdb_import_message,
-        'bindingdb_import_message_type': bindingdb_import_message_type,
-        'bindingdb_import_output': bindingdb_import_output,
-    })
+    return _render_add_compound_page(form)
 
 
 

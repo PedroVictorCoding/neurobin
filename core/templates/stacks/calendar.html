@@ -17,8 +17,14 @@
     </div>
   </div>
 
-  <div class="alert alert-info">
-    Bar height = doses/day (capped). Each day cell lists scheduled compounds (scrollable).
+  <div class="alert alert-info d-flex align-items-center gap-3 flex-wrap py-2">
+    <span>Bar height = scheduled doses/day. Color = adherence for past days.</span>
+    <span class="d-flex gap-2 align-items-center">
+      <span class="badge" style="background:rgba(25,135,84,0.55);">All taken</span>
+      <span class="badge" style="background:rgba(255,193,7,0.55);">Partial</span>
+      <span class="badge" style="background:rgba(255,140,0,0.55);">Missed</span>
+      <span class="badge" style="background:rgba(13,202,240,0.4);">Upcoming</span>
+    </span>
   </div>
 
   <style>
@@ -106,10 +112,13 @@
       flex: 0 0 auto;
     }
     .cal-level-0 .cal-bar { height: 0%; background: transparent; }
-    .cal-level-1 .cal-bar { background: rgba(25, 135, 84, 0.55); }
-    .cal-level-2 .cal-bar { background: rgba(255, 193, 7, 0.55); }
-    .cal-level-3 .cal-bar { background: rgba(255, 140, 0, 0.55); }
-    .cal-level-4 .cal-bar { background: rgba(220, 53, 69, 0.55); }
+    /* Past: adherence-based colors */
+    .cal-level-1 .cal-bar { background: rgba(25, 135, 84, 0.65); }   /* green: all taken */
+    .cal-level-2 .cal-bar { background: rgba(255, 193, 7, 0.65); }   /* yellow: partial */
+    .cal-level-3 .cal-bar { background: rgba(255, 140, 0, 0.65); }   /* orange: missed */
+    /* Future: count-based (same shades, lower opacity) */
+    .cal-level-4 .cal-bar { background: rgba(13, 202, 240, 0.40); }  /* cyan: 4+ scheduled */
+    .cal-adherence { font-size: 0.7rem; color: rgba(255,255,255,0.55); text-align: right; }
   </style>
 
   <div class="cal-period-{{ period }}">
@@ -119,7 +128,13 @@
           <div class="cal-cell cal-level-{{ cell.level }} mb-3 {% if cell.is_today %}cal-today{% endif %}">
             <div class="cal-top">
               <div class="fw-semibold">{{ cell.date|date:"D, M j" }}</div>
-              <div class="text-muted small">{{ cell.count }}</div>
+              <div class="text-muted small">
+                {% if cell.adherence_pct is not None and cell.is_past %}
+                  {{ cell.adherence_pct }}%
+                {% else %}
+                  {{ cell.scheduled_count }}
+                {% endif %}
+              </div>
             </div>
             <div class="cal-bar-wrap">
               <div class="cal-bar" style="height: {{ cell.bar_height }}%;"></div>
@@ -176,7 +191,13 @@
             <div class="cal-cell cal-level-{{ cell.level }} {% if cell.is_outside_month %}cal-outside{% endif %} {% if cell.is_today %}cal-today{% endif %}">
               <div class="cal-top">
                 <div class="fw-semibold">{{ cell.date|date:"D, M j" }}</div>
-                <div class="text-muted small">{{ cell.count }}</div>
+                <div class="text-muted small">
+                  {% if cell.adherence_pct is not None and cell.is_past %}
+                    {{ cell.adherence_pct }}%
+                  {% else %}
+                    {{ cell.scheduled_count }}
+                  {% endif %}
+                </div>
               </div>
               <div class="cal-bar-wrap">
                 <div class="cal-bar" style="height: {{ cell.bar_height }}%;"></div>

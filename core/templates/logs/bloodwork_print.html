@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bloodwork Report — {{ entry.panel_name }}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background: #fff; color: #111; font-family: 'Segoe UI', Arial, sans-serif; }
+    .report-header { border-bottom: 2px solid #333; padding-bottom: 1rem; margin-bottom: 1.5rem; }
+    .report-title { font-size: 1.5rem; font-weight: 700; }
+    .meta-row td { padding: 0.2rem 0.6rem 0.2rem 0; font-size: 0.9rem; color: #555; }
+    .meta-row td:first-child { font-weight: 600; color: #333; width: 130px; }
+    table.results-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .results-table th { background: #f0f0f0; border-bottom: 2px solid #ccc; padding: 0.5rem 0.75rem; text-align: left; }
+    .results-table td { padding: 0.45rem 0.75rem; border-bottom: 1px solid #e0e0e0; }
+    .results-table tr:last-child td { border-bottom: none; }
+    .badge-out { background: #dc3545; color: #fff; padding: 2px 7px; border-radius: 4px; font-size: 0.85rem; }
+    .badge-in  { background: #198754; color: #fff; padding: 2px 7px; border-radius: 4px; font-size: 0.85rem; }
+    .section-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: #888; font-weight: 600; margin: 1.5rem 0 0.5rem; }
+    .intake-row { font-size: 0.88rem; padding: 0.3rem 0; border-bottom: 1px solid #eee; }
+    .notes-box { background: #f9f9f9; border: 1px solid #ddd; border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.88rem; color: #444; margin-top: 1rem; }
+    footer { font-size: 0.75rem; color: #aaa; margin-top: 2rem; border-top: 1px solid #ddd; padding-top: 0.75rem; }
+    .no-print { display: block; }
+    @media print {
+      @page { margin: 1.5cm; }
+      .no-print { display: none !important; }
+      body { font-size: 11pt; }
+      .results-table th { background: #eee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .badge-out, .badge-in { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+<div class="container py-4" style="max-width: 860px;">
+
+  {# Print button (hidden on print) #}
+  <div class="no-print mb-3 d-flex justify-content-between align-items-center">
+    <a href="{% url 'bloodwork_dashboard' %}" class="btn btn-sm btn-outline-secondary">
+      &larr; Back to Tracker
+    </a>
+    <button onclick="window.print()" class="btn btn-sm btn-primary">
+      Print / Save as PDF
+    </button>
+  </div>
+
+  <div class="report-header">
+    <div class="report-title">Bloodwork Report</div>
+    <table class="meta-row mt-2">
+      <tr>
+        <td>Patient</td>
+        <td>{{ entry.user.get_full_name|default:entry.user.username }}</td>
+      </tr>
+      <tr>
+        <td>Panel</td>
+        <td><strong>{{ entry.panel_name }}</strong></td>
+      </tr>
+      <tr>
+        <td>Collected</td>
+        <td>{{ entry.collected_at|date:"F j, Y  H:i" }}</td>
+      </tr>
+      {% if entry.lab_name %}
+      <tr>
+        <td>Lab</td>
+        <td>{{ entry.lab_name }}</td>
+      </tr>
+      {% endif %}
+      <tr>
+        <td>Printed</td>
+        <td>{% now "F j, Y" %}</td>
+      </tr>
+    </table>
+  </div>
+
+  {# Measurements table #}
+  <div class="section-title">Results</div>
+  <table class="results-table">
+    <thead>
+      <tr>
+        <th>Marker</th>
+        <th>Value</th>
+        <th>Reference Range</th>
+        <th>Unit</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in measurements %}
+        <tr>
+          <td><strong>{{ m.marker_name }}</strong></td>
+          <td>
+            {% if m.range_status == "out" %}
+              <span class="badge-out">{{ m.value }}</span>
+            {% elif m.range_status == "in" %}
+              <span class="badge-in">{{ m.value }}</span>
+            {% else %}
+              {{ m.value }}
+            {% endif %}
+          </td>
+          <td>
+            {% if m.reference_low != None and m.reference_high != None %}
+              {{ m.reference_low }} – {{ m.reference_high }}
+            {% else %}
+              <span style="color:#aaa;">—</span>
+            {% endif %}
+          </td>
+          <td>{{ m.unit|default:"—" }}</td>
+          <td>{{ m.notes|default:"—" }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5" style="color:#888; text-align:center; padding:1rem;">No measurements recorded.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# Related intake logs #}
+  {% if related_intakes %}
+    <div class="section-title">Related Intake Logs</div>
+    {% for rel in related_intakes %}
+      <div class="intake-row d-flex justify-content-between">
+        <div>
+          <strong>{{ rel.intake_log.compound.name }}</strong>
+          {% if rel.intake_log.amount %}
+            <span style="color:#777;"> {{ rel.intake_log.amount }} {{ rel.intake_log.unit }}</span>
+          {% endif %}
+        </div>
+        <div style="color:#777; font-size:0.85rem;">{{ rel.intake_log.taken_at|date:"M j, Y H:i" }}</div>
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  {# Panel notes #}
+  {% if entry.notes %}
+    <div class="section-title">Notes</div>
+    <div class="notes-box">{{ entry.notes }}</div>
+  {% endif %}
+
+  <footer>
+    Generated by Neurobin &nbsp;·&nbsp; {{ entry.panel_name }} &nbsp;·&nbsp; {{ entry.collected_at|date:"Y-m-d" }}
+  </footer>
+</div>
+</body>
+</html>

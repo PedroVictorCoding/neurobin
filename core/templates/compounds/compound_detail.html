@@ -397,7 +397,7 @@
                 class="compound-structure-stage bg-dark"
                 data-smiles="{{ compound.smiles|default:'' }}"
                 data-pubchem-cid="{{ compound.pubchem_cid|default:'' }}"
-                data-default-mode="{% if compound.smiles %}2d{% else %}3d{% endif %}"
+                data-default-mode="3d"
               >
                 <div class="text-secondary small">Loading structure...</div>
               </div>

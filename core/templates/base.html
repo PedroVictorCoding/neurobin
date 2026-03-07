@@ -1064,26 +1064,40 @@
       }
 
       if (window.jQuery && jQuery.fn.select2) {
-        jQuery('.searchable').select2({
-          width: 'resolve',
-          ajax: {
-            url: '{% url "compound-search-api" %}',
-            dataType: 'json',
-            delay: 250,
-            data: function(params) {
-              return { q: params.term, limit: 20 };
+        jQuery('.searchable').each(function() {
+          const field = jQuery(this);
+          if (field.hasClass('select2-hidden-accessible')) {
+            return;
+          }
+
+          const modalParent = field.closest('.modal');
+          const select2Options = {
+            width: modalParent.length ? '100%' : 'resolve',
+            ajax: {
+              url: '{% url "compound-search-api" %}',
+              dataType: 'json',
+              delay: 250,
+              data: function(params) {
+                return { q: params.term, limit: 20 };
+              },
+              processResults: function(data) {
+                return {
+                  results: data.compounds.map(function(c) {
+                    return { id: c.id, text: c.name };
+                  })
+                };
+              },
+              cache: true
             },
-            processResults: function(data) {
-              return {
-                results: data.compounds.map(function(c) {
-                  return { id: c.id, text: c.name };
-                })
-              };
-            },
-            cache: true
-          },
-          placeholder: 'Search for a compound',
-          minimumInputLength: 1,
+            placeholder: 'Search for a compound',
+            minimumInputLength: 1,
+          };
+
+          if (modalParent.length) {
+            select2Options.dropdownParent = modalParent;
+          }
+
+          field.select2(select2Options);
         });
       }
 

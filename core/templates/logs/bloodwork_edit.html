@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block title %}Edit Panel — {{ entry.panel_name }}{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width: 760px;">
+
+  <div class="d-flex align-items-center gap-3 mb-4">
+    <a href="{% url 'bloodwork_dashboard' %}" class="btn btn-sm btn-outline-secondary">
+      <i class="fas fa-arrow-left me-1"></i>Back
+    </a>
+    <div>
+      <h2 class="fw-bold mb-0">Edit Panel</h2>
+      <p class="text-muted mb-0 small">{{ entry.panel_name }} &middot; {{ entry.collected_at|date:"M j, Y" }}</p>
+    </div>
+  </div>
+
+  <div class="card bg-neurobin-card shadow">
+    <div class="card-body p-4">
+
+      {# Preset quick-load #}
+      <div class="mb-3">
+        <label class="form-label text-muted small mb-1">Quick-load a preset (replaces markers)</label>
+        <select id="preset-select" class="form-select form-select-sm bg-dark text-light border-secondary">
+          <option value="">-- Load a preset --</option>
+        </select>
+      </div>
+
+      <form method="post" novalidate>
+        {% csrf_token %}
+
+        {% if entry_form.non_field_errors %}
+          <div class="alert alert-danger py-2">
+            {% for error in entry_form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+          </div>
+        {% endif %}
+
+        <div class="mb-3">
+          <label class="form-label text-light" for="{{ entry_form.collected_at.id_for_label }}">Collected At</label>
+          {{ entry_form.collected_at }}
+          {% for error in entry_form.collected_at.errors %}
+            <div class="invalid-feedback d-block">{{ error }}</div>
+          {% endfor %}
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label text-light" for="{{ entry_form.panel_name.id_for_label }}">Panel Name</label>
+          {{ entry_form.panel_name }}
+          {% for error in entry_form.panel_name.errors %}
+            <div class="invalid-feedback d-block">{{ error }}</div>
+          {% endfor %}
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label text-light" for="{{ entry_form.lab_name.id_for_label }}">Lab Name</label>
+          {{ entry_form.lab_name }}
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label text-light" for="{{ entry_form.related_intake_logs.id_for_label }}">Related Intake Logs</label>
+          {{ entry_form.related_intake_logs }}
+          <div class="form-text text-muted">{{ entry_form.related_intake_logs.help_text }}</div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label text-light" for="{{ entry_form.notes.id_for_label }}">Notes</label>
+          {{ entry_form.notes }}
+        </div>
+
+        {# Marker results #}
+        <div class="mb-3">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <label class="form-label text-light mb-0">Marker Results</label>
+            <small class="text-muted">Blank rows are ignored</small>
+          </div>
+          {{ measurement_formset.management_form }}
+          <datalist id="marker-suggestions"></datalist>
+
+          <div class="table-responsive bloodwork-entry-table-wrap">
+            <table class="table table-dark table-sm align-middle mb-0 bloodwork-entry-table">
+              <thead>
+                <tr>
+                  <th>Marker</th>
+                  <th>Value</th>
+                  <th>Unit</th>
+                  <th>Low</th>
+                  <th>High</th>
+                  <th>Notes</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="marker-rows">
+                {% for form in measurement_formset %}
+                  <tr class="marker-row">
+                    <td>{{ form.marker_name }}{% for e in form.marker_name.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}</td>
+                    <td>{{ form.value }}{% for e in form.value.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}</td>
+                    <td>{{ form.unit }}</td>
+                    <td>{{ form.reference_low }}</td>
+                    <td>{{ form.reference_high }}{% for e in form.reference_high.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}</td>
+                    <td>{{ form.notes }}</td>
+                    <td><button type="button" class="btn btn-sm btn-outline-danger remove-marker-btn px-2 py-0">×</button></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <button type="button" id="add-marker-btn" class="btn btn-sm btn-outline-secondary mt-2">
+            <i class="fas fa-plus me-1"></i>Add Marker
+          </button>
+
+          {% if measurement_error %}
+            <div class="alert alert-warning py-2 mt-3 mb-0">{{ measurement_error }}</div>
+          {% endif %}
+        </div>
+
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary flex-grow-1">
+            <i class="fas fa-save me-2"></i>Save Changes
+          </button>
+          <a href="{% url 'bloodwork_dashboard' %}" class="btn btn-outline-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# Hidden row template #}
+<template id="marker-row-template">
+  <tr class="marker-row">
+    <td><input type="text" name="measurements-__IDX__-marker_name"
+               id="id_measurements-__IDX__-marker_name"
+               class="form-control form-control-sm bg-dark text-light border-secondary"
+               placeholder="LDL" maxlength="160" list="marker-suggestions"></td>
+    <td><input type="number" name="measurements-__IDX__-value"
+               id="id_measurements-__IDX__-value"
+               class="form-control form-control-sm bg-dark text-light border-secondary"
+               placeholder="112" step="0.001"></td>
+    <td><input type="text" name="measurements-__IDX__-unit"
+               id="id_measurements-__IDX__-unit"
+               class="form-control form-control-sm bg-dark text-light border-secondary"
+               placeholder="mg/dL" maxlength="60"></td>
+    <td><input type="number" name="measurements-__IDX__-reference_low"
+               id="id_measurements-__IDX__-reference_low"
+               class="form-control form-control-sm bg-dark text-light border-secondary"
+               placeholder="40" step="0.001"></td>
+    <td><input type="number" name="measurements-__IDX__-reference_high"
+               id="id_measurements-__IDX__-reference_high"
+               class="form-control form-control-sm bg-dark text-light border-secondary"
+               placeholder="99" step="0.001"></td>
+    <td><input type="text" name="measurements-__IDX__-notes"
+               id="id_measurements-__IDX__-notes"
+               class="form-control form-control-sm bg-dark text-light border-secondary"
+               placeholder="Flagged high" maxlength="255"></td>
+    <td><button type="button" class="btn btn-sm btn-outline-danger remove-marker-btn px-2 py-0">×</button></td>
+  </tr>
+</template>
+
+{{ panel_presets|json_script:"preset-data" }}
+{{ all_markers|json_script:"all-markers-data" }}
+
+<style>
+.bloodwork-entry-table-wrap {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.bloodwork-entry-table th,
+.bloodwork-entry-table td { min-width: 100px; }
+.bloodwork-entry-table th:first-child,
+.bloodwork-entry-table td:first-child { min-width: 140px; }
+</style>
+
+<script>
+(function () {
+  'use strict';
+
+  const panelPresets = JSON.parse(document.getElementById('preset-data').textContent);
+  const allMarkers   = JSON.parse(document.getElementById('all-markers-data').textContent);
+
+  // Populate datalist
+  const dl = document.getElementById('marker-suggestions');
+  allMarkers.forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    dl.appendChild(opt);
+  });
+  document.querySelectorAll('[name$="-marker_name"]').forEach(el => {
+    el.setAttribute('list', 'marker-suggestions');
+  });
+
+  // Dynamic rows
+  const totalFormsInput = document.getElementById('id_measurements-TOTAL_FORMS');
+  let totalForms = parseInt(totalFormsInput.value, 10);
+
+  function addMarkerRow(data) {
+    const tpl = document.getElementById('marker-row-template');
+    const clone = tpl.content.cloneNode(true);
+    const row = clone.querySelector('tr');
+    row.innerHTML = row.innerHTML.replaceAll('__IDX__', totalForms);
+    if (data) {
+      const inputs = row.querySelectorAll('input');
+      if (data.marker_name)    inputs[0].value = data.marker_name;
+      if (data.value)          inputs[1].value = data.value;
+      if (data.unit)           inputs[2].value = data.unit;
+      if (data.reference_low)  inputs[3].value = data.reference_low;
+      if (data.reference_high) inputs[4].value = data.reference_high;
+    }
+    document.getElementById('marker-rows').appendChild(clone);
+    totalForms++;
+    totalFormsInput.value = totalForms;
+  }
+
+  function clearMarkerRows() {
+    document.getElementById('marker-rows').innerHTML = '';
+    totalForms = 0;
+    totalFormsInput.value = 0;
+  }
+
+  function renumberRows() {
+    const rows = document.querySelectorAll('#marker-rows .marker-row');
+    rows.forEach((row, idx) => {
+      row.querySelectorAll('input').forEach(input => {
+        const n = input.getAttribute('name');
+        if (n) input.setAttribute('name', n.replace(/measurements-\d+-/, `measurements-${idx}-`));
+        const id = input.getAttribute('id');
+        if (id) input.setAttribute('id', id.replace(/id_measurements-\d+-/, `id_measurements-${idx}-`));
+      });
+    });
+    totalForms = rows.length;
+    totalFormsInput.value = totalForms;
+  }
+
+  document.getElementById('add-marker-btn').addEventListener('click', () => addMarkerRow(null));
+  document.getElementById('marker-rows').addEventListener('click', e => {
+    if (e.target.classList.contains('remove-marker-btn') || e.target.closest('.remove-marker-btn')) {
+      e.target.closest('tr').remove();
+      renumberRows();
+    }
+  });
+
+  // Presets
+  const presetSelect = document.getElementById('preset-select');
+  Object.keys(panelPresets).forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    presetSelect.appendChild(opt);
+  });
+  presetSelect.addEventListener('change', () => {
+    const chosen = presetSelect.value;
+    if (!chosen) return;
+    if (!confirm(`Replace all markers with the "${chosen}" preset?`)) { presetSelect.value = ''; return; }
+    const panelNameInput = document.getElementById('id_panel_name');
+    if (panelNameInput) panelNameInput.value = chosen;
+    clearMarkerRows();
+    (panelPresets[chosen] || []).forEach(m => addMarkerRow({ marker_name: m }));
+    presetSelect.value = '';
+  });
+})();
+</script>
+{% endblock %}

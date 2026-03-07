@@ -9,7 +9,14 @@ from compounds.models import (
     CompoundToCompoundTargetInteraction,
     Target,
 )
-from logs.models import IntakeLog, RequestIPPathStat, RequestIPProfile
+from logs.models import (
+    BloodworkEntry,
+    BloodworkMeasurement,
+    BloodworkRelatedIntake,
+    IntakeLog,
+    RequestIPPathStat,
+    RequestIPProfile,
+)
 
 
 class AnalyticsDashboardTests(TestCase):
@@ -171,3 +178,154 @@ class AbuseThrottleMiddlewareTests(TestCase):
         response = self.client.get("/about/", REMOTE_ADDR="198.51.100.78", HTTP_USER_AGENT="Mozilla/5.0")
         self.assertEqual(response.status_code, 429)
         self.assertEqual(response["X-RateLimit-Limit"], "0")
+
+
+class BloodworkDashboardTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="blood_user", password="pw")
+        self.client.force_login(self.user)
+        self.compound = Compound.objects.create(name="Magnesium")
+        self.intake_log = IntakeLog.objects.create(
+            user=self.user,
+            compound=self.compound,
+            taken_at=timezone.now(),
+            amount="200",
+            unit="mg",
+            notes="Evening dose",
+        )
+
+    def test_user_can_create_bloodwork_panel_linked_to_intake_logs(self):
+        response = self.client.get("/logs/bloodwork/")
+        self.assertEqual(response.status_code, 200)
+
+        payload = {
+            "collected_at": "2026-03-01T08:30",
+            "panel_name": "Lipid Panel",
+            "lab_name": "Quest",
+            "notes": "Fasted 12 hours",
+            "related_intake_logs": [str(self.intake_log.id)],
+            "measurements-TOTAL_FORMS": "1",
+            "measurements-INITIAL_FORMS": "0",
+            "measurements-MIN_NUM_FORMS": "0",
+            "measurements-MAX_NUM_FORMS": "1000",
+            "measurements-0-marker_name": "LDL",
+            "measurements-0-value": "112",
+            "measurements-0-unit": "mg/dL",
+            "measurements-0-reference_low": "0",
+            "measurements-0-reference_high": "99",
+            "measurements-0-notes": "Flagged high",
+        }
+
+        response = self.client.post("/logs/bloodwork/", data=payload)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("bloodwork/?created=1", response["Location"])
+
+        entry = BloodworkEntry.objects.get(user=self.user)
+        self.assertEqual(entry.panel_name, "Lipid Panel")
+        self.assertEqual(entry.lab_name, "Quest")
+        self.assertEqual(entry.notes, "Fasted 12 hours")
+
+        measurement = BloodworkMeasurement.objects.get(entry=entry)
+        self.assertEqual(measurement.marker_name, "LDL")
+        self.assertEqual(str(measurement.value), "112.000")
+        self.assertEqual(measurement.unit, "mg/dL")
+
+        relation = BloodworkRelatedIntake.objects.get(entry=entry)
+        self.assertEqual(relation.intake_log, self.intake_log)
+
+
+class BloodworkEditDeleteTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="edit_user", password="pw")
+        self.other = User.objects.create_user(username="other_user", password="pw")
+        self.client.force_login(self.user)
+        self.compound = Compound.objects.create(name="Zinc")
+        self.entry = BloodworkEntry.objects.create(
+            user=self.user,
+            collected_at=timezone.now(),
+            panel_name="Hormone Panel",
+            lab_name="LabCorp",
+        )
+        BloodworkMeasurement.objects.create(
+            entry=self.entry,
+            marker_name="Total Testosterone",
+            value="650",
+            unit="ng/dL",
+            reference_low="348",
+            reference_high="1197",
+        )
+
+    def _post_payload(self, marker_name="LDL", value="112"):
+        return {
+            "collected_at": "2026-03-01T09:00",
+            "panel_name": "Lipid Panel",
+            "lab_name": "Quest",
+            "notes": "",
+            "measurements-TOTAL_FORMS": "1",
+            "measurements-INITIAL_FORMS": "0",
+            "measurements-MIN_NUM_FORMS": "0",
+            "measurements-MAX_NUM_FORMS": "1000",
+            "measurements-0-marker_name": marker_name,
+            "measurements-0-value": value,
+            "measurements-0-unit": "mg/dL",
+            "measurements-0-reference_low": "",
+            "measurements-0-reference_high": "",
+            "measurements-0-notes": "",
+        }
+
+    def test_edit_view_loads_existing_data(self):
+        response = self.client.get(f"/logs/bloodwork/{self.entry.id}/edit/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Hormone Panel")
+        self.assertContains(response, "Total Testosterone")
+
+    def test_edit_updates_measurements(self):
+        payload = self._post_payload(marker_name="LDL Cholesterol", value="95")
+        response = self.client.post(f"/logs/bloodwork/{self.entry.id}/edit/", data=payload)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("?updated=1", response["Location"])
+
+        self.entry.refresh_from_db()
+        self.assertEqual(self.entry.panel_name, "Lipid Panel")
+        measurements = list(self.entry.measurements.all())
+        self.assertEqual(len(measurements), 1)
+        self.assertEqual(measurements[0].marker_name, "LDL Cholesterol")
+        self.assertEqual(str(measurements[0].value), "95.000")
+
+    def test_edit_requires_at_least_one_measurement(self):
+        payload = {
+            "collected_at": "2026-03-01T09:00",
+            "panel_name": "Empty Panel",
+            "measurements-TOTAL_FORMS": "1",
+            "measurements-INITIAL_FORMS": "0",
+            "measurements-MIN_NUM_FORMS": "0",
+            "measurements-MAX_NUM_FORMS": "1000",
+            "measurements-0-marker_name": "",
+            "measurements-0-value": "",
+        }
+        response = self.client.post(f"/logs/bloodwork/{self.entry.id}/edit/", data=payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "at least one")
+
+    def test_delete_removes_entry(self):
+        response = self.client.post(f"/logs/bloodwork/{self.entry.id}/delete/")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("?deleted=1", response["Location"])
+        self.assertEqual(BloodworkEntry.objects.filter(user=self.user).count(), 0)
+
+    def test_delete_cascades_to_measurements(self):
+        self.client.post(f"/logs/bloodwork/{self.entry.id}/delete/")
+        self.assertEqual(BloodworkMeasurement.objects.count(), 0)
+
+    def test_delete_requires_ownership(self):
+        self.client.force_login(self.other)
+        response = self.client.post(f"/logs/bloodwork/{self.entry.id}/delete/")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(BloodworkEntry.objects.count(), 1)
+
+    def test_edit_requires_ownership(self):
+        self.client.force_login(self.other)
+        response = self.client.get(f"/logs/bloodwork/{self.entry.id}/edit/")
+        self.assertEqual(response.status_code, 404)
+
+

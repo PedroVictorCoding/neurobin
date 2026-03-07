@@ -4,13 +4,69 @@
 <div class="container py-4 stack-page">
   <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2 stack-header">
     <h1 class="mb-0">Stack Schedule</h1>
-    <div class="d-flex gap-2 stack-actions">
+    <div class="d-flex gap-2 flex-wrap stack-actions">
       <span class="btn btn-outline-secondary disabled" aria-disabled="true">Today</span>
-      <a class="btn btn-outline-info" href="{% url 'stack_calendar' %}?period={{ period }}">Calendar Graph View</a>
+      <a class="btn btn-outline-info" href="{% url 'stack_calendar' %}?period={{ period }}">Calendar</a>
+      <a class="btn btn-outline-light" href="{% url 'stack_schedule_ical' %}" title="Subscribe in calendar app">
+        <i class="fas fa-calendar-alt"></i> Export .ics
+      </a>
       <a class="btn btn-outline-secondary" href="{% url 'my_stacks' %}">My Stacks</a>
-      <a class="btn btn-outline-secondary" href="{% url 'explore_stacks' %}">Explore Stacks</a>
     </div>
   </div>
+
+  {# ── Adherence stats bar ── #}
+  {% if scheduled_today %}
+  <div class="card mb-4" style="background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.1);">
+    <div class="card-body py-2 px-3">
+      <div class="d-flex flex-wrap align-items-center gap-3">
+        <div class="d-flex align-items-center gap-2">
+          <span class="text-muted small">Today</span>
+          <div style="width:140px;height:8px;background:rgba(255,255,255,0.1);border-radius:4px;overflow:hidden;">
+            <div style="width:{% if today_pct %}{{ today_pct }}{% else %}0{% endif %}%;height:100%;background:{% if today_pct == 100 %}#198754{% elif today_pct %}#ffc107{% else %}#dc3545{% endif %};border-radius:4px;transition:width 0.4s;"></div>
+          </div>
+          <span class="fw-semibold small">
+            {{ taken_today }}/{{ scheduled_today }}
+            {% if today_pct is not None %}({{ today_pct }}%){% endif %}
+          </span>
+        </div>
+        {% if streak_days %}
+        <div class="d-flex align-items-center gap-1">
+          <i class="fas fa-fire text-warning"></i>
+          <span class="small fw-semibold text-warning">{{ streak_days }}-day streak</span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── CYP conflict warnings ── #}
+  {% if conflict_warnings %}
+  <div class="alert alert-warning d-flex flex-column gap-1 py-2" role="alert">
+    <div class="fw-semibold"><i class="fas fa-exclamation-triangle me-1"></i>Timing Conflicts Detected</div>
+    {% for w in conflict_warnings %}
+    <div class="small">
+      <span class="badge bg-warning text-dark">{{ w.overlap_minutes }} min overlap</span>
+      <strong>{{ w.compound_a_name }}</strong> ({{ w.mechanism_a }}) and
+      <strong>{{ w.compound_b_name }}</strong> ({{ w.mechanism_b }}) share
+      <em>{{ w.cyp_target }}</em> — consider spacing doses further apart.
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# ── Effect-window timeline ── #}
+  {% if timeline_data_json != "[]" %}
+  <div class="card mb-4" style="background:rgba(255,255,255,0.03);border-color:rgba(255,255,255,0.08);">
+    <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center" style="background:rgba(255,255,255,0.04);">
+      <span class="small fw-semibold text-muted">Effect Window Timeline</span>
+      <span class="small text-muted">24-hour view — onset → active → peak</span>
+    </div>
+    <div class="card-body p-2">
+      <canvas id="timelineChart" style="max-height:200px;"></canvas>
+    </div>
+  </div>
+  {% endif %}
 
   <div class="alert alert-info">
     Shows scheduled doses from stacks marked <strong>Active</strong>, plus any logged intakes that aren't in a stack for this day. Items without a first time will appear automatically and can be refined in <a href="{% url 'my_stacks' %}">My Stacks</a>.
@@ -192,18 +248,18 @@
     </div>
   {% endif %}
 </div>
+
+{{ timeline_data_json|json_script:"timeline-data" }}
+
 <script>
+  /* ── AJAX intake toggle ── */
   document.addEventListener('DOMContentLoaded', function() {
     const intakeForms = Array.from(document.querySelectorAll('.js-intake-form'));
-    if (!intakeForms.length) {
-      return;
-    }
+    if (!intakeForms.length) return;
 
     function setFormTakenState(form, isTaken) {
       const button = form.querySelector('[data-intake-button]');
-      if (!button) {
-        return;
-      }
+      if (!button) return;
       form.dataset.apiAction = isTaken ? 'untake' : 'take';
       if (isTaken) {
         button.textContent = '✓';
@@ -233,80 +289,121 @@
     async function refreshIntakeStatus(form) {
       const stackItemId = form.dataset.stackItemId;
       const scheduledFor = form.dataset.scheduledFor;
-      const statusUrl =
-        '/api/stacks/stackitem/' +
-        encodeURIComponent(stackItemId) +
-        '/intake_status/?scheduled_for=' +
-        encodeURIComponent(scheduledFor);
-      const response = await fetch(statusUrl, {
-        method: 'GET',
-        credentials: 'same-origin',
-        headers: {
-          'Accept': 'application/json'
-        }
-      });
-      if (!response.ok) {
-        throw new Error('Failed to fetch intake status.');
-      }
+      const statusUrl = '/api/stacks/stackitem/' + encodeURIComponent(stackItemId) + '/intake_status/?scheduled_for=' + encodeURIComponent(scheduledFor);
+      const response = await fetch(statusUrl, { method: 'GET', credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+      if (!response.ok) throw new Error('Failed to fetch intake status.');
       const payload = await response.json();
       applyStateAcrossDuplicates(stackItemId, scheduledFor, Boolean(payload.is_taken));
     }
 
     intakeForms.forEach(function(form) {
       form.addEventListener('submit', async function(event) {
-        if (form.dataset.skipAjax === '1') {
-          form.dataset.skipAjax = '0';
-          return;
-        }
-
+        if (form.dataset.skipAjax === '1') { form.dataset.skipAjax = '0'; return; }
         event.preventDefault();
-
         const stackItemId = form.dataset.stackItemId;
         const scheduledFor = form.dataset.scheduledFor;
         const apiAction = form.dataset.apiAction || 'take';
         const button = form.querySelector('[data-intake-button]');
         const csrfToken = form.querySelector('input[name=csrfmiddlewaretoken]')?.value || '';
-
-        if (!stackItemId || !scheduledFor || !button) {
-          form.dataset.skipAjax = '1';
-          form.submit();
-          return;
-        }
-
+        if (!stackItemId || !scheduledFor || !button) { form.dataset.skipAjax = '1'; form.submit(); return; }
         button.disabled = true;
-
         try {
-          const response = await fetch(
-            '/api/stacks/stackitem/' + encodeURIComponent(stackItemId) + '/' + apiAction + '/',
-            {
-              method: 'POST',
-              credentials: 'same-origin',
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-CSRFToken': csrfToken,
-              },
-              body: JSON.stringify({
-                scheduled_for: scheduledFor,
-              }),
-            }
-          );
-
-          if (!response.ok) {
-            throw new Error('Failed to update intake.');
-          }
-
+          const response = await fetch('/api/stacks/stackitem/' + encodeURIComponent(stackItemId) + '/' + apiAction + '/', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRFToken': csrfToken },
+            body: JSON.stringify({ scheduled_for: scheduledFor }),
+          });
+          if (!response.ok) throw new Error('Failed to update intake.');
           await refreshIntakeStatus(form);
         } catch (error) {
-          console.error(error);
-          form.dataset.skipAjax = '1';
-          form.submit();
-          return;
-        } finally {
-          button.disabled = false;
-        }
+          console.error(error); form.dataset.skipAjax = '1'; form.submit();
+        } finally { button.disabled = false; }
       });
     });
+
+    /* ── Effect-window timeline chart ── */
+    const rawData = JSON.parse(document.getElementById('timeline-data').textContent || '[]');
+    const canvas = document.getElementById('timelineChart');
+    if (canvas && rawData.length > 0 && typeof Chart !== 'undefined') {
+      const labels = rawData.map(r => r.compound_name);
+      const colors = [
+        'rgba(13,202,240,0.7)',
+        'rgba(25,135,84,0.7)',
+        'rgba(255,193,7,0.7)',
+        'rgba(220,53,69,0.7)',
+        'rgba(111,66,193,0.7)',
+        'rgba(253,126,20,0.7)',
+      ];
+
+      // Three datasets: onset (gray spacer), active window, peak highlight
+      const onsetData = rawData.map(r => r.has_window ? [r.intake_min, r.onset_end_min] : [r.intake_min, r.intake_min + 5]);
+      const activeData = rawData.map(r => r.has_window ? [r.onset_end_min, r.duration_end_min] : null);
+      const peakData = rawData.map(r => r.has_window ? [r.peak_start_min, r.peak_end_min] : null);
+
+      new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Onset',
+              data: onsetData,
+              backgroundColor: 'rgba(150,150,150,0.3)',
+              borderRadius: 3,
+              borderSkipped: false,
+            },
+            {
+              label: 'Active',
+              data: activeData,
+              backgroundColor: rawData.map((_, i) => colors[i % colors.length]),
+              borderRadius: 3,
+              borderSkipped: false,
+            },
+            {
+              label: 'Peak',
+              data: peakData,
+              backgroundColor: 'rgba(255,255,255,0.25)',
+              borderRadius: 3,
+              borderSkipped: false,
+            },
+          ],
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: function(ctx) {
+                  const v = ctx.raw;
+                  if (!Array.isArray(v)) return '';
+                  const toHHMM = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+                  return `${ctx.dataset.label}: ${toHHMM(v[0])} – ${toHHMM(v[1])}`;
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              min: 0, max: 1440,
+              stacked: false,
+              ticks: {
+                color: 'rgba(255,255,255,0.5)',
+                callback: v => `${String(Math.floor(v/60)).padStart(2,'0')}:${String(v%60).padStart(2,'0')}`,
+                stepSize: 180,
+              },
+              grid: { color: 'rgba(255,255,255,0.08)' },
+            },
+            y: {
+              ticks: { color: 'rgba(255,255,255,0.7)' },
+              grid: { color: 'rgba(255,255,255,0.06)' },
+            },
+          },
+        },
+      });
+    }
   });
 </script>
 {% endblock %}

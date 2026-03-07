@@ -5,6 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 export PYTHONPATH="$ROOT_DIR/core${PYTHONPATH:+:$PYTHONPATH}"
 export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-core.settings}"
+export MOLPROP_BRIDGE_ENABLED=1
+export MOLPROP_BRIDGE_CONFIG="$ROOT_DIR/core/config/molprop_bridge.json"
+export MOLPROP_REPO_DIR="$ROOT_DIR/core/molprop_runtime"
+export MOLPROP_PYTHON_BIN="$ROOT_DIR/venv/bin/python"
 
 if [[ ! -x "venv/bin/python" ]]; then
   echo "venv not found at ./venv. Create it and install deps first."

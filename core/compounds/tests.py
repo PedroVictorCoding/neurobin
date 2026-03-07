@@ -2,6 +2,8 @@ from unittest.mock import Mock, patch
 
 import hashlib
 import json
+import subprocess
+import sys
 import tempfile
 import textwrap
 from io import StringIO
@@ -57,6 +59,7 @@ class CompoundAdmetAiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'https://3Dmol.org/build/3Dmol-min.js')
         self.assertContains(response, 'id="compoundStructureStage"')
+        self.assertContains(response, 'data-default-mode="3d"')
         self.assertContains(response, 'data-structure-mode-toggle="3d"')
         self.assertContains(response, '3D Structure')
 
@@ -483,6 +486,75 @@ class MolPropBridgeConfigCommandTests(TestCase):
             self.assertFalse(out_path.exists())
 
 
+class MolPropBridgeScriptTests(TestCase):
+    def test_bridge_reports_git_lfs_pointer_checkpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_dir = Path(tmp) / "MolPROP"
+            endpoint_dir = repo_dir / "models" / "bbb_martins"
+            endpoint_dir.mkdir(parents=True)
+
+            (endpoint_dir / "setup.json").write_text(
+                json.dumps(
+                    {
+                        "network": {
+                            "language": {
+                                "model": "chemberta-77m-mlm",
+                                "mode": "discrete",
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (endpoint_dir / "SLEF_validation.pth").write_text(
+                "\n".join(
+                    [
+                        "version https://git-lfs.github.com/spec/v1",
+                        "oid sha256:test",
+                        "size 123",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            config_path = Path(tmp) / "molprop_bridge.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "repo_dir": str(repo_dir),
+                        "endpoints": {
+                            "bbb_martins": {
+                                "setup_json": "models/bbb_martins/setup.json",
+                                "checkpoint_file": "models/bbb_martins/SLEF_validation.pth",
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            script_path = Path(__file__).resolve().parents[1] / "scripts" / "molprop_bridge.py"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(script_path),
+                    "--smiles",
+                    "CCO",
+                    "--config",
+                    str(config_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+
+            self.assertEqual(completed.returncode, 2)
+            self.assertIn("Git LFS pointer", completed.stderr)
+            self.assertIn("git lfs pull", completed.stderr)
+
+
 class AddCompoundQuickImportTests(TestCase):
     def setUp(self):
         self.staff_user = User.objects.create_user(
@@ -622,6 +694,55 @@ class AddCompoundQuickImportTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "BindingDB ID must be numeric or in BDBM")
         mock_bindingdb_import.assert_not_called()
+
+
+    @patch("compounds.views._prepare_summary_import_initial")
+    def test_staff_summary_import_prefills_form(self, mock_prepare_summary):
+        mock_prepare_summary.return_value = (
+            {
+                "name": "Caffeine",
+                "description": "A central nervous system stimulant.",
+                "chembl_id": "CHEMBL113",
+            },
+            "",
+        )
+
+        self.client.login(username="staff_import", password="pass")
+        response = self.client.post(
+            self.url,
+            {
+                "quick_import_summary": "1",
+                "summary_import_source": "wikipedia",
+                "summary_import_query": "Caffeine",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Summary loaded into the form below")
+        self.assertEqual(response.context["form"].initial["name"], "Caffeine")
+        self.assertEqual(
+            response.context["form"].initial["description"],
+            "A central nervous system stimulant.",
+        )
+        mock_prepare_summary.assert_called_once_with("wikipedia", "Caffeine")
+
+    @patch("compounds.views._prepare_summary_import_initial")
+    def test_summary_import_shows_lookup_error(self, mock_prepare_summary):
+        mock_prepare_summary.return_value = ({}, "No importable Wikipedia summary was found.")
+
+        self.client.login(username="staff_import", password="pass")
+        response = self.client.post(
+            self.url,
+            {
+                "quick_import_summary": "1",
+                "summary_import_source": "wikipedia",
+                "summary_import_query": "Missing Page",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "No importable Wikipedia summary was found.")
+        mock_prepare_summary.assert_called_once_with("wikipedia", "Missing Page")
 
 
 class CompoundExternalBackfillTriggerTests(TestCase):

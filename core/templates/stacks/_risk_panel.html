@@ -22,7 +22,7 @@
   </div>
   <div class="card-body collapse" id="stackRiskAssessmentCollapse">
     <div class="text-muted small mb-2">
-      Based on cached blended predictions for compounds in this stack. Research-only; not medical advice.
+      Based on cached blended predictions for compounds in this stack. Uses a conservative log-dampened score so high risk requires sustained strong signals. Research-only; not medical advice.
     </div>
 
     {% if stack_risk_status == "ok" %}

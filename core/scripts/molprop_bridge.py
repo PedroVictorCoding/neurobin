@@ -8,6 +8,21 @@ from pathlib import Path
 from typing import Any
 
 
+_GIT_LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
+_CHEMBERTA_DIRS = {
+    "chemberta-77m-mlm": "ChemBERTa-77M-MLM",
+    "chemberta-10m-mlm": "ChemBERTa-10M-MLM",
+    "chemberta-77m-mtr": "ChemBERTa-77M-MTR",
+    "chemberta-10m-mtr": "ChemBERTa-10M-MTR",
+}
+_CHEMBERTA_REQUIRED_FILES = (
+    "config.json",
+    "merges.txt",
+    "pytorch_model.bin",
+    "vocab.json",
+)
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
         payload = json.load(handle)
@@ -76,6 +91,57 @@ def _state_dict_from_checkpoint(checkpoint: Any) -> dict[str, Any]:
         if checkpoint and all(hasattr(v, "shape") for v in checkpoint.values()):
             return checkpoint
     raise ValueError("Checkpoint does not contain a supported model state dict")
+
+
+def _is_git_lfs_pointer(path: Path) -> bool:
+    try:
+        with path.open("rb") as handle:
+            head = handle.read(len(_GIT_LFS_POINTER_PREFIX) + 64)
+    except OSError:
+        return False
+    return head.startswith(_GIT_LFS_POINTER_PREFIX)
+
+
+def _assert_materialized_file(path: Path, *, label: str) -> None:
+    if not path.exists():
+        raise FileNotFoundError(f"{label} not found: {path}")
+    if _is_git_lfs_pointer(path):
+        raise RuntimeError(
+            f"{label} is still a Git LFS pointer ({path}). Follow the upstream MolPROP setup first: "
+            "install git-lfs, run `git lfs pull`, and create the conda env from `molprop.yml`."
+        )
+
+
+def _normalize_language_model(value: Any) -> str:
+    model = str(value or "").strip().lower()
+    if model.endswith("-only"):
+        model = model[:-5]
+    return model
+
+
+def _validate_language_assets(*, name: str, setup: dict[str, Any], repo_dir: Path) -> None:
+    network = setup.get("network") if isinstance(setup.get("network"), dict) else {}
+    language = network.get("language") if isinstance(network.get("language"), dict) else {}
+    model_name = _normalize_language_model(language.get("model"))
+    if not model_name or model_name in {"none", "false"}:
+        return
+
+    chemberta_dir = _CHEMBERTA_DIRS.get(model_name)
+    if not chemberta_dir:
+        return
+
+    asset_root = repo_dir / "config" / "chembert" / chemberta_dir
+    if not asset_root.exists():
+        raise FileNotFoundError(
+            f"{name}: ChemBERTa assets not found for {model_name}: {asset_root}. "
+            "Use a complete MolPROP checkout before running predictions."
+        )
+
+    for filename in _CHEMBERTA_REQUIRED_FILES:
+        _assert_materialized_file(
+            asset_root / filename,
+            label=f"{name} ChemBERTa asset",
+        )
 
 
 def _predict_from_tensor(
@@ -155,12 +221,16 @@ def _predict_endpoint(
         config_dir=config_dir,
         repo_dir=repo_dir,
     )
-    if setup_path is None or not setup_path.exists():
+    if setup_path is None:
         raise FileNotFoundError(f"{name}: setup_json not found")
-    if checkpoint_path is None or not checkpoint_path.exists():
+    if checkpoint_path is None:
         raise FileNotFoundError(f"{name}: checkpoint_file not found")
 
+    _assert_materialized_file(setup_path, label=f"{name} setup_json")
+    _assert_materialized_file(checkpoint_path, label=f"{name} checkpoint_file")
+
     setup = _load_json(setup_path)
+    _validate_language_assets(name=name, setup=setup, repo_dir=repo_dir)
     training = setup.get("training") if isinstance(setup.get("training"), dict) else {}
     mode = str(cfg.get("mode") or setup.get("network", {}).get("language", {}).get("mode") or "discrete").strip().lower()
     positive_class_index = cfg.get("positive_class_index")

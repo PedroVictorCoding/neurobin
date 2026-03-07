@@ -33,6 +33,79 @@ class IntakeLog(models.Model):
         return f"{self.user} - {self.compound} @ {self.taken_at}"
 
 
+class BloodworkEntry(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="bloodwork_entries",
+    )
+    collected_at = models.DateTimeField()
+    panel_name = models.CharField(max_length=160)
+    lab_name = models.CharField(max_length=160, blank=True)
+    notes = models.TextField(blank=True)
+    related_intake_logs = models.ManyToManyField(
+        IntakeLog,
+        through="BloodworkRelatedIntake",
+        blank=True,
+        related_name="bloodwork_entries",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-collected_at", "-created_at"]
+
+    def __str__(self):
+        return f"{self.user} - {self.panel_name} @ {self.collected_at}"
+
+
+class BloodworkMeasurement(models.Model):
+    entry = models.ForeignKey(
+        BloodworkEntry,
+        on_delete=models.CASCADE,
+        related_name="measurements",
+    )
+    marker_name = models.CharField(max_length=160)
+    value = models.DecimalField(max_digits=12, decimal_places=3)
+    unit = models.CharField(max_length=60, blank=True)
+    reference_low = models.DecimalField(max_digits=12, decimal_places=3, null=True, blank=True)
+    reference_high = models.DecimalField(max_digits=12, decimal_places=3, null=True, blank=True)
+    notes = models.CharField(max_length=255, blank=True)
+    display_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["display_order", "id"]
+
+    def __str__(self):
+        return f"{self.entry.panel_name}: {self.marker_name} = {self.value}"
+
+
+class BloodworkRelatedIntake(models.Model):
+    entry = models.ForeignKey(
+        BloodworkEntry,
+        on_delete=models.CASCADE,
+        related_name="related_intakes",
+    )
+    intake_log = models.ForeignKey(
+        IntakeLog,
+        on_delete=models.CASCADE,
+        related_name="bloodwork_links",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["entry", "intake_log"],
+                name="unique_bloodwork_entry_intake_log",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.entry.panel_name} <- {self.intake_log}"
+
+
 class UserGoal(models.Model):
     GOAL_TYPE_CHOICES = [
         ("workout", "Workout"),
