@@ -185,6 +185,15 @@ def profile_dashboard(request, username=None):
 
             return redirect(f"{request.path}?tab=goals")
 
+        if action == 'set_goal_skin':
+            valid_skins = {'general', 'anabolic', 'longevity', 'cognition',
+                           'performance', 'recovery', 'sleep', 'fat-loss'}
+            skin_key = (request.POST.get('goal_skin') or '').strip().lower()
+            if skin_key in valid_skins:
+                profile.goal_skin = skin_key
+                profile.save(update_fields=['goal_skin'])
+            return redirect(request.path)
+
     # Build snippet queryset (own profile sees all; other viewers see only public).
     user_snippets = ResearchSnippet.objects.filter(created_by=profile_user)
     if not is_own_profile:
