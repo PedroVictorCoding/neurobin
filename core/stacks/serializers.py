@@ -74,7 +74,7 @@ class StackItemSerializer(serializers.ModelSerializer):
         model = StackItem
         fields = [
             'id', 'stack', 'compound', 'dosage_amount', 'dosage_unit', 'time_of_day', 'intake_time',
-            'recurrence_interval', 'recurrence_unit', 'order', 'notes', 'completed', 'added'
+            'recurrence_interval', 'recurrence_unit', 'scheduled_days', 'order', 'notes', 'completed', 'added'
         ]
 
     def validate_stack(self, stack):

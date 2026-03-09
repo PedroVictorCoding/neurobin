@@ -68,19 +68,37 @@
       <div class="fw-bold">Add Compound</div>
       <div class="text-muted small">Uses fast search</div>
     </div>
-    <form method="post" class="d-flex flex-wrap align-items-center gap-2 p-3 cp-stack-add" autocomplete="off">
+    <form method="post" class="p-3 cp-stack-add" autocomplete="off">
       {% csrf_token %}
-      {{ add_form.compound }}
-      {{ add_form.dosage_amount }}
-      {{ add_form.dosage_unit }}
-      {{ add_form.time_of_day }}
-      {{ add_form.intake_time }}
-      {{ add_form.recurrence_interval }}
-      {{ add_form.recurrence_unit }}
-      {{ add_form.notes }}
-      <button class="btn btn-galaxy btn-galaxy--sm" type="submit" name="add_compound_to_stack">
-        {% include "includes/galaxy_button_inner.html" with label="Add" %}
-      </button>
+      <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+        {{ add_form.compound }}
+        {{ add_form.dosage_amount }}
+        {{ add_form.dosage_unit }}
+        {{ add_form.time_of_day }}
+        {{ add_form.intake_time }}
+      </div>
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <div class="day-picker-group d-flex align-items-center gap-1 flex-wrap" data-day-picker>
+          <span class="text-muted small me-1">Days:</span>
+          <button type="button" class="btn btn-sm btn-outline-secondary day-btn" data-day="0">Mon</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary day-btn" data-day="1">Tue</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary day-btn" data-day="2">Wed</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary day-btn" data-day="3">Thu</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary day-btn" data-day="4">Fri</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary day-btn" data-day="5">Sat</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary day-btn" data-day="6">Sun</button>
+        </div>
+        {{ add_form.scheduled_days }}
+        <span class="text-muted small">or</span>
+        <div class="d-flex align-items-center gap-2" data-recurrence-group>
+          {{ add_form.recurrence_interval }}
+          {{ add_form.recurrence_unit }}
+        </div>
+        {{ add_form.notes }}
+        <button class="btn btn-galaxy btn-galaxy--sm" type="submit" name="add_compound_to_stack">
+          {% include "includes/galaxy_button_inner.html" with label="Add" %}
+        </button>
+      </div>
       {% if add_form.errors %}
         <div class="text-danger small">
           {% for field, errs in add_form.errors.items %}
@@ -161,6 +179,15 @@
             <span class="badge bg-dark ms-2" data-field-recurrence>
               {{ item.recurrence_rate_label }}
             </span>
+            {% if item.scheduled_days %}
+            <span class="badge bg-primary ms-1" data-field-days-badge>
+              <i class="fas fa-calendar-week me-1"></i><span data-field-days-text>{{ item.recurrence_rate_label }}</span>
+            </span>
+            {% else %}
+            <span class="badge bg-primary ms-1 d-none" data-field-days-badge>
+              <i class="fas fa-calendar-week me-1"></i><span data-field-days-text></span>
+            </span>
+            {% endif %}
             <div class="text-muted small mt-1{% if not item.notes %} d-none{% endif %}" data-field-notes>Notes: <span data-field-notes-text>{{ item.notes }}</span></div>
 
             <div class="mt-3 d-none stack-inline-edit-shell">
@@ -209,6 +236,17 @@
                   <option value="weekly" {% if item.recurrence_unit == "weekly" %}selected{% endif %}>Weekly</option>
                   <option value="monthly" {% if item.recurrence_unit == "monthly" %}selected{% endif %}>Monthly</option>
                 </select>
+                <div class="w-100 d-flex flex-wrap align-items-center gap-1 mt-1 mb-1">
+                  <span class="text-muted small me-1">Days (overrides frequency):</span>
+                  <button type="button" class="btn btn-sm day-btn {% if '0' in item.scheduled_days.split(',') %}btn-primary{% else %}btn-outline-secondary{% endif %}" data-day="0">Mon</button>
+                  <button type="button" class="btn btn-sm day-btn {% if '1' in item.scheduled_days.split(',') %}btn-primary{% else %}btn-outline-secondary{% endif %}" data-day="1">Tue</button>
+                  <button type="button" class="btn btn-sm day-btn {% if '2' in item.scheduled_days.split(',') %}btn-primary{% else %}btn-outline-secondary{% endif %}" data-day="2">Wed</button>
+                  <button type="button" class="btn btn-sm day-btn {% if '3' in item.scheduled_days.split(',') %}btn-primary{% else %}btn-outline-secondary{% endif %}" data-day="3">Thu</button>
+                  <button type="button" class="btn btn-sm day-btn {% if '4' in item.scheduled_days.split(',') %}btn-primary{% else %}btn-outline-secondary{% endif %}" data-day="4">Fri</button>
+                  <button type="button" class="btn btn-sm day-btn {% if '5' in item.scheduled_days.split(',') %}btn-primary{% else %}btn-outline-secondary{% endif %}" data-day="5">Sat</button>
+                  <button type="button" class="btn btn-sm day-btn {% if '6' in item.scheduled_days.split(',') %}btn-primary{% else %}btn-outline-secondary{% endif %}" data-day="6">Sun</button>
+                  <input type="hidden" name="scheduled_days" value="{{ item.scheduled_days }}">
+                </div>
                 <input
                   type="text"
                   name="notes"
@@ -235,6 +273,7 @@
                   {{ edit_form.intake_time }}
                   {{ edit_form.recurrence_interval }}
                   {{ edit_form.recurrence_unit }}
+                  {{ edit_form.scheduled_days }}
                   {{ edit_form.notes }}
                   <button class="btn btn-sm btn-primary" type="submit" name="update_stack_item">Save</button>
                   <a class="btn btn-sm btn-outline-secondary" href="{% url 'stack_detail' stack.id %}">Cancel</a>
@@ -645,6 +684,64 @@
       return;
     }
 
+    const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+    function parseDays(raw) {
+      if (!raw) { return []; }
+      return raw.split(',').map(function(s) { return parseInt(s.trim(), 10); }).filter(function(n) { return n >= 0 && n <= 6; }).sort(function(a, b) { return a - b; });
+    }
+
+    function daysLabel(raw) {
+      var days = parseDays(raw);
+      if (!days.length) { return ''; }
+      return days.map(function(d) { return DAY_NAMES[d]; }).join('/');
+    }
+
+    // Day picker initialiser — works for any .day-picker-group or inline-edit row
+    function initDayPicker(container, hiddenInput) {
+      container.querySelectorAll('.day-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          btn.classList.toggle('btn-primary');
+          btn.classList.toggle('btn-outline-secondary');
+          var selected = Array.from(container.querySelectorAll('.day-btn.btn-primary')).map(function(b) { return b.dataset.day; });
+          hiddenInput.value = selected.join(',');
+          // Dim/restore the recurrence group if inside the add form
+          var recGroup = hiddenInput.closest('form').querySelector('[data-recurrence-group]');
+          if (recGroup) {
+            var hasDays = selected.length > 0;
+            recGroup.style.opacity = hasDays ? '0.4' : '1';
+            recGroup.querySelectorAll('input,select').forEach(function(el) { el.disabled = hasDays; });
+          }
+        });
+      });
+    }
+
+    // Init add-form day picker
+    var addForm = document.querySelector('.cp-stack-add');
+    if (addForm) {
+      var addDayPicker = addForm.querySelector('[data-day-picker]');
+      var addDaysInput = addForm.querySelector('input[name="scheduled_days"]');
+      if (addDayPicker && addDaysInput) {
+        initDayPicker(addDayPicker, addDaysInput);
+      }
+    }
+
+    // Init inline-edit day pickers (one per item row)
+    document.querySelectorAll('.stack-inline-edit-form').forEach(function(inlineForm) {
+      var daysInput = inlineForm.querySelector('input[name="scheduled_days"]');
+      if (!daysInput) { return; }
+      // The day buttons live in the row (not inside a dedicated [data-day-picker] wrapper)
+      // — treat the whole form as the container.
+      inlineForm.querySelectorAll('.day-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          btn.classList.toggle('btn-primary');
+          btn.classList.toggle('btn-outline-secondary');
+          var selected = Array.from(inlineForm.querySelectorAll('.day-btn.btn-primary')).map(function(b) { return b.dataset.day; });
+          daysInput.value = selected.join(',');
+        });
+      });
+    });
+
     const unitLabel = {
       daily: 'day',
       weekly: 'week',
@@ -764,10 +861,28 @@
         }
       }
 
+      const daysBadge = row.querySelector('[data-field-days-badge]');
+      const daysText = row.querySelector('[data-field-days-text]');
+      const scheduledDaysRaw = payload.scheduled_days || '';
+      const daysLabelStr = daysLabel(scheduledDaysRaw);
+
       if (recurrence) {
-        const interval = Number.parseInt(payload.recurrence_interval, 10) || 1;
-        const unit = unitLabel[payload.recurrence_unit] || payload.recurrence_unit || 'unit';
-        recurrence.textContent = interval + 'x/' + unit;
+        if (daysLabelStr) {
+          recurrence.textContent = daysLabelStr;
+        } else {
+          const interval = Number.parseInt(payload.recurrence_interval, 10) || 1;
+          const unit = unitLabel[payload.recurrence_unit] || payload.recurrence_unit || 'unit';
+          recurrence.textContent = interval + 'x/' + unit;
+        }
+      }
+      if (daysBadge && daysText) {
+        if (daysLabelStr) {
+          daysBadge.classList.remove('d-none');
+          daysText.textContent = daysLabelStr;
+        } else {
+          daysBadge.classList.add('d-none');
+          daysText.textContent = '';
+        }
       }
 
       if (notes && notesText) {
@@ -791,6 +906,21 @@
       inlineForm.elements.recurrence_interval.value = payload.recurrence_interval || 1;
       inlineForm.elements.recurrence_unit.value = payload.recurrence_unit || 'daily';
       inlineForm.elements.notes.value = payload.notes || '';
+      if (inlineForm.elements.scheduled_days) {
+        inlineForm.elements.scheduled_days.value = scheduledDaysRaw;
+      }
+      // Sync inline day-picker button states
+      var activeDays = parseDays(scheduledDaysRaw);
+      inlineForm.querySelectorAll('.day-btn').forEach(function(btn) {
+        var day = parseInt(btn.dataset.day, 10);
+        if (activeDays.includes(day)) {
+          btn.classList.add('btn-primary');
+          btn.classList.remove('btn-outline-secondary');
+        } else {
+          btn.classList.remove('btn-primary');
+          btn.classList.add('btn-outline-secondary');
+        }
+      });
     }
 
     document.querySelectorAll('.js-stack-edit-toggle').forEach(function(link) {
@@ -842,6 +972,7 @@
           return;
         }
 
+        const scheduledDaysValue = (form.elements.scheduled_days ? form.elements.scheduled_days.value : '') || '';
         const payload = {
           dosage_amount: (form.elements.dosage_amount.value || '').trim() || null,
           dosage_unit: form.elements.dosage_unit.value || 'mg',
@@ -849,6 +980,7 @@
           intake_time: (form.elements.intake_time.value || '').trim() || null,
           recurrence_interval: recurrenceInterval,
           recurrence_unit: form.elements.recurrence_unit.value || 'daily',
+          scheduled_days: scheduledDaysValue,
           notes: (form.elements.notes.value || '').trim(),
         };
 

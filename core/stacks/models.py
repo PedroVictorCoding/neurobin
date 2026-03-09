@@ -83,6 +83,14 @@ class StackItem(models.Model):
     ]
     recurrence_interval = models.PositiveIntegerField(default=1)
     recurrence_unit = models.CharField(max_length=10, choices=RECURRENCE_CHOICES, default='daily')
+    # Specific days-of-week scheduling (0=Mon … 6=Sun, comma-separated).
+    # When non-empty, replaces the interval/unit recurrence for schedule generation.
+    scheduled_days = models.CharField(
+        max_length=20,
+        blank=True,
+        default='',
+        help_text="Comma-separated weekday numbers (0=Mon … 6=Sun). E.g. '0,2,4' = Mon/Wed/Fri.",
+    )
     order = models.PositiveIntegerField(default=0)
     notes = models.TextField(blank=True)
     completed = models.BooleanField(default=False)
@@ -96,7 +104,15 @@ class StackItem(models.Model):
 
     @property
     def recurrence_rate_label(self) -> str:
-        """Display recurrence as a frequency (e.g. 1x/day, 4x/week)."""
+        """Display recurrence as a frequency (e.g. 1x/day, 4x/week, Mon/Wed/Fri)."""
+        if self.scheduled_days:
+            _day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+            try:
+                days = sorted(int(d) for d in self.scheduled_days.split(',') if d.strip().isdigit() and 0 <= int(d) <= 6)
+                if days:
+                    return '/'.join(_day_names[d] for d in days)
+            except (ValueError, IndexError):
+                pass
         unit_map = {
             'daily': 'day',
             'weekly': 'week',

@@ -137,6 +137,79 @@ def get_schedule_window(*, now: datetime, period: str) -> tuple[datetime, dateti
     raise ValueError(f"Unknown schedule period: {period!r}")
 
 
+def _parse_scheduled_days(raw: str) -> List[int]:
+    """Parse a comma-separated weekday string ('0,2,4') into a sorted list of ints."""
+    result = []
+    for part in raw.split(','):
+        part = part.strip()
+        if part.isdigit():
+            day = int(part)
+            if 0 <= day <= 6:
+                result.append(day)
+    return sorted(set(result))
+
+
+def _occurrences_for_scheduled_days(
+    item: StackItem,
+    *,
+    window_start: datetime,
+    until: datetime,
+    per_item_cap: int,
+) -> List[StackOccurrence]:
+    """Generate occurrences for items with specific days-of-week scheduling."""
+    weekdays = _parse_scheduled_days(item.scheduled_days)
+    if not weekdays:
+        return []
+
+    tz = timezone.get_current_timezone()
+
+    # Determine the time-of-day for the dose from intake_time or time_of_day hint.
+    if item.intake_time:
+        ref = timezone.localtime(item.intake_time, tz)
+        dose_hour, dose_minute = ref.hour, ref.minute
+    else:
+        default_t = _default_local_time_for_time_of_day(item.time_of_day)
+        if default_t:
+            dose_hour, dose_minute = default_t.hour, default_t.minute
+        else:
+            dose_hour, dose_minute = 8, 0
+
+    local_start = timezone.localtime(window_start, tz).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    local_until = timezone.localtime(until, tz)
+
+    occurrences: List[StackOccurrence] = []
+    current_day = local_start
+    count = 0
+
+    while current_day <= local_until and count < per_item_cap:
+        if current_day.weekday() in weekdays:
+            candidate = current_day.replace(hour=dose_hour, minute=dose_minute, second=0, microsecond=0)
+            if timezone.is_naive(candidate):
+                candidate = timezone.make_aware(candidate, tz)
+            if window_start <= candidate <= until:
+                occurrences.append(
+                    StackOccurrence(
+                        stack_id=item.stack_id,
+                        stack_name=item.stack.name,
+                        stack_item_id=item.id,
+                        compound_id=item.compound_id,
+                        compound_name=item.compound.name,
+                        compound_slug=getattr(item.compound, 'slug', ''),
+                        scheduled_for=candidate,
+                        dosage_amount=str(item.dosage_amount) if item.dosage_amount is not None else None,
+                        dosage_unit=item.dosage_unit,
+                        time_of_day=item.time_of_day,
+                        is_taken=False,
+                    )
+                )
+                count += 1
+        current_day += timedelta(days=1)
+
+    return occurrences
+
+
 def iter_upcoming_occurrences(
     items: Iterable[StackItem],
     *,
@@ -151,6 +224,17 @@ def iter_upcoming_occurrences(
     occurrences: List[StackOccurrence] = []
 
     for item in items:
+        if item.scheduled_days:
+            occurrences.extend(
+                _occurrences_for_scheduled_days(
+                    item,
+                    window_start=window_start,
+                    until=until,
+                    per_item_cap=per_item_cap,
+                )
+            )
+            continue
+
         current = _infer_intake_time(item, now=now)
         current = _advance_to_at_least(
             current,
@@ -342,6 +426,10 @@ def untake_stack_item_occurrence(
     except OperationalError:
         return 0
 
+    # Day-of-week items don't track intake_time as a rolling pointer; nothing to rewind.
+    if item.scheduled_days:
+        return deleted_count
+
     # Attempt to rewind the schedule if this was the latest taken occurrence.
     expected_next = add_recurrence(scheduled_for, item.recurrence_interval, item.recurrence_unit)
 
@@ -415,8 +503,11 @@ def take_stack_item(
         notes=notes or f"Taken from stack: {item.stack.name}",
     )
 
-    item.intake_time = add_recurrence(scheduled_for, item.recurrence_interval, item.recurrence_unit)
-    item.completed = False
-    item.save(update_fields=['intake_time', 'completed'])
+    # For day-of-week items the schedule is driven by scheduled_days, not intake_time,
+    # so we only advance intake_time for interval-based items.
+    if not item.scheduled_days:
+        item.intake_time = add_recurrence(scheduled_for, item.recurrence_interval, item.recurrence_unit)
+        item.completed = False
+        item.save(update_fields=['intake_time', 'completed'])
 
     return intake_log

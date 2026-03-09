@@ -21,6 +21,7 @@ class AddCompoundForm(forms.ModelForm):
             'intake_time',
             'recurrence_interval',
             'recurrence_unit',
+            'scheduled_days',
             'notes',
         ]
         widgets = {
@@ -50,6 +51,7 @@ class AddCompoundForm(forms.ModelForm):
                 'class': 'form-select',
                 'style': 'max-width: 160px;'
             }),
+            'scheduled_days': forms.HiddenInput(),
             'notes': forms.TextInput(attrs={
                 'class': 'form-control',
                 'placeholder': 'Notes (optional)',
