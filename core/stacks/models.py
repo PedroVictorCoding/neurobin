@@ -236,3 +236,25 @@ class StackDangerousPairRule(models.Model):
 
     def __str__(self):
         return f"{self.compound_a.name} + {self.compound_b.name} ({self.severity})"
+
+
+class CompoundTaxonomyTag(models.Model):
+    """
+    Stores which stack-builder taxonomy subcategory a compound belongs to.
+    Populated by: python manage.py populate_builder_tags
+    """
+    compound    = models.ForeignKey(Compound, on_delete=models.CASCADE, related_name='taxonomy_tags')
+    group_id    = models.CharField(max_length=60, db_index=True)
+    sub_id      = models.CharField(max_length=60, db_index=True)
+    group_label = models.CharField(max_length=120, blank=True)
+    sub_label   = models.CharField(max_length=120, blank=True)
+
+    class Meta:
+        unique_together = ('compound', 'sub_id')
+        indexes = [
+            models.Index(fields=['sub_id'],   name='ctt_sub_idx'),
+            models.Index(fields=['group_id'], name='ctt_grp_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.compound.name} → {self.group_id}/{self.sub_id}"

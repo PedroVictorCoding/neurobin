@@ -1542,7 +1542,11 @@ class StackBuilderView(LoginRequiredMixin, TemplateView):
 
         compounds_qs = (
             Compound.objects.filter(pk__in=all_ids)
-            .prefetch_related('categories', 'mechanism_of_action__target_name')
+            .prefetch_related(
+                'categories',
+                'mechanism_of_action__target_name',
+                'taxonomy_tags',
+            )
             .select_related('steroid_ratings', 'safety_screening')
             .order_by('name')
         )
@@ -1575,8 +1579,10 @@ class StackBuilderView(LoginRequiredMixin, TemplateView):
                     if 'agonist' in action:
                         progestogenic = max(progestogenic, 50)
 
-            hepato = max(0, (safety.liver_toxicity - 1) * 25) if (safety and safety.liver_toxicity) else 0
-            suppression = max(0, (safety.hpta_suppression - 1) * 25) if (safety and safety.hpta_suppression) else 0
+            hepato      = max(0, (safety.liver_toxicity      - 1) * 25) if (safety and safety.liver_toxicity)      else 0
+            suppression = max(0, (safety.hpta_suppression    - 1) * 25) if (safety and safety.hpta_suppression)    else 0
+            cardio      = max(0, (safety.cardiovascular_risk - 1) * 25) if (safety and safety.cardiovascular_risk) else 0
+            neuro       = max(0, (safety.neurotoxicity       - 1) * 25) if (safety and safety.neurotoxicity)       else 0
 
             if not safety or not safety.liver_toxicity or safety.liver_toxicity <= 2:
                 hh = 'safe'
@@ -1585,18 +1591,25 @@ class StackBuilderView(LoginRequiredMixin, TemplateView):
             else:
                 hh = 'contra'
 
+            # DB-precomputed taxonomy sub IDs (from populate_builder_tags)
+            db_subs = [t.sub_id for t in c.taxonomy_tags.all()]
+
+            # Test equivalent: anabolic_rating / 100 (testosterone = 1.0)
+            # Only non-zero for compounds with actual steroid ratings in DB
+            test_equiv = round(anabolic / 100.0, 2) if anabolic > 0 else 0.0
+
             compounds_data.append({
                 'id': c.pk,
                 'slug': c.slug,
                 'name': c.name,
                 'aka': c.aliases or '',
-                # raw DB categories sent as-is; taxonomy classification is JS-side
+                'views': c.views,
                 'dbCats': cats,
-                # mechanism strings as "TargetName|action" for JS keyword matching
+                'dbSubs': db_subs,          # pre-computed taxonomy from DB
                 'moa': mechanisms_list[:12],
                 'defaultDose': 100,
                 'unit': 'mg',
-                'testEquiv': round(anabolic / 100.0, 2) if anabolic > 0 else 1.0,
+                'testEquiv': test_equiv,
                 'props': {
                     'anabolic': round(anabolic, 1),
                     'androgenic': round(androgenic, 1),
@@ -1604,6 +1617,8 @@ class StackBuilderView(LoginRequiredMixin, TemplateView):
                     'progestogenic': progestogenic,
                     'hepato': hepato,
                     'suppression': suppression,
+                    'cardio': cardio,
+                    'neuro': neuro,
                 },
                 'hh': hh,
                 'notes': (c.description[:200] if c.description else ''),

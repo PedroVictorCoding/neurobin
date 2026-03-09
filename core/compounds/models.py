@@ -392,6 +392,15 @@ class CompoundSteroidRating(models.Model):
         null=True,
         help_text="Relative androgenic rating (commonly testosterone=100 baseline).",
     )
+    ester_ratio = models.DecimalField(
+        max_digits=5,
+        decimal_places=4,
+        default=1.0,
+        help_text=(
+            "Fraction of active (ester-free) hormone per mg of compound. "
+            "Computed as free_MW / compound_MW.  Oral / ester-free = 1.0."
+        ),
+    )
 
     def __str__(self):
         return f"{self.compound.name} steroid ratings"
