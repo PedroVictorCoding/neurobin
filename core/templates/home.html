@@ -240,6 +240,54 @@
       flex: 0 0 clamp(13.5rem, 18vw, 16rem);
     }
   }
+  .home-feed-card {
+    background: var(--bg-secondary, rgba(255,255,255,0.04));
+    border: 1px solid rgba(168, 85, 247, 0.14);
+    border-radius: 10px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .home-feed-card:hover {
+    border-color: var(--accent-primary, #b86bff);
+    box-shadow: 0 0 14px rgba(168, 85, 247, 0.18);
+  }
+  .home-feed-title { color: #fff; text-decoration: none; }
+  .home-feed-title:hover { color: var(--accent-primary, #b86bff) !important; }
+  .home-feed-section-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 0;
+  }
+  .home-sidebar-week {
+    display: flex;
+    gap: 0.35rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 0.15rem 0.1rem;
+  }
+  .home-sidebar-week::-webkit-scrollbar { display: none; }
+  .home-sidebar-day {
+    flex: 0 0 auto;
+    min-width: 44px;
+    text-align: center;
+    padding: 0.5rem 0.25rem;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .home-sidebar-day.is-today {
+    border-color: var(--accent-primary, #b86bff);
+    background: rgba(184, 107, 255, 0.1);
+  }
+  .home-sidebar-day-name { font-size: 0.6rem; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.05em; }
+  .home-sidebar-day-num { font-size: 0.9rem; font-weight: 600; color: #fff; line-height: 1.2; }
+  .home-sidebar-day-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    margin: 3px auto 0;
+  }
+  .home-sidebar-day-dot.has-items { background: var(--accent-primary, #b86bff); }
+  .home-sidebar-day-dot.all-taken { background: #198754; }
 </style>
 {% endblock %}
 {% block content %}
@@ -308,153 +356,200 @@
     </div>
   </div>
 
-  <div class="card bg-neurobin-card border-0 mt-4">
-    <div class="card-body p-4">
-      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-        <div>
-          <h2 class="h5 text-white mb-1">This Week&apos;s Intake</h2>
-          <div class="text-muted small">{{ week_intake.title }}</div>
-        </div>
-        {% if user.is_authenticated %}
-          <a href="{% url 'stack_calendar' %}?period=week" class="btn btn-sm btn-outline-secondary">Open Week Calendar</a>
-        {% else %}
-          <a href="{% url 'register' %}" class="btn btn-sm btn-outline-secondary">Create Free Account</a>
-        {% endif %}
-      </div>
+  <!-- Discovery Feed -->
+  <div class="row g-4 mt-2">
 
-      <div class="home-week-rail" role="list" aria-label="Weekly intake overview">
-        {% for day in week_intake.days %}
-          <section
-            class="home-week-card nb-card-soft {% if day.is_today %}nb-card-soft-active{% endif %} {% if day.count and day.taken_count == day.count %}nb-card-soft-success{% endif %}"
-            role="listitem"
-            data-is-today="{% if day.is_today %}1{% else %}0{% endif %}"
-            data-total-count="{{ day.count }}"
-            data-taken-count="{{ day.taken_count }}"
-          >
-            <div class="home-week-card-top">
-              <div>
-                <div class="home-week-kicker nb-surface-kicker">{{ day.date|date:"D" }}</div>
-                <div class="home-week-date nb-surface-title">{{ day.date|date:"M j" }}</div>
-              </div>
-              <div class="home-week-badge">{{ day.count }} scheduled</div>
-            </div>
+    <!-- LEFT: Discovery feed -->
+    <div class="col-12 col-lg-8">
 
-            {% if day.count %}
-              <div class="home-week-progress">
-                <div class="home-week-progress-label">{{ day.taken_count }}/{{ day.count }} taken</div>
-                <div class="home-week-progress-track">
-                  <div class="home-week-progress-bar" style="width: {{ day.percent_taken }}%;"></div>
-                </div>
-              </div>
-
-              <div class="home-week-items nb-scroll-y">
-                {% for item in day.items %}
-                  <form method="post" class="home-week-item-form">
-                    {% csrf_token %}
-                    <input type="hidden" name="stack_item_id" value="{{ item.stack_item_id }}">
-                    <input type="hidden" name="scheduled_for" value="{{ item.scheduled_for|date:'c' }}">
-                    <button
-                      type="submit"
-                      class="home-week-item nb-row-soft {% if item.is_taken %}is-taken{% endif %}"
-                      name="{% if item.is_taken %}untake_stack_item{% else %}take_stack_item{% endif %}"
-                      value="1"
-                      data-compound-name="{{ item.compound_name|escape }}"
-                      title="{% if item.is_taken %}Click to mark as not taken{% else %}Click to mark as taken{% endif %}"
-                      aria-label="{% if item.is_taken %}Mark {{ item.compound_name }} as not taken{% else %}Mark {{ item.compound_name }} as taken{% endif %}"
-                    >
-                      <div class="home-week-item-time">
-                        <span>{{ item.scheduled_for|date:"H:i" }}</span>
-                        <span class="home-week-item-dot" aria-hidden="true"></span>
-                      </div>
-                      <div class="home-week-item-body">
-                        <span class="home-week-item-link">{{ item.compound_name }}</span>
-                        <span class="home-week-item-stack">{{ item.stack_name }}</span>
-                      </div>
-                    </button>
-                  </form>
-                {% endfor %}
-              </div>
-            {% else %}
-              <div class="home-week-empty">No scheduled items.</div>
-            {% endif %}
-          </section>
-        {% endfor %}
-      </div>
-
-      <div class="small text-muted mt-3">
-        {% if week_intake.is_preview %}
-          Sign in to populate this rail from your active stacks and keep the weekly view synced with the calendar.
-        {% elif week_intake.has_items %}
-          This mirrors the current week from your active stack schedule with taken items called out inline.
-        {% else %}
-          Activate a stack or add a recurring compound to fill in this week.
-        {% endif %}
-      </div>
-    </div>
-  </div>
-
-  {% if recent_compounds or recent_snippets or recent_stacks %}
-    <div class="card bg-neurobin-card border-0 mt-4">
-      <div class="card-body p-4">
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-          <h2 class="h5 text-white mb-0">Continue Where You Left Off</h2>
-          {% if user.is_authenticated %}
-            <a href="{% url 'my_stacks' %}" class="btn btn-sm btn-outline-secondary">Return to Workspace</a>
-          {% else %}
-            <a href="{% url 'register' %}" class="btn btn-sm btn-outline-secondary">Save This History</a>
-          {% endif %}
+      {% if trending_stacks %}
+      <div class="mb-4">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <span class="home-feed-section-title"><i class="fas fa-fire me-2" style="color:var(--accent-primary,#b86bff)"></i>Trending Stacks</span>
+          <a href="{% url 'explore_stacks' %}" class="small text-muted text-decoration-none">See all →</a>
         </div>
         <div class="row g-3">
-          {% if recent_stacks %}
-            <div class="col-12 col-lg-4">
-              <div class="small text-muted mb-2">Recent stacks</div>
-              <div class="d-flex flex-column gap-2">
-                {% for row in recent_stacks %}
-                  <a href="{% url 'stack_detail' row.id %}" class="text-decoration-none">
-                    <div class="border rounded p-2 d-flex justify-content-between align-items-center">
-                      <span class="text-light">{{ row.name }}</span>
-                      {% if row.is_active %}
-                        <span class="badge bg-success">Active</span>
-                      {% endif %}
-                    </div>
-                  </a>
-                {% endfor %}
+          {% for stack in trending_stacks %}
+          <div class="col-12 col-md-6">
+            <div class="home-feed-card h-100 d-flex flex-column">
+              <div class="p-3 flex-grow-1">
+                <div class="d-flex justify-content-between align-items-start mb-2 gap-2">
+                  <a href="{% url 'stack_detail' stack.id %}" class="home-feed-title fw-semibold flex-grow-1" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;">{{ stack.name }}</a>
+                  {% if stack.risk_assessment %}
+                    <span class="badge flex-shrink-0
+                      {% if stack.risk_assessment.risk_level == 'high' %}bg-danger
+                      {% elif stack.risk_assessment.risk_level == 'moderate' %}bg-warning text-dark
+                      {% else %}bg-success{% endif %}" style="font-size:0.65rem;">
+                      {{ stack.risk_assessment.risk_level|capfirst }}
+                    </span>
+                  {% endif %}
+                </div>
+                <div class="text-muted small mb-2">
+                  <i class="fas fa-user me-1" style="font-size:0.7rem;"></i>@{{ stack.user.username }}
+                </div>
+                <div class="d-flex flex-wrap gap-1">
+                  {% for item in stack.items.all|slice:":4" %}
+                    <span class="badge" style="background:rgba(184,107,255,0.12);color:rgba(255,255,255,0.8);border:1px solid rgba(184,107,255,0.22);font-size:0.62rem;">{{ item.compound.name }}</span>
+                  {% endfor %}
+                  {% if stack.items.count > 4 %}
+                    <span class="badge bg-secondary" style="font-size:0.62rem;">+{{ stack.items.count|add:"-4" }} more</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="px-3 py-2 d-flex justify-content-between align-items-center" style="border-top:1px solid rgba(255,255,255,0.05);">
+                <small class="text-muted"><i class="fas fa-copy me-1"></i>{{ stack.usage_count }} copies</small>
+                <small class="text-muted"><i class="fas fa-layer-group me-1"></i>{{ stack.items.count }} items</small>
+                <a href="{% url 'stack_detail' stack.id %}" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.7rem;">View</a>
               </div>
             </div>
-          {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
 
-          {% if recent_compounds %}
-            <div class="col-12 col-lg-4">
-              <div class="small text-muted mb-2">Recent compounds</div>
-              <div class="d-flex flex-column gap-2">
-                {% for row in recent_compounds %}
-                  <a href="{% url 'compound_detail' row.slug %}" class="text-decoration-none">
-                    <div class="border rounded p-2 text-light">{{ row.name }}</div>
-                  </a>
-                {% endfor %}
+      {% if featured_snippets %}
+      <div class="mb-4">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <span class="home-feed-section-title"><i class="fas fa-microscope me-2" style="color:var(--accent-primary,#b86bff)"></i>Verified Research</span>
+          <a href="{% url 'research:snippet_list' %}" class="small text-muted text-decoration-none">See all →</a>
+        </div>
+        <div class="d-flex flex-column gap-3">
+          {% for snippet in featured_snippets %}
+          <div class="home-feed-card">
+            <div class="p-3">
+              <div class="d-flex justify-content-between align-items-start gap-3">
+                <div class="flex-grow-1 min-width-0">
+                  <a href="{% url 'research:snippet_detail' snippet.id %}" class="home-feed-title fw-semibold d-block mb-1" style="font-size:0.9rem;">{{ snippet.title|truncatechars:90 }}</a>
+                  {% if snippet.compound %}
+                    <span class="badge mb-2" style="background:rgba(184,107,255,0.12);color:rgba(184,107,255,0.95);border:1px solid rgba(184,107,255,0.3);font-size:0.62rem;">
+                      <i class="fas fa-flask me-1"></i>{{ snippet.compound.name }}
+                    </span>
+                  {% endif %}
+                  {% if snippet.summary %}
+                    <div class="text-muted small">{{ snippet.summary|truncatechars:130 }}</div>
+                  {% endif %}
+                </div>
+                <div class="d-flex flex-column align-items-end gap-1 flex-shrink-0">
+                  <span class="badge bg-success" style="font-size:0.65rem;">Verified</span>
+                  <small class="text-muted text-nowrap"><i class="fas fa-eye me-1"></i>{{ snippet.view_count }}</small>
+                </div>
               </div>
             </div>
-          {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
 
-          {% if recent_snippets %}
-            <div class="col-12 col-lg-4">
-              <div class="small text-muted mb-2">Recent research</div>
-              <div class="d-flex flex-column gap-2">
-                {% for row in recent_snippets %}
-                  <a href="{% url 'research:snippet_detail' row.id %}" class="text-decoration-none">
-                    <div class="border rounded p-2">
-                      <div class="text-light small fw-semibold">{{ row.title|truncatechars:58 }}</div>
-                      <div class="text-muted small">{{ row.compound_name }}</div>
-                    </div>
-                  </a>
-                {% endfor %}
-              </div>
+      {% if not trending_stacks and not featured_snippets %}
+      <div class="text-center text-muted py-5">
+        <i class="fas fa-flask fa-2x mb-3 d-block" style="color:rgba(184,107,255,0.4);"></i>
+        No public stacks or verified research yet. Be the first to contribute.
+      </div>
+      {% endif %}
+
+    </div><!-- /col-lg-8 -->
+
+    <!-- RIGHT: Sidebar -->
+    <div class="col-12 col-lg-4">
+
+      {% if user.is_authenticated %}
+      <!-- Week overview widget -->
+      <div class="home-feed-card mb-3">
+        <div class="d-flex align-items-center justify-content-between px-3 pt-3 pb-2" style="border-bottom:1px solid rgba(255,255,255,0.05);">
+          <span class="fw-semibold text-light" style="font-size:0.85rem;"><i class="fas fa-calendar-week me-2" style="color:var(--accent-primary,#b86bff);"></i>This Week</span>
+          <a href="{% url 'stack_calendar' %}?period=week" class="small text-muted text-decoration-none">Full view →</a>
+        </div>
+        <div class="p-2">
+          <div class="home-sidebar-week" id="homeSidebarWeek">
+            {% for day in week_intake.days %}
+            <div class="home-sidebar-day {% if day.is_today %}is-today{% endif %}">
+              <div class="home-sidebar-day-name">{{ day.date|date:"D"|slice:":1" }}</div>
+              <div class="home-sidebar-day-num">{{ day.date|date:"j" }}</div>
+              <div class="home-sidebar-day-dot {% if day.count and day.taken_count == day.count %}all-taken{% elif day.count %}has-items{% endif %}"></div>
+              {% if day.count %}<div style="font-size:0.55rem;color:rgba(255,255,255,0.45);margin-top:2px;">{{ day.taken_count }}/{{ day.count }}</div>{% endif %}
             </div>
+            {% endfor %}
+          </div>
+          {% if week_intake.has_items %}
+          <div class="small text-muted mt-2 px-1">
+            <i class="fas fa-circle me-1" style="color:#198754;font-size:0.5rem;"></i>All taken
+            <i class="fas fa-circle ms-2 me-1" style="color:var(--accent-primary,#b86bff);font-size:0.5rem;"></i>Scheduled
+          </div>
+          {% else %}
+          <div class="small text-muted mt-2 px-1">No scheduled items this week.</div>
           {% endif %}
         </div>
       </div>
-    </div>
-  {% endif %}
+
+      <!-- Quick access -->
+      <div class="home-feed-card">
+        <div class="p-3">
+          <div class="fw-semibold text-light mb-2" style="font-size:0.85rem;">Quick Access</div>
+          <div class="d-flex flex-column gap-2">
+            <a href="{% url 'my_stacks' %}" class="btn btn-sm btn-outline-secondary text-start"><i class="fas fa-layer-group me-2 text-muted"></i>My Stacks</a>
+            <a href="{% url 'compound_list' %}" class="btn btn-sm btn-outline-secondary text-start"><i class="fas fa-flask me-2 text-muted"></i>Compounds</a>
+            <a href="{% url 'stack_schedule' %}" class="btn btn-sm btn-outline-secondary text-start"><i class="fas fa-calendar me-2 text-muted"></i>Schedule</a>
+            <a href="{% url 'analytics_dashboard' %}" class="btn btn-sm btn-outline-secondary text-start"><i class="fas fa-chart-bar me-2 text-muted"></i>Analytics</a>
+          </div>
+        </div>
+      </div>
+
+      {% if recent_stacks %}
+      <div class="home-feed-card mt-3">
+        <div class="p-3">
+          <div class="fw-semibold text-light mb-2" style="font-size:0.85rem;">Recent Stacks</div>
+          <div class="d-flex flex-column gap-2">
+            {% for row in recent_stacks %}
+            <a href="{% url 'stack_detail' row.id %}" class="text-decoration-none d-flex justify-content-between align-items-center py-1 px-2 rounded" style="background:rgba(255,255,255,0.03);">
+              <span class="text-light small">{{ row.name|truncatechars:28 }}</span>
+              {% if row.is_active %}<span class="badge bg-success" style="font-size:0.6rem;">Active</span>{% endif %}
+            </a>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% else %}
+      <!-- Logged-out: join CTA -->
+      <div class="home-feed-card text-center p-4">
+        <div class="mb-3" style="font-size:2.2rem;line-height:1;">🧬</div>
+        <h6 class="text-light mb-2">Join Neurobin</h6>
+        <p class="text-muted small mb-3">Track your stack, log adherence, and access verified research.</p>
+        <a href="{% url 'register' %}" class="btn btn-sm w-100 mb-2" style="background:var(--accent-primary,#b86bff);color:#120a1f;font-weight:600;">Create Free Account</a>
+        <a href="{% url 'login' %}" class="btn btn-sm btn-outline-secondary w-100">Sign In</a>
+      </div>
+
+      {% if recent_compounds or recent_snippets %}
+      <div class="home-feed-card mt-3">
+        <div class="p-3">
+          <div class="fw-semibold text-light mb-2" style="font-size:0.85rem;">Recently Viewed</div>
+          {% if recent_compounds %}
+          <div class="small text-muted mb-1">Compounds</div>
+          <div class="d-flex flex-column gap-1 mb-2">
+            {% for row in recent_compounds|slice:":3" %}
+            <a href="{% url 'compound_detail' row.slug %}" class="text-light small text-decoration-none py-1 px-2 rounded" style="background:rgba(255,255,255,0.03);">{{ row.name }}</a>
+            {% endfor %}
+          </div>
+          {% endif %}
+          {% if recent_snippets %}
+          <div class="small text-muted mb-1">Research</div>
+          <div class="d-flex flex-column gap-1">
+            {% for row in recent_snippets|slice:":3" %}
+            <a href="{% url 'research:snippet_detail' row.id %}" class="text-light small text-decoration-none py-1 px-2 rounded" style="background:rgba(255,255,255,0.03);">{{ row.title|truncatechars:40 }}</a>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+      {% endif %}
+
+    </div><!-- /col-lg-4 -->
+
+  </div><!-- /row -->
 </div>
 
 <footer>
@@ -499,129 +594,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
   counters.forEach(counter => observer.observe(counter));
 
-  const weekRail = document.querySelector('.home-week-rail');
-  const todayCard = weekRail ? weekRail.querySelector('.home-week-card[data-is-today="1"]') : null;
-  if (weekRail && todayCard && weekRail.scrollWidth > weekRail.clientWidth) {
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const maxScrollLeft = Math.max(0, weekRail.scrollWidth - weekRail.clientWidth);
-    const targetLeft = Math.max(
-      0,
-      Math.min(
-        maxScrollLeft,
-        todayCard.offsetLeft - ((weekRail.clientWidth - todayCard.offsetWidth) / 2)
-      )
-    );
-
+  // Scroll sidebar week widget to today
+  const sidebarWeek = document.getElementById('homeSidebarWeek');
+  const todayDay = sidebarWeek ? sidebarWeek.querySelector('.home-sidebar-day.is-today') : null;
+  if (sidebarWeek && todayDay && sidebarWeek.scrollWidth > sidebarWeek.clientWidth) {
     requestAnimationFrame(() => {
-      weekRail.scrollTo({
-        left: targetLeft,
-        behavior: prefersReducedMotion ? 'auto' : 'smooth',
-      });
+      const targetLeft = Math.max(0, todayDay.offsetLeft - ((sidebarWeek.clientWidth - todayDay.offsetWidth) / 2));
+      sidebarWeek.scrollTo({ left: targetLeft, behavior: 'smooth' });
     });
   }
-
-  const updateWeekCardState = (button, isTaken) => {
-    const card = button.closest('.home-week-card');
-    if (!card) {
-      return;
-    }
-
-    const totalCount = parseInt(card.dataset.totalCount || '0', 10);
-    const currentTakenCount = parseInt(card.dataset.takenCount || '0', 10);
-    const nextTakenCount = Math.max(
-      0,
-      Math.min(totalCount, currentTakenCount + (isTaken ? 1 : -1))
-    );
-    card.dataset.takenCount = String(nextTakenCount);
-
-    button.classList.toggle('is-taken', isTaken);
-    button.name = isTaken ? 'untake_stack_item' : 'take_stack_item';
-
-    const compoundName = button.dataset.compoundName || 'item';
-    button.title = isTaken ? 'Click to mark as not taken' : 'Click to mark as taken';
-    button.setAttribute(
-      'aria-label',
-      isTaken
-        ? `Mark ${compoundName} as not taken`
-        : `Mark ${compoundName} as taken`
-    );
-
-    const progressLabel = card.querySelector('.home-week-progress-label');
-    if (progressLabel) {
-      progressLabel.textContent = `${nextTakenCount}/${totalCount} taken`;
-    }
-
-    const progressBar = card.querySelector('.home-week-progress-bar');
-    if (progressBar) {
-      const percent = totalCount ? Math.round((nextTakenCount / totalCount) * 100) : 0;
-      progressBar.style.width = `${percent}%`;
-    }
-
-    card.classList.toggle('nb-card-soft-success', totalCount > 0 && nextTakenCount === totalCount);
-  };
-
-  const submitWeekFormFallback = (form, button) => {
-    const actionInput = document.createElement('input');
-    actionInput.type = 'hidden';
-    actionInput.name = button.name;
-    actionInput.value = button.value || '1';
-    form.appendChild(actionInput);
-    form.submit();
-  };
-
-  document.querySelectorAll('.home-week-item-form').forEach((form) => {
-    const button = form.querySelector('.home-week-item');
-    if (!button) {
-      return;
-    }
-
-    button.addEventListener('click', async (event) => {
-      event.preventDefault();
-      if (button.disabled) {
-        return;
-      }
-
-      const csrfInput = form.querySelector('input[name="csrfmiddlewaretoken"]');
-      if (!csrfInput) {
-        submitWeekFormFallback(form, button);
-        return;
-      }
-
-      button.disabled = true;
-
-      try {
-        const formData = new FormData(form);
-        formData.append(button.name, button.value || '1');
-
-        const response = await fetch(form.action || window.location.href, {
-          method: 'POST',
-          body: formData,
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest',
-            'X-CSRFToken': csrfInput.value,
-            'Accept': 'application/json',
-          },
-          credentials: 'same-origin',
-        });
-
-        if (!response.ok) {
-          throw new Error(`Request failed with status ${response.status}`);
-        }
-
-        const payload = await response.json();
-        if (!payload.ok || typeof payload.is_taken !== 'boolean') {
-          throw new Error('Unexpected response payload');
-        }
-
-        updateWeekCardState(button, payload.is_taken);
-      } catch (error) {
-        console.error('Failed to toggle intake state from homepage:', error);
-        submitWeekFormFallback(form, button);
-      } finally {
-        button.disabled = false;
-      }
-    });
-  });
 });
 </script>
 {% endblock %}

@@ -104,6 +104,7 @@ def _parse_scheduled_for_value(raw_value):
 
 def home(request):
     from compounds.models import Compound, CompoundTargetInteraction, Target
+    from django.db.models import Count, Prefetch
     from research.models import ResearchSnippet
     from stacks.models import Stack, StackItem
     from stacks.services import take_stack_item, untake_stack_item_occurrence
@@ -215,6 +216,22 @@ def home(request):
                 }
             )
 
+    trending_stacks = list(
+        Stack.objects
+        .filter(visibility="public")
+        .annotate(usage_count=Count("copies"))
+        .select_related("user", "risk_assessment")
+        .prefetch_related(Prefetch("items", queryset=StackItem.objects.select_related("compound").order_by("order")))
+        .order_by("-usage_count", "-created")[:6]
+    )
+
+    featured_snippets = list(
+        ResearchSnippet.objects
+        .filter(status="verified")
+        .select_related("compound", "created_by")
+        .order_by("-view_count", "-created")[:6]
+    )
+
     context = {
         "compound_count": compound_count,
         "mechanism_count": mechanism_count,
@@ -226,6 +243,8 @@ def home(request):
         "recent_snippets": recent_snippets,
         "recent_stacks": recent_stacks,
         "week_intake": _build_home_week_intake_context(request),
+        "trending_stacks": trending_stacks,
+        "featured_snippets": featured_snippets,
     }
 
     return render(request, "home.html", context)
