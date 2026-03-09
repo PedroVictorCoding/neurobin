@@ -52,6 +52,25 @@ class CompoundAdmetAiTests(TestCase):
         self.assertIn("admet_ai_available", response.context)
         self.assertIn("admet_ai_prediction", response.context)
 
+    def test_compound_detail_view_all_research_points_to_compound_listing(self):
+        from research.models import ResearchSnippet
+
+        ResearchSnippet.objects.create(
+            title="Detail link target snippet",
+            content="Snippet body",
+            compound=self.compound,
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            reverse("compound_detail", kwargs={"slug": self.compound.slug})
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            reverse("research:compound_snippets", kwargs={"slug": self.compound.slug}),
+        )
+
     def test_compound_detail_renders_rotating_3d_structure_viewer(self):
         response = self.client.get(
             reverse("compound_detail", kwargs={"slug": self.compound.slug})

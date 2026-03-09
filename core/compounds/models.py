@@ -315,6 +315,19 @@ class Compound(models.Model):
         related_name='compounds',
         blank=True,
     )
+    standard_dose = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        blank=True,
+        null=True,
+        help_text="Typical therapeutic or standard human dose (e.g. 5 for Donepezil 5mg)",
+    )
+    standard_dose_unit = models.CharField(
+        max_length=16,
+        blank=True,
+        default='mg',
+        help_text="Unit for standard_dose (mg, mcg, g, IU, etc.)",
+    )
     views = models.PositiveIntegerField(
         default=0,
         help_text="Number of times this compound page has been viewed"
@@ -475,44 +488,44 @@ class CompoundSafetyScreening(models.Model):
     compound    = models.OneToOneField('Compound', on_delete=models.CASCADE, related_name='safety_screening')
 
     liver_toxicity = models.PositiveSmallIntegerField(
-        choices=[(i, str(i)) for i in range(1,6)],
+        choices=[(i, str(i)) for i in range(0, 6)],
         blank=True, null=True,
-        help_text="1 = No toxicity observed; 5 = Lethal toxicity",
+        help_text="0 = Protective effect; 1 = No toxicity observed; 5 = Lethal toxicity",
     )
     kidney_toxicity = models.PositiveSmallIntegerField(
-        choices=[(i, str(i)) for i in range(1,6)],
+        choices=[(i, str(i)) for i in range(0, 6)],
         blank=True, null=True,
-        help_text="1 = No toxicity observed; 5 = Lethal toxicity",
+        help_text="0 = Protective effect; 1 = No toxicity observed; 5 = Lethal toxicity",
     )
     cardiovascular_risk = models.PositiveSmallIntegerField(
-        choices=[(i, str(i)) for i in range(1,6)],
+        choices=[(i, str(i)) for i in range(0, 6)],
         blank=True, null=True,
-        help_text="1 = No risk observed; 5 = Lethal risk",
+        help_text="0 = Protective effect; 1 = No risk observed; 5 = Lethal risk",
     )
     hpta_suppression = models.PositiveSmallIntegerField(
-        choices=[(i, str(i)) for i in range(1, 6)],
+        choices=[(i, str(i)) for i in range(0, 6)],
         blank=True, null=True,
-        help_text="1 = No suppression observed; 5 = Full suppression",
+        help_text="0 = Protective effect; 1 = No suppression observed; 5 = Full suppression",
     )
     neurotoxicity = models.PositiveSmallIntegerField(
-        choices=[(i, str(i)) for i in range(1, 6)],
+        choices=[(i, str(i)) for i in range(0, 6)],
         blank=True, null=True,
-        help_text="1 = No toxicity observed; 5 = Lethal toxicity",
+        help_text="0 = Protective effect; 1 = No toxicity observed; 5 = Lethal toxicity",
     )
     lung_toxicity = models.PositiveSmallIntegerField(
-        choices=[(i, str(i)) for i in range(1,6)],
+        choices=[(i, str(i)) for i in range(0, 6)],
         blank=True, null=True,
-        help_text="1 = No toxicity observed; 5 = Lethal toxicity",
+        help_text="0 = Protective effect; 1 = No toxicity observed; 5 = Lethal toxicity",
     )
     pancreas_toxicity = models.PositiveSmallIntegerField(
-        choices=[(i, str(i)) for i in range(1,6)],
+        choices=[(i, str(i)) for i in range(0, 6)],
         blank=True, null=True,
-        help_text="1 = No toxicity observed; 5 = Lethal toxicity",
+        help_text="0 = Protective effect; 1 = No toxicity observed; 5 = Lethal toxicity",
     )
     bladder_toxicity = models.PositiveSmallIntegerField(
-        choices=[(i, str(i)) for i in range(1,6)],
+        choices=[(i, str(i)) for i in range(0, 6)],
         blank=True, null=True,
-        help_text="1 = No toxicity observed; 5 = Lethal toxicity",
+        help_text="0 = Protective effect; 1 = No toxicity observed; 5 = Lethal toxicity",
     )
 
     confidence_score = models.PositiveSmallIntegerField(

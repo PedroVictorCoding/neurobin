@@ -13,6 +13,7 @@ from compounds.models import (
     Compound,
     CompoundADMETPrediction,
     CompoundCategories,
+    CompoundSafetyScreening,
     CompoundTargetInteraction,
     CompoundTargetInteractionEvidence,
     Target,
@@ -1053,3 +1054,23 @@ class StackTraitRecommendationTests(TestCase):
         self.assertEqual(high_resp.status_code, 200)
         high_recs = high_resp.json().get('recommendations', [])
         self.assertEqual(high_recs, [])
+
+
+class StackBuilderViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='builder', password='pw')
+
+    def test_builder_allows_negative_safety_deltas_in_compound_props(self):
+        compound = Compound.objects.create(name='Builder Renal Compound')
+        CompoundSafetyScreening.objects.create(compound=compound, kidney_toxicity=0)
+        stack = Stack.objects.create(user=self.user, name='Builder Stack')
+        StackItem.objects.create(stack=stack, compound=compound)
+
+        self.client.force_login(self.user)
+        resp = self.client.get('/stacks/builder/')
+        self.assertEqual(resp.status_code, 200)
+
+        payload = resp.context['compounds_data']
+        row = next((entry for entry in payload if entry['id'] == compound.id), None)
+        self.assertIsNotNone(row)
+        self.assertEqual(row['props']['kidney'], -25.0)

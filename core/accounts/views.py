@@ -12,18 +12,63 @@ from django.utils import timezone
 from research.models import ResearchSnippet, SnippetReview, SnippetComment
 from stacks.models import Stack
 from logs.models import UserGoal, UserGoalCompletion
-from .models import UserProfile
+from .email_service import issue_registration_verification
+from .models import EmailVerificationToken, UserProfile
 from .forms import StyledUserCreationForm, UserProfileForm
 
 def register(request):
     if request.method == 'POST':
         form = StyledUserCreationForm(request.POST)
         if form.is_valid():
-            form.save()
-            return redirect('login')
+            user = form.save(commit=False)
+            user.email = (form.cleaned_data.get("email") or "").strip().lower()
+            user.is_active = False
+            user.save()
+            try:
+                issue_registration_verification(request, user)
+            except Exception:
+                user.delete()
+                form.add_error(
+                    None,
+                    "We could not send your verification email right now. Please try again in a moment.",
+                )
+                return render(request, 'accounts/register.html', {'form': form})
+            messages.success(
+                request,
+                "Account created. Check your email and verify your account before logging in.",
+            )
+            return redirect('verify_email_sent')
     else:
         form = StyledUserCreationForm()
     return render(request, 'accounts/register.html', {'form': form})
+
+
+def verify_email_sent(request):
+    return render(request, "accounts/verify_email_sent.html")
+
+
+def verify_email(request, token):
+    verification = EmailVerificationToken.objects.select_related("user").filter(
+        token=token,
+        purpose=EmailVerificationToken.PURPOSE_REGISTRATION,
+    ).first()
+    context = {"success": False}
+    now = timezone.now()
+
+    if verification and verification.can_be_used(at_time=now):
+        verification.mark_used(when=now)
+        user = verification.user
+        if not user.is_active:
+            user.is_active = True
+            user.save(update_fields=["is_active"])
+        EmailVerificationToken.objects.filter(
+            user=user,
+            purpose=EmailVerificationToken.PURPOSE_REGISTRATION,
+            used_at__isnull=True,
+        ).exclude(pk=verification.pk).update(used_at=now)
+        context["success"] = True
+
+    return render(request, "accounts/verify_email_complete.html", context)
 
 def custom_logout(request):
     """

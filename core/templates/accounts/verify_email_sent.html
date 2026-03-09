@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Verify Your Email — Neurobin{% endblock %}
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-12 col-md-8 col-lg-6">
+      <div class="card border-0 shadow-lg bg-dark text-light">
+        <div class="card-body p-4 p-md-5">
+          <h1 class="h4 fw-bold text-white mb-3">Check your email</h1>
+          <p class="text-muted mb-4">
+            We sent you a verification link. Open it to activate your account.
+          </p>
+          <ul class="small text-muted ps-3">
+            <li>Check spam/promotions if you do not see it.</li>
+            <li>The link expires automatically for safety.</li>
+          </ul>
+          <div class="mt-4">
+            <a href="{% url 'login' %}" class="btn btn-outline-info">Back to login</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

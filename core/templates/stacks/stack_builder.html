@@ -129,6 +129,7 @@
   .sb-pv { font-family:var(--mono); font-size:10px; color:var(--sb-dim); }
   .sb-bbg { height:3px; background:var(--sb-s3); border-radius:2px; overflow:hidden; }
   .sb-bf { height:100%; border-radius:2px; transition:width .5s cubic-bezier(.4,0,.2,1); }
+  .sb-bf-neg { background:var(--accent-3) !important; }
   .ba{background:var(--sb-a4)} .ban{background:var(--sb-a2)} .be{background:var(--sb-a6)} .bp{background:var(--sb-a5)} .bh{background:#ff9e60} .bs{background:var(--sb-a3)}
   .sb-tbl { width:100%; border-collapse:collapse; }
   .sb-tbl th { font-family:var(--mono); font-size:9px; letter-spacing:.1em; color:var(--sb-dim); text-transform:uppercase; text-align:left; padding:4px 5px; border-bottom:1px solid var(--border-secondary); }
@@ -213,7 +214,7 @@
         <div class="sb-card">
           <div class="sb-ctitle">// compound breakdown</div>
           <table class="sb-tbl">
-            <thead><tr><th>Compound</th><th>Dose</th><th>Anabolic</th><th>Liver</th></tr></thead>
+            <thead><tr><th>Compound</th><th>Dose</th><th>Anabolic</th><th>Safety</th></tr></thead>
             <tbody id="sbTBody"></tbody>
           </table>
         </div>
@@ -621,6 +622,27 @@ function sbSearch_() {
   sbRenderList();
 }
 
+// ── Dose-adjusted safety helper ───────────────────────────────────────────────
+// Returns 'safe' | 'caution' | 'contra' scaled by how far dose deviates from
+// the compound's standard dose.
+//
+// For AAS esters, standardDose is stored as the free-base equivalent (e.g. 100mg
+// for testosterone).  The user-entered dose is in ester form, so we multiply by
+// esterRatio to convert to free-base mg before comparing.  For non-esterified
+// compounds esterRatio = 1.0 and behaviour is unchanged.
+function doseHH(c, dose) {
+  const base = (c.props?.safetyScore) || 0;
+  if (base === 0) return 'safe';
+  const std = c.standardDose || c.defaultDose || 100;
+  const er  = c.esterRatio || 1.0;
+  const effectiveDose = (parseFloat(dose) || std) * er;
+  const ratio = effectiveDose / std;
+  const adjusted = base * ratio;
+  if (adjusted <= 0) return 'safe';
+  if (adjusted <= 50) return 'caution';
+  return 'contra';
+}
+
 // ── Compound list ─────────────────────────────────────────────────────────────
 function sbRenderList() {
   const el = document.getElementById('sbCList');
@@ -638,10 +660,10 @@ function sbRenderList() {
   if (!filtered.length) {
     el.innerHTML = '<div class="sb-empty">No compounds found</div>'; return;
   }
-  const hhMap = {safe:'hh-s Safe',caution:'hh-c Caution',contra:'hh-x Hepatotoxic'};
+  const hhMap = {safe:'hh-s Safe',caution:'hh-c Caution',contra:'hh-x High Risk'};
   el.innerHTML = filtered.slice(0,250).map(c => {
     const inStk = sbStack.some(s=>s.compound.id===c.id);
-    const [hhCls,hhTxt] = (hhMap[c.hh]||'hh-s Safe').split(' ');
+    const [hhCls,hhTxt] = (hhMap[doseHH(c, c.defaultDose)]||'hh-s Safe').split(' ');
     const subs = C_SUBS.get(c.id)||new Set();
     const tags = [];
     TAXONOMY.forEach(g=>g.subs.forEach(s=>{ if(subs.has(s.id)) tags.push(s.label.split('(')[0].trim().split('/')[0].trim()); }));
@@ -706,11 +728,9 @@ function sbRenderAnalysis() {
   document.getElementById('sbInsSection').style.display = show ? 'block' : 'none';
   if (!show) return;
 
-  const totDose = sbStack.reduce((s,x)=>s+(x.dose||0),0)||1;
-  const props = {anabolic:0,androgenic:0,estrogenic:0,progestogenic:0,hepato:0,suppression:0,cardio:0,neuro:0};
-  sbStack.forEach(({compound:c,dose})=>{
-    const w=dose/totDose;
-    for(const k of Object.keys(props)) props[k]+=((c.props||{})[k]||0)*w;
+  const props = {anabolic:0,androgenic:0,estrogenic:0,progestogenic:0,hepato:0,suppression:0,cardio:0,neuro:0,kidney:0,lung:0,pancreas:0,bladder:0};
+  sbStack.forEach(({compound:c})=>{
+    for(const k of Object.keys(props)) props[k]+=((c.props||{})[k]||0);
   });
   // Only AAS compounds (testEquiv > 0) contribute to test-equivalent
   const anabolicItems = sbStack.filter(({compound:c}) => (c.testEquiv||0) > 0);
@@ -735,21 +755,29 @@ function sbRenderAnalysis() {
     {k:'estrogenic',  l:'Estrogenic',         c:'be',  sc:1},
     {k:'progestogenic',l:'Progestogenic',     c:'bp',  sc:1},
     {k:'hepato',      l:'Liver Stress',       c:'bh',  sc:1},
+    {k:'kidney',      l:'Kidney Stress',      c:'bh',  sc:1},
     {k:'suppression', l:'HPTA Suppression',   c:'bs',  sc:1},
     {k:'cardio',      l:'Cardiovascular Risk',c:'be',  sc:1},
     {k:'neuro',       l:'Neurotoxicity',      c:'ban', sc:1},
+    {k:'lung',        l:'Lung Toxicity',      c:'ban', sc:1},
+    {k:'pancreas',    l:'Pancreatic Stress',  c:'bh',  sc:1},
+    {k:'bladder',     l:'Bladder Toxicity',   c:'bh',  sc:1},
   ];
   document.getElementById('sbPBars').innerHTML=bars.map(b=>{
-    const raw=props[b.k]||0, pct=Math.min(100,Math.max(0,raw/b.sc));
-    return `<div class="sb-pr"><div class="sb-plr"><span class="sb-pl">${b.l}</span><span class="sb-pv">${Math.round(raw)}</span></div><div class="sb-bbg"><div class="sb-bf ${b.c}" style="width:${pct}%"></div></div></div>`;
+    const raw=props[b.k]||0;
+    const pct=Math.min(100,Math.abs(raw)/b.sc);
+    const val=Math.round(raw);
+    const valText=val>0?`+${val}`:`${val}`;
+    const dirCls=raw<0?'sb-bf-neg':'';
+    return `<div class="sb-pr"><div class="sb-plr"><span class="sb-pl">${b.l}</span><span class="sb-pv">${valText}</span></div><div class="sb-bbg"><div class="sb-bf ${b.c} ${dirCls}" style="width:${pct}%"></div></div></div>`;
   }).join('');
 
   // table
   const maxA=Math.max(...sbStack.map(s=>(s.compound.props?.anabolic||0)),1);
-  const hhMap={safe:'hh-s Safe',caution:'hh-c Caution',contra:'hh-x High'};
+  const hhMap={safe:'hh-s Safe',caution:'hh-c Caution',contra:'hh-x High Risk'};
   document.getElementById('sbTBody').innerHTML=sbStack.map(({compound:c,dose})=>{
     const ana=c.props?.anabolic||0, pct=ana/maxA*100;
-    const [hcls,htxt]=(hhMap[c.hh]||'hh-s Safe').split(' ');
+    const [hcls,htxt]=(hhMap[doseHH(c,dose)]||'hh-s Safe').split(' ');
     return `<tr><td class="sb-tn">${c.name}</td><td style="color:var(--sb-dim)">${dose}${c.unit||'mg'}</td>
       <td><span class="sb-mb"><span class="sb-mbg"><span class="sb-mf" style="width:${pct}%"></span></span><span style="font-size:9px;color:var(--sb-dim);margin-left:3px">${Math.round(ana)}</span></span></td>
       <td><span class="sb-hh ${hcls}">${htxt}</span></td></tr>`;
@@ -762,14 +790,14 @@ function sbRenderAnalysis() {
   const hasAndrogen=allSubs.has('androgens')||allSubs.has('sarms');
   const hasEstMod=allSubs.has('estrogen_mod');
   const has19nor=moaAll.some(m=>m.includes('progesterone')||m.includes('progestin'));
-  const hasLiver=sbStack.some(s=>s.compound.hh==='contra');
+  const hasHighRisk=sbStack.some(s=>doseHH(s.compound,s.dose)==='contra');
   const highEst=props.estrogenic>20;
   const highSupp=props.suppression>60;
   const hasPsych=allSubs.has('serotonergic_psy')||allSubs.has('dissociatives')||allSubs.has('empathogens');
   const hasOpioid=allSubs.has('opioidergic');
   const hasStimulant=allSubs.has('lipolysis')||allSubs.has('adenosinergic');
 
-  if(hasLiver) ins.push({t:'warn',i:'⚠',h:'Hepatotoxic compound present',b:'One or more compounds carry a high liver-stress rating. Monitor AST/ALT regularly and consider NAC or TUDCA support.'});
+  if(hasHighRisk) ins.push({t:'warn',i:'⚠',h:'High-risk compound present',b:'One or more compounds carry a high general safety rating. Review individual risk metrics and consider appropriate support compounds.'});
   if(highEst&&!hasEstMod) ins.push({t:'warn',i:'⚠',h:'Estrogenic load — no AI/SERM detected',b:'Stack has significant estrogenic activity. Consider adding anastrozole, letrozole, or tamoxifen for estrogen management.'});
   if(highEst&&hasEstMod) ins.push({t:'ok',i:'✓',h:'Estrogen management present',b:'AI or SERM detected alongside estrogenic compounds.'});
   if(has19nor) ins.push({t:'note',i:'⬡',h:'19-Nor / Progestogenic compound',b:'Progesterone receptor activity detected. Monitor prolactin levels; consider cabergoline if prolactin becomes elevated.'});

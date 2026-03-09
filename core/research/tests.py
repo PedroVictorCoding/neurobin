@@ -2,8 +2,10 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from unittest.mock import patch
+import json
 
 from compounds.models import Compound
+from research.content_format import render_snippet_content
 from research.models import ResearchSnippet, SnippetTag, SnippetTagging, ResearchImportJob
 from research.importer import PubMedArticle
 from research.views import _sanitize_graph_payload
@@ -199,6 +201,217 @@ class GraphPayloadSanitizationTests(TestCase):
         self.assertIn("edges", payload)
         self.assertTrue(any(edge["relation"] == "modulates" for edge in payload["edges"]))
         self.assertTrue(any(edge["relation"] == "mitigates" for edge in payload["edges"]))
+
+
+class SnippetContentRenderTests(TestCase):
+    def test_plain_text_content_renders_with_line_breaks(self):
+        rendered = render_snippet_content("Line one\nLine two")
+        self.assertEqual(rendered, "Line one<br>Line two")
+
+    def test_rich_content_sanitizes_unsafe_html_and_keeps_images(self):
+        raw = (
+            '<p>Hello <strong>world</strong></p>'
+            '<img src="data:image/png;base64,AAAA" alt="x">'
+            '<script>alert(1)</script>'
+        )
+        rendered = render_snippet_content(raw)
+        self.assertIn("<strong>world</strong>", rendered)
+        self.assertIn("<img ", rendered)
+        self.assertNotIn("<script>", rendered)
+        self.assertNotIn("alert(1)", rendered)
+
+
+class SnippetContentSaveTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.author = User.objects.create_user(username="snippet_saver", password="StrongPass123!")
+        self.compound = Compound.objects.create(name="Snippet Save Compound", slug="snippet-save-compound")
+        self.client.login(username="snippet_saver", password="StrongPass123!")
+
+    def test_create_snippet_sanitizes_rich_html_content(self):
+        payload = {
+            "title": "Sanitized snippet",
+            "content": (
+                '<p>Safe <strong>text</strong></p>'
+                '<img src="data:image/png;base64,AAAA" alt="img">'
+                '<script>alert(1)</script>'
+            ),
+            "compound": str(self.compound.pk),
+            "snippet_type": "general",
+            "source_title": "",
+            "source_url": "",
+            "doi": "",
+        }
+
+        response = self.client.post(reverse("research:create_snippet"), data=payload)
+        self.assertEqual(response.status_code, 302)
+        snippet = ResearchSnippet.objects.get(title="Sanitized snippet")
+        self.assertIn("<strong>text</strong>", snippet.content)
+        self.assertIn("<img ", snippet.content)
+        self.assertNotIn("<script>", snippet.content)
+        self.assertNotIn("alert(1)", snippet.content)
+
+    def test_create_snippet_keeps_plain_text_content_unchanged(self):
+        plain_text = "Line one\nLine two"
+        payload = {
+            "title": "Plain text snippet",
+            "content": plain_text,
+            "compound": str(self.compound.pk),
+            "snippet_type": "general",
+            "source_title": "",
+            "source_url": "",
+            "doi": "",
+        }
+
+        response = self.client.post(reverse("research:create_snippet"), data=payload)
+        self.assertEqual(response.status_code, 302)
+        snippet = ResearchSnippet.objects.get(title="Plain text snippet")
+        self.assertEqual(snippet.content, plain_text)
+
+
+class SnippetDetailMetadataTests(TestCase):
+    def test_snippet_detail_og_title_uses_snippet_title(self):
+        User = get_user_model()
+        author = User.objects.create_user(username="meta_author", password="StrongPass123!")
+        compound = Compound.objects.create(name="Metadata Compound", slug="metadata-compound")
+        snippet = ResearchSnippet.objects.create(
+            title="OG Title Should Match Snippet",
+            content="Body",
+            compound=compound,
+            created_by=author,
+            visibility="public",
+            status="submitted",
+        )
+
+        response = self.client.get(reverse("research:snippet_detail", kwargs={"pk": snippet.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            '<meta property="og:title" content="OG Title Should Match Snippet">',
+            html=True,
+        )
+        self.assertContains(
+            response,
+            '<meta name="twitter:title" content="OG Title Should Match Snippet">',
+            html=True,
+        )
+
+    def test_snippet_detail_metadata_description_includes_compound_and_avoids_ai_summary(self):
+        User = get_user_model()
+        author = User.objects.create_user(username="meta_desc_author", password="StrongPass123!")
+        compound = Compound.objects.create(name="Trestolone Acetate", slug="trestolone-acetate")
+        snippet = ResearchSnippet.objects.create(
+            title="Signal pathway notes",
+            content="Body",
+            ai_summary="THIS_AI_SUMMARY_SHOULD_NOT_APPEAR",
+            compound=compound,
+            created_by=author,
+            visibility="public",
+            status="submitted",
+        )
+
+        response = self.client.get(reverse("research:snippet_detail", kwargs={"pk": snippet.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            '<meta property="og:description" content="Research snippet for Trestolone Acetate. Community findings and source context.">',
+            html=True,
+        )
+        self.assertContains(
+            response,
+            '<meta name="twitter:description" content="Research snippet for Trestolone Acetate. Community findings and source context.">',
+            html=True,
+        )
+        self.assertNotContains(response, "THIS_AI_SUMMARY_SHOULD_NOT_APPEAR")
+
+
+class SnippetDetailCommentFormTests(TestCase):
+    def test_snippet_author_page_includes_csrf_token_for_comment_form(self):
+        User = get_user_model()
+        author = User.objects.create_user(username="comment_author", password="StrongPass123!")
+        compound = Compound.objects.create(name="Comment Flow Compound", slug="comment-flow-compound")
+        snippet = ResearchSnippet.objects.create(
+            title="Comment flow snippet",
+            content="Body",
+            compound=compound,
+            created_by=author,
+            visibility="public",
+            status="submitted",
+        )
+
+        self.client.login(username="comment_author", password="StrongPass123!")
+        response = self.client.get(reverse("research:snippet_detail", kwargs={"pk": snippet.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="comment-form"', html=False)
+        self.assertContains(response, 'name="csrfmiddlewaretoken"', html=False)
+
+
+class SnippetCommentEndpointTests(TestCase):
+    def test_add_comment_response_includes_author_profile_url(self):
+        User = get_user_model()
+        author = User.objects.create_user(username="profile_link_user", password="StrongPass123!")
+        compound = Compound.objects.create(name="Comment Endpoint Compound", slug="comment-endpoint-compound")
+        snippet = ResearchSnippet.objects.create(
+            title="Endpoint snippet",
+            content="Body",
+            compound=compound,
+            created_by=author,
+            visibility="public",
+            status="submitted",
+        )
+
+        self.client.login(username="profile_link_user", password="StrongPass123!")
+        response = self.client.post(
+            reverse("research:add_snippet_comment", kwargs={"pk": snippet.pk}),
+            data=json.dumps({"content": "This is a valid test comment."}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload.get("success"))
+        self.assertEqual(
+            payload["comment"].get("author_profile_url"),
+            reverse("user_profile", kwargs={"username": author.username}),
+        )
+
+
+class CompoundSnippetOrderingTests(TestCase):
+    def test_compound_snippets_orders_by_view_count_desc(self):
+        User = get_user_model()
+        author = User.objects.create_user(username="view_sort_author", password="StrongPass123!")
+        compound = Compound.objects.create(name="View Sort Compound", slug="view-sort-compound")
+
+        low_views = ResearchSnippet.objects.create(
+            title="Lower views snippet",
+            content="Body",
+            compound=compound,
+            created_by=author,
+            visibility="public",
+            status="submitted",
+            snippet_type="general",
+            view_count=3,
+        )
+        high_views = ResearchSnippet.objects.create(
+            title="Higher views snippet",
+            content="Body",
+            compound=compound,
+            created_by=author,
+            visibility="public",
+            status="submitted",
+            snippet_type="general",
+            view_count=42,
+        )
+
+        response = self.client.get(reverse("research:compound_snippets", kwargs={"slug": compound.slug}))
+
+        self.assertEqual(response.status_code, 200)
+        snippet_groups = response.context["snippet_groups"]
+        ordered_ids = [snippet.id for group in snippet_groups.values() for snippet in group]
+        self.assertEqual(ordered_ids[:2], [high_views.id, low_views.id])
 
 
 class ResearchImportQueueSignalTests(TestCase):

@@ -1,4 +1,7 @@
 from django import template
+from django.utils.safestring import mark_safe
+
+from research.content_format import render_snippet_content as render_snippet_content_html
 
 register = template.Library()
 
@@ -29,3 +32,9 @@ def divide(value, divisor):
         return float(value) / float(divisor)
     except (ValueError, TypeError):
         return 0
+
+
+@register.filter
+def render_snippet_content(value):
+    """Render snippet content safely, supporting both legacy plain-text and sanitized rich text."""
+    return mark_safe(render_snippet_content_html(value))

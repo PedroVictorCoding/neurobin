@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
-from .models import UserProfile
+from .models import EmailVerificationToken, UserProfile
 from stacks.models import Stack
 
 class UserProfileInline(admin.StackedInline):
@@ -31,3 +31,11 @@ class UserProfileAdmin(admin.ModelAdmin):
     list_filter = ('created_at', 'updated_at')
     search_fields = ('user__username', 'user__email', 'location', 'bio')
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(EmailVerificationToken)
+class EmailVerificationTokenAdmin(admin.ModelAdmin):
+    list_display = ("user", "email", "purpose", "created_at", "expires_at", "used_at")
+    list_filter = ("purpose", "created_at", "expires_at", "used_at")
+    search_fields = ("user__username", "user__email", "email", "token")
+    readonly_fields = ("token", "created_at")

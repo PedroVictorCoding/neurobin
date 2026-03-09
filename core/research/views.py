@@ -15,6 +15,7 @@ from django.contrib import messages
 from django.http import JsonResponse, HttpResponseForbidden
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
+from django.urls import reverse
 from django.core.paginator import Paginator
 from django.db.models import Q, Count, Avg
 from django.db import transaction
@@ -990,6 +991,7 @@ def compound_snippets(request, slug):
         negative_reviews=Count('reviews', filter=Q(reviews__vote_type='reject')),
         total_reviews=Count('reviews')
     )
+    snippets = snippets.order_by('-view_count', '-created_at')
     
     # Get user's reviews for each snippet
     user_reviews = {}
@@ -1489,6 +1491,7 @@ def add_snippet_comment(request, pk):
                 'id': comment.id,
                 'content': comment.content,
                 'author': comment.author.username,
+                'author_profile_url': reverse('user_profile', kwargs={'username': comment.author.username}),
                 'created_at': comment.created_at.strftime('%b %d, %Y at %I:%M %p')
             }
         })

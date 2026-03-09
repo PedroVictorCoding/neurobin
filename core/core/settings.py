@@ -341,6 +341,25 @@ SIMPLE_JWT = {
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
 
+# Outbound email
+EMAIL_BACKEND = os.getenv(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.smtp.EmailBackend"
+    if IS_PRODUCTION
+    else "django.core.mail.backends.console.EmailBackend",
+).strip()
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Neurobin <no-reply@neurob.in>").strip()
+SERVER_EMAIL = os.getenv("SERVER_EMAIL", DEFAULT_FROM_EMAIL).strip()
+EMAIL_HOST = os.getenv("EMAIL_HOST", "127.0.0.1").strip()
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "1025"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "").strip()
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "").strip()
+EMAIL_USE_TLS = _env_bool("EMAIL_USE_TLS", IS_PRODUCTION)
+EMAIL_USE_SSL = _env_bool("EMAIL_USE_SSL", False)
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "10"))
+EMAIL_DELIVERY_ASYNC = _env_bool("EMAIL_DELIVERY_ASYNC", False)
+EMAIL_VERIFICATION_TOKEN_TTL_HOURS = int(os.getenv("EMAIL_VERIFICATION_TOKEN_TTL_HOURS", "24"))
+
 # Celery (Redis)
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', CELERY_BROKER_URL)

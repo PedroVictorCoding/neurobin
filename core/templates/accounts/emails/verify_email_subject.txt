@@ -1,0 +1,1 @@
+Verify your {{ compound_app_name }} account

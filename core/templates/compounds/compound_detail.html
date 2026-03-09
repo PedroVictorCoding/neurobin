@@ -764,7 +764,7 @@
     
     {% if research_snippets %}
       <div class="mb-3">
-        <a class="btn card btn-block btn-outline-secondary" href="{% url 'research:snippet_detail' research_snippets.0.id %}"> View All </a>
+        <a class="btn card btn-block btn-outline-secondary" href="{% url 'research:compound_snippets' compound.slug %}"> View All </a>
       </div>
       {% for snippet in research_snippets %}
         <div class="card border-secondary mb-3" style="background-color: #1a1a1a;" data-snippet-id="{{ snippet.id }}">

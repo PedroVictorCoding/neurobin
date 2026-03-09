@@ -87,7 +87,7 @@
 
                     <!-- Content Preview -->
                     <p class="card-text text-secondary mb-3 flex-grow-1">
-                      {{ snippet.content|truncatewords:20 }}
+                      {{ snippet.content|striptags|truncatewords:20 }}
                     </p>
 
                     <!-- Source Link -->

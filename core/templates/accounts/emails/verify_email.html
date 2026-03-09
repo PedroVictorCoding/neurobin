@@ -1,0 +1,6 @@
+<p>Hi {{ user.username }},</p>
+<p>Welcome to {{ compound_app_name }}.</p>
+<p>Please verify your email by opening this link:</p>
+<p><a href="{{ verify_url }}">{{ verify_url }}</a></p>
+<p>This link expires in {{ ttl_hours }} hour{{ ttl_hours|pluralize }}.</p>
+<p>If you did not create this account, you can ignore this email.</p>

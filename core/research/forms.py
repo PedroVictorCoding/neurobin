@@ -7,6 +7,7 @@ from .models import (
     ResearchSettings
 )
 from compounds.models import Compound
+from .content_format import normalize_snippet_content
 
 
 class ResearchSnippetForm(forms.ModelForm):
@@ -60,6 +61,9 @@ class ResearchSnippetForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         # Order compounds alphabetically
         self.fields['compound'].queryset = Compound.objects.all().order_by('name')
+
+    def clean_content(self):
+        return normalize_snippet_content(self.cleaned_data.get('content'))
 
 
 class SnippetReviewForm(forms.ModelForm):

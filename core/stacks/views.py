@@ -1579,24 +1579,38 @@ class StackBuilderView(LoginRequiredMixin, TemplateView):
                     if 'agonist' in action:
                         progestogenic = max(progestogenic, 50)
 
-            hepato      = max(0, (safety.liver_toxicity      - 1) * 25) if (safety and safety.liver_toxicity)      else 0
-            suppression = max(0, (safety.hpta_suppression    - 1) * 25) if (safety and safety.hpta_suppression)    else 0
-            cardio      = max(0, (safety.cardiovascular_risk - 1) * 25) if (safety and safety.cardiovascular_risk) else 0
-            neuro       = max(0, (safety.neurotoxicity       - 1) * 25) if (safety and safety.neurotoxicity)       else 0
+            # Keep this as a centered delta scale where 1 == neutral (0),
+            # >1 increases stress, and values below 1 can represent protection.
+            hepato      = (float(safety.liver_toxicity)      - 1.0) * 25.0 if (safety and safety.liver_toxicity is not None)      else 0.0
+            suppression = (float(safety.hpta_suppression)    - 1.0) * 25.0 if (safety and safety.hpta_suppression is not None)    else 0.0
+            cardio      = (float(safety.cardiovascular_risk) - 1.0) * 25.0 if (safety and safety.cardiovascular_risk is not None) else 0.0
+            neuro       = (float(safety.neurotoxicity)       - 1.0) * 25.0 if (safety and safety.neurotoxicity is not None)       else 0.0
+            kidney      = (float(safety.kidney_toxicity)     - 1.0) * 25.0 if (safety and safety.kidney_toxicity is not None)     else 0.0
+            lung        = (float(safety.lung_toxicity)       - 1.0) * 25.0 if (safety and safety.lung_toxicity is not None)       else 0.0
+            pancreas    = (float(safety.pancreas_toxicity)   - 1.0) * 25.0 if (safety and safety.pancreas_toxicity is not None)   else 0.0
+            bladder     = (float(safety.bladder_toxicity)    - 1.0) * 25.0 if (safety and safety.bladder_toxicity is not None)    else 0.0
 
-            if not safety or not safety.liver_toxicity or safety.liver_toxicity <= 2:
-                hh = 'safe'
-            elif safety.liver_toxicity <= 3:
-                hh = 'caution'
-            else:
-                hh = 'contra'
+            # General safety score (0–100) — composite across all organ/system risk fields.
+            # hh classification is deferred to the frontend so it can scale by actual dose.
+            safety_score = max(hepato, cardio, neuro, suppression, kidney, lung, pancreas, bladder)
 
             # DB-precomputed taxonomy sub IDs (from populate_builder_tags)
             db_subs = [t.sub_id for t in c.taxonomy_tags.all()]
 
-            # Test equivalent: anabolic_rating / 100 (testosterone = 1.0)
-            # Only non-zero for compounds with actual steroid ratings in DB
-            test_equiv = round(anabolic / 100.0, 2) if anabolic > 0 else 0.0
+            std_dose = float(c.standard_dose) if c.standard_dose else None
+            # ester_ratio: fraction of active (free-base) hormone per mg of ester
+            # compound.  1.0 for oral / ester-free compounds.
+            ester_ratio = float(rating.ester_ratio) if (rating and rating.ester_ratio is not None) else 1.0
+
+            # Test equivalent (mg-eq free testosterone per mg of compound):
+            #   anabolic_rating / 100  → potency relative to testosterone at the receptor
+            #   × ester_ratio          → fraction that is actually active hormone after
+            #                            the ester chain is cleaved in vivo
+            # Example: 200 mg Testosterone Enanthate
+            #   = 200 × (100/100) × 0.720 = 144 mg-eq free testosterone
+            # Example: 200 mg Trenbolone Acetate
+            #   = 200 × (500/100) × 0.865 = 865 mg-eq free testosterone
+            test_equiv = round((anabolic / 100.0) * ester_ratio, 4) if anabolic > 0 else 0.0
 
             compounds_data.append({
                 'id': c.pk,
@@ -1607,8 +1621,10 @@ class StackBuilderView(LoginRequiredMixin, TemplateView):
                 'dbCats': cats,
                 'dbSubs': db_subs,          # pre-computed taxonomy from DB
                 'moa': mechanisms_list[:12],
-                'defaultDose': 100,
-                'unit': 'mg',
+                'defaultDose': std_dose or 100,
+                'standardDose': std_dose,   # stored as free-base equivalent mg for AAS
+                'esterRatio': ester_ratio,
+                'unit': c.standard_dose_unit or 'mg',
                 'testEquiv': test_equiv,
                 'props': {
                     'anabolic': round(anabolic, 1),
@@ -1616,11 +1632,15 @@ class StackBuilderView(LoginRequiredMixin, TemplateView):
                     'estrogenic': estrogenic,
                     'progestogenic': progestogenic,
                     'hepato': hepato,
+                    'kidney': kidney,
                     'suppression': suppression,
                     'cardio': cardio,
                     'neuro': neuro,
+                    'lung': lung,
+                    'pancreas': pancreas,
+                    'bladder': bladder,
+                    'safetyScore': safety_score,
                 },
-                'hh': hh,
                 'notes': (c.description[:200] if c.description else ''),
             })
 

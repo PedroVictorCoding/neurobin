@@ -1,12 +1,13 @@
 {% extends "base.html" %}
+{% load research_extras %}
 {% block title %}{{ snippet.title }} — Research — Neurobin{% endblock %}
 {% block meta_description1 %}Research snapshot on {{ snippet.compound.name }}. Open for the key finding and source link.{% endblock %}
-{% block og_title %}{{ snippet.compound.name }}: Research Snapshot{% endblock %}
-{% block og_description %}{{ snippet.ai_summary|default:snippet.title|striptags|truncatechars:120 }}{% endblock %}
+{% block og_title %}{{ snippet.title }}{% endblock %}
+{% block og_description %}Research snippet for {{ snippet.compound.name }}. Community findings and source context.{% endblock %}
 {% block og_type %}article{% endblock %}
 {% block twitter_card %}summary{% endblock %}
-{% block twitter_title %}{{ snippet.compound.name }}: Research Snapshot{% endblock %}
-{% block twitter_description %}{{ snippet.ai_summary|default:snippet.title|striptags|truncatechars:120 }}{% endblock %}
+{% block twitter_title %}{{ snippet.title }}{% endblock %}
+{% block twitter_description %}Research snippet for {{ snippet.compound.name }}. Community findings and source context.{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
@@ -120,7 +121,7 @@
             <h6 class="text-white mb-3 fw-bold">
                 <i class="fas fa-lightbulb text-info"></i> Snippet
             </h6>
-            <div class="text-white" style="line-height: 1.8; white-space: pre-wrap; margin-left: 10px;">{{ snippet.content }}</div>
+            <div class="text-white snippet-content-rendered" style="line-height: 1.8; margin-left: 10px;">{{ snippet.content|render_snippet_content }}</div>
           </div>
 
           <!-- Source Information -->
@@ -386,6 +387,7 @@
           {% if user.is_authenticated %}
             <div class="mb-4">
               <form class="comment-form">
+                {% csrf_token %}
                 <div class="mb-3">
                   <label class="form-label text-light">
                     <i class="fas fa-comment"></i> Share your thoughts about this research
@@ -414,7 +416,9 @@
             {% for comment in snippet.comments.all %}
               <div class="comment mb-3 p-3 bg-dark rounded">
                 <div class="d-flex justify-content-between align-items-start">
-                  <strong class="text-info">{{ comment.author.username }}</strong>
+                  <a href="{% url 'user_profile' comment.author.username %}" class="text-info text-decoration-none fw-semibold">
+                    {{ comment.author.username }}
+                  </a>
                   <small class="text-muted">{{ comment.created_at|date:"M d, Y \a\t g:i A" }}</small>
                 </div>
                 <div class="text-light mt-2" style="line-height: 1.6;">{{ comment.content }}</div>
@@ -614,6 +618,14 @@
 .comment-input:focus {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.1);
+}
+
+.snippet-content-rendered img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  display: block;
+  margin: 0.65rem 0;
 }
 
 .submit-comment-btn {
@@ -857,9 +869,15 @@ document.querySelectorAll('.comment-form').forEach(form => {
     const commentInput = this.querySelector('.comment-input');
     const submitBtn = this.querySelector('.submit-comment-btn');
     const content = commentInput.value.trim();
+    const csrfInput = this.querySelector('[name=csrfmiddlewaretoken]');
+    const csrfToken = csrfInput?.value || document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
     
     if (!content || content.length < 5) {
       alert('Comment must be at least 5 characters long');
+      return;
+    }
+    if (!csrfToken) {
+      alert('Security token missing. Please refresh the page and try again.');
       return;
     }
     
@@ -872,25 +890,25 @@ document.querySelectorAll('.comment-form').forEach(form => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        'X-CSRFToken': csrfToken
       },
       body: JSON.stringify({
         content: content
       })
     })
-    .then(response => response.json())
+    .then(response => response.json().then(data => ({ ok: response.ok, status: response.status, data })))
     .then(data => {
-      if (data.success) {
+      if (data.ok && data.data.success) {
         // Add new comment to the list
         const commentsList = document.querySelector(`.comments-list[data-snippet-id="${snippetId}"]`);
         const newComment = document.createElement('div');
         newComment.className = 'comment mb-3 p-3 rounded';
         newComment.innerHTML = `
           <div class="d-flex justify-content-between align-items-start">
-            <strong class="text-info">${data.comment.author}</strong>
+            <a href="${data.data.comment.author_profile_url}" class="text-info text-decoration-none fw-semibold">${data.data.comment.author}</a>
             <small class="text-muted">now</small>
           </div>
-          <div class="text-light mt-2" style="line-height: 1.6;">${data.comment.content}</div>
+          <div class="text-light mt-2" style="line-height: 1.6;">${data.data.comment.content}</div>
         `;
         
         // Remove empty state if it exists
@@ -906,7 +924,7 @@ document.querySelectorAll('.comment-form').forEach(form => {
         commentInput.value = '';
         
       } else {
-        alert(data.error || 'Error submitting comment');
+        alert(data.data?.error || `Error submitting comment (${data.status})`);
       }
       
       // Re-enable form

@@ -145,7 +145,7 @@
 
             <!-- Content Preview -->
             <p class="card-text text-light mb-3 flex-grow-1" style="line-height: 1.6;">
-              {{ snippet.content|truncatewords:200 }}...
+              {{ snippet.content|striptags|truncatewords:200 }}...
             </p>
 
             <!-- Tags -->

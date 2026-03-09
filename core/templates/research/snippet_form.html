@@ -84,7 +84,7 @@
               </label>
               {{ form.content }}
               <div class="form-text text-muted small">
-                Provide detailed research findings, observations, or data. Include specific information that would be valuable to other researchers.
+                Provide detailed research findings, observations, or data. You can paste screenshots/images directly into the editor inline.
               </div>
               {% if form.content.errors %}
                 {% for error in form.content.errors %}
@@ -203,15 +203,137 @@
   </div>
 </div>
 
+<style>
+.snippet-content-editor {
+  min-height: 220px;
+  max-height: 70vh;
+  overflow-y: auto;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.snippet-content-editor:focus {
+  border-color: var(--accent-primary) !important;
+  box-shadow: 0 0 0 0.2rem var(--accent-glow) !important;
+}
+
+.snippet-content-editor[data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.snippet-content-editor img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  margin: 0.5rem 0;
+  display: block;
+}
+</style>
+
 <script>
+const form = document.querySelector('form');
+const contentField = document.querySelector('#id_content');
+let contentEditor = null;
+
+function looksLikeRichHtml(value) {
+  return /<\/?[a-z][\w:-]*\b[^>]*>/i.test(value || '');
+}
+
+function insertNodeAtCursor(node) {
+  if (!contentEditor) return;
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount) {
+    contentEditor.appendChild(node);
+    return;
+  }
+  const range = selection.getRangeAt(0);
+  range.deleteContents();
+  range.insertNode(node);
+  range.setStartAfter(node);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function serializeEditorContent() {
+  if (!contentEditor) return contentField ? contentField.value : '';
+  const hasRichNodes = contentEditor.querySelector(
+    'img,strong,b,em,i,u,a,ul,ol,li,blockquote,code,pre,h1,h2,h3,h4,h5,h6,p,hr'
+  );
+  if (!hasRichNodes) {
+    return contentEditor.innerText.replace(/\r\n/g, '\n').replace(/\u00A0/g, ' ').trimEnd();
+  }
+  return contentEditor.innerHTML.trim();
+}
+
+function syncContentField(emitInput = false) {
+  if (!contentField) return;
+  contentField.value = serializeEditorContent();
+  if (emitInput) {
+    contentField.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+}
+
+function setEditorValue(rawValue) {
+  if (!contentEditor || !contentField) return;
+  const value = rawValue || '';
+  if (looksLikeRichHtml(value)) {
+    contentEditor.innerHTML = value;
+  } else {
+    contentEditor.textContent = value;
+  }
+  syncContentField(true);
+}
+
+function initSnippetContentEditor() {
+  if (!contentField) return;
+  contentEditor = document.createElement('div');
+  contentEditor.id = 'id_content_editor';
+  contentEditor.className = 'form-control bg-dark text-light snippet-content-editor';
+  contentEditor.contentEditable = 'true';
+  contentEditor.dataset.placeholder = contentField.getAttribute('placeholder') || 'Write your research snippet...';
+
+  contentField.insertAdjacentElement('afterend', contentEditor);
+  contentField.style.display = 'none';
+  setEditorValue(contentField.value);
+
+  contentEditor.addEventListener('input', () => syncContentField(true));
+
+  contentEditor.addEventListener('paste', (event) => {
+    const items = Array.from(event.clipboardData?.items || []);
+    const imageItems = items.filter(item => item.type && item.type.startsWith('image/'));
+    if (!imageItems.length) {
+      return;
+    }
+    event.preventDefault();
+    imageItems.forEach(item => {
+      const file = item.getAsFile();
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (loadEvent) => {
+        const img = document.createElement('img');
+        img.src = String(loadEvent.target?.result || '');
+        img.alt = 'Pasted image';
+        insertNodeAtCursor(img);
+        insertNodeAtCursor(document.createElement('br'));
+        syncContentField(true);
+      };
+      reader.readAsDataURL(file);
+    });
+  });
+}
+
+initSnippetContentEditor();
+
 // Auto-save draft functionality (for create form only)
 {% if not snippet %}
 let autoSaveTimer;
-const form = document.querySelector('form');
 const inputs = form.querySelectorAll('input, textarea, select');
 
 function autoSave() {
-  // Simple localStorage backup
+  syncContentField();
   const formData = {};
   inputs.forEach(input => {
     if (input.name && input.value) {
@@ -221,7 +343,6 @@ function autoSave() {
   localStorage.setItem('research_snippet_draft', JSON.stringify(formData));
 }
 
-// Load saved draft
 window.addEventListener('load', () => {
   const saved = localStorage.getItem('research_snippet_draft');
   if (saved) {
@@ -233,37 +354,40 @@ window.addEventListener('load', () => {
           input.value = data[key];
         }
       });
+      if (Object.prototype.hasOwnProperty.call(data, 'content')) {
+        setEditorValue(data.content);
+      }
     } catch (e) {
       console.error('Error loading draft:', e);
     }
   }
 });
 
-// Auto-save on input
 inputs.forEach(input => {
   input.addEventListener('input', () => {
     clearTimeout(autoSaveTimer);
-    autoSaveTimer = setTimeout(autoSave, 2000); // Save after 2 seconds of no typing
+    autoSaveTimer = setTimeout(autoSave, 2000);
   });
 });
 
-// Clear draft on successful submit
 form.addEventListener('submit', () => {
+  syncContentField();
   localStorage.removeItem('research_snippet_draft');
 });
+{% else %}
+form?.addEventListener('submit', () => syncContentField());
 {% endif %}
 
-// Character counter for content field
-const contentField = document.querySelector('#id_content');
+// Character counter for content field (counts readable text, not HTML/base64 payload)
 if (contentField) {
   const counter = document.createElement('div');
   counter.className = 'form-text text-secondary text-end';
-  contentField.parentNode.appendChild(counter);
-  
+  (contentEditor || contentField).parentNode.appendChild(counter);
+
   function updateCounter() {
-    const length = contentField.value.length;
+    const length = (contentEditor ? contentEditor.innerText : contentField.value).trim().length;
     counter.textContent = `${length} characters`;
-    
+
     if (length < 100) {
       counter.className = 'form-text text-warning text-end';
     } else if (length > 2000) {
@@ -272,7 +396,7 @@ if (contentField) {
       counter.className = 'form-text text-secondary text-end';
     }
   }
-  
+
   contentField.addEventListener('input', updateCounter);
   updateCounter();
 }

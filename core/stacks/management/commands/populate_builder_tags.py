@@ -19,43 +19,77 @@ from stacks.models import CompoundTaxonomyTag
 
 # ── Known AAS steroid ratings (relative to testosterone = 100) ────────────────
 # Source: clinical pharmacology / standard reference tables
-# (anabolic_rating, androgenic_rating)
+# Tuple: (anabolic_rating, androgenic_rating, ester_ratio)
+#
+# ester_ratio = free_hormone_MW / ester_compound_MW
+#   Oral / ester-free compounds always = 1.0000
+#
+# Key free-hormone molecular weights (g/mol):
+#   Testosterone  288.43   Nandrolone   274.40   Trenbolone   270.37
+#   Boldenone     286.41   Drostanolone 304.47   Methenolone  302.46
+#   Trestolone    286.41   Clostebol    306.44
 STEROID_RATINGS = {
-    # Testosterone esters – all share the same base rating
-    'TESTOSTERONE PROPIONATE':           (100, 100),
-    'TESTOSTERONE ENANTHATE':            (100, 100),
-    'TESTOSTERONE CYPIONATE':            (100, 100),
-    'TESTOSTERONE UNDECANOATE':          (100, 100),
-    'TESTOSTERONE':                      (100, 100),
-    # 19-nor androgens
-    'NANDROLONE DECANOATE':              (125,  37),
-    'NANDROLONE PHENYLPROPIONATE':       (125,  37),
-    'NANDROLONE':                        (125,  37),
-    'TRENBOLONE ACETATE':                (500, 500),
-    'TRENBOLONE ENANTHATE':              (500, 500),
-    'TRENBOLONE':                        (500, 500),
-    # DHT-derived
-    'STANOZOLOL':                        (320,  30),
-    'OXANDROLONE':                       (400,  24),
-    'OXYMETHOLONE':                      (320,  45),
-    'DROSTANOLONE PROPIONATE':           ( 62,  25),
-    'DROSTANOLONE ENANTHATE':            ( 62,  25),
-    'DROSTANOLONE':                      ( 62,  25),
-    'METHENOLONE ENANTHATE':             ( 88,  44),
-    'METHENOLONE ACETATE':               ( 88,  44),
-    'METHENOLONE':                       ( 88,  44),
-    'FLUOXYMESTERONE':                   (1900, 850),
-    'MESTEROLONE':                       ( 40,  30),
-    'CLOSTEBOL':                         ( 25,   7),
-    # Alkylated / mixed
-    'METHANDROSTENOLONE':                (210,  60),
-    'METHYLTESTOSTERONE':                (115, 115),
-    'BOLDENONE UNDECYLENATE':            (100,  50),
-    'BOLDENONE':                         (100,  50),
-    'EPITESTOSTERONE':                   ( 10,  10),
-    # Newer / research
-    'TRESTOLONE ACETATE':                (2300, 650),
-    'TRESTOLONE':                        (2300, 650),
+    # NOTE: dict is ordered base-forms FIRST, specific esters SECOND.
+    # _populate_steroid_ratings iterates in insertion order and uses icontains
+    # as fallback, so base-form entries (ester_ratio=1.0) are applied first and
+    # then overwritten by the more specific ester entries below.
+    #
+    # ── Base / free forms (set default ratings; ester_ratio = 1.0) ───────────
+    'TESTOSTERONE':         (100, 100, 1.0000),
+    'SUSTANON':             (100, 100, 0.7076),  # blend avg
+    'NANDROLONE':           (125,  37, 1.0000),
+    'TRENBOLONE':           (500, 500, 1.0000),
+    'BOLDENONE':            (100,  50, 1.0000),
+    'DROSTANOLONE':         ( 62,  25, 1.0000),
+    'METHENOLONE':          ( 88,  44, 1.0000),
+    'TRESTOLONE':           (2300, 650, 1.0000),
+    # ── Oral / ester-free (no overwrite needed; always 1.0) ──────────────────
+    'STANOZOLOL':           (320,  30, 1.0000),
+    'OXANDROLONE':          (400,  24, 1.0000),
+    'OXYMETHOLONE':         (320,  45, 1.0000),
+    'FLUOXYMESTERONE':      (1900, 850, 1.0000),
+    'MESTEROLONE':          ( 40,  30, 1.0000),
+    'CLOSTEBOL':            ( 25,   7, 1.0000),
+    'EPITESTOSTERONE':      ( 10,  10, 1.0000),
+    'METHANDROSTENOLONE':   (210,  60, 1.0000),
+    'METHYLTESTOSTERONE':   (115, 115, 1.0000),
+    'METHASTERONE':         (400, 200, 1.0000),  # Superdrol
+    'DIMETHYLTRIENOLONE':   (10000, 1000, 1.0000),
+    # ── Specific ester forms (overwrite the base entries above) ──────────────
+    # ester_ratio = free_hormone_MW / ester_compound_MW
+    #
+    # Testosterone esters  (free MW 288.43)
+    'TESTOSTERONE ACETATE':                 (100, 100, 0.8729),  # MW 330.45
+    'TESTOSTERONE SUSPENSION':              (100, 100, 1.0000),  # aqueous – no ester
+    'TESTOSTERONE PROPIONATE':              (100, 100, 0.8374),  # MW 344.49
+    'TESTOSTERONE PHENYLPROPIONATE':        (100, 100, 0.6857),  # MW 420.58
+    'TESTOSTERONE ISOCAPROATE':             (100, 100, 0.7129),  # MW 404.58
+    'TESTOSTERONE ENANTHATE':              (100, 100, 0.7200),  # MW 400.60
+    'TESTOSTERONE CYPIONATE':              (100, 100, 0.6990),  # MW 412.61
+    'TESTOSTERONE DECANOATE':              (100, 100, 0.6290),  # MW 458.67
+    'TESTOSTERONE UNDECANOATE':            (100, 100, 0.6103),  # MW 472.69
+    # Nandrolone esters  (free MW 274.40)
+    'NANDROLONE PHENYLPROPIONATE':         (125,  37, 0.6748),  # MW 406.57
+    'NANDROLONE DECANOATE':                (125,  37, 0.6402),  # MW 428.65
+    'NANDROLONE UNDECANOATE':              (125,  37, 0.6268),  # MW 437.66
+    # Trenbolone esters  (free MW 270.37)
+    'TRENBOLONE ACETATE':                  (500, 500, 0.8654),  # MW 312.41
+    'TRENBOLONE ENANTHATE':                (500, 500, 0.7068),  # MW 382.54
+    'TRENBOLONE HEXAHYDROBENZYLCARBONATE': (500, 500, 0.6585),  # MW 410.57 Parabolan
+    'TRENBOLONE CYCLOHEXYLMETHYLCARBONATE':(500, 500, 0.6585),
+    # Boldenone esters  (free MW 286.41)
+    'BOLDENONE UNDECYLENATE':              (100,  50, 0.6329),  # MW 452.67 Equipoise
+    'BOLDENONE CYPIONATE':                 (100,  50, 0.6945),  # MW 412.61
+    # Drostanolone esters  (free MW 304.47)
+    'DROSTANOLONE PROPIONATE':             ( 62,  25, 0.8446),  # MW 360.53 Masteron P
+    'DROSTANOLONE ENANTHATE':              ( 62,  25, 0.7308),  # MW 416.64 Masteron E
+    # Methenolone esters  (free MW 302.46)
+    'METHENOLONE ACETATE':                 ( 88,  44, 0.8780),  # MW 344.49 oral Primo
+    'METHENOLONE ENANTHATE':               ( 88,  44, 0.7296),  # MW 414.62 injectable
+    # Clostebol ester
+    'CLOSTEBOL ACETATE':                   ( 25,   7, 0.8399),  # MW 364.90
+    # Trestolone ester  (free MW 286.41)
+    'TRESTOLONE ACETATE':                  (2300, 650, 0.8718),  # MW 328.45
 }
 
 
@@ -456,16 +490,16 @@ class Command(BaseCommand):
     def _populate_steroid_ratings(self):
         self.stdout.write('Populating steroid ratings…')
         created = updated = 0
-        for name_key, (anabolic, androgenic) in STEROID_RATINGS.items():
+        for name_key, (anabolic, androgenic, ester_ratio) in STEROID_RATINGS.items():
             compounds = Compound.objects.filter(name__iexact=name_key)
             if not compounds.exists():
-                # Fallback: case-insensitive contains
                 compounds = Compound.objects.filter(name__icontains=name_key)
             for compound in compounds:
                 obj, was_created = CompoundSteroidRating.objects.get_or_create(compound=compound)
-                obj.anabolic_rating  = anabolic
+                obj.anabolic_rating   = anabolic
                 obj.androgenic_rating = androgenic
-                obj.save(update_fields=['anabolic_rating', 'androgenic_rating'])
+                obj.ester_ratio       = ester_ratio
+                obj.save(update_fields=['anabolic_rating', 'androgenic_rating', 'ester_ratio'])
                 if was_created:
                     created += 1
                 else:

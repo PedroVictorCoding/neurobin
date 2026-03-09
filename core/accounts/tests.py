@@ -1,11 +1,19 @@
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.core import mail
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from datetime import timedelta
 from stacks.models import Stack
 from logs.models import BloodworkEntry, BloodworkMeasurement, UserGoal, UserGoalCompletion
+from accounts.models import EmailVerificationToken
 
 
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    EMAIL_DELIVERY_ASYNC=False,
+    EMAIL_VERIFICATION_TOKEN_TTL_HOURS=24,
+)
 class RegistrationTests(TestCase):
     def test_registration_requires_email(self):
         response = self.client.post(
@@ -20,7 +28,7 @@ class RegistrationTests(TestCase):
         self.assertContains(response, "Email")
         self.assertFalse(User.objects.filter(username="noemailuser").exists())
 
-    def test_registration_saves_email(self):
+    def test_registration_creates_inactive_user_and_sends_verification_email(self):
         response = self.client.post(
             reverse("register"),
             data={
@@ -30,9 +38,81 @@ class RegistrationTests(TestCase):
                 "password2": "StrongPass123!",
             },
         )
-        self.assertRedirects(response, reverse("login"))
+        self.assertRedirects(response, reverse("verify_email_sent"))
         user = User.objects.get(username="emailuser")
         self.assertEqual(user.email, "emailuser@example.com")
+        self.assertFalse(user.is_active)
+        token = EmailVerificationToken.objects.get(user=user, purpose=EmailVerificationToken.PURPOSE_REGISTRATION)
+        self.assertEqual(token.email, user.email)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(str(token.token), mail.outbox[0].body)
+        self.assertIn("verify your", mail.outbox[0].subject.lower())
+
+    def test_registration_rejects_duplicate_email(self):
+        User.objects.create_user(
+            username="first",
+            email="existing@example.com",
+            password="StrongPass123!",
+        )
+        response = self.client.post(
+            reverse("register"),
+            data={
+                "username": "second",
+                "email": "existing@example.com",
+                "password1": "StrongPass123!",
+                "password2": "StrongPass123!",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "An account with this email already exists.")
+        self.assertFalse(User.objects.filter(username="second").exists())
+
+    def test_verify_email_activates_account(self):
+        user = User.objects.create_user(
+            username="verify_user",
+            email="verify@example.com",
+            password="StrongPass123!",
+            is_active=False,
+        )
+        token = EmailVerificationToken.objects.create(
+            user=user,
+            email=user.email,
+            purpose=EmailVerificationToken.PURPOSE_REGISTRATION,
+            expires_at=timezone.now() + timedelta(hours=2),
+        )
+
+        response = self.client.get(reverse("verify_email", kwargs={"token": token.token}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Email verified")
+        user.refresh_from_db()
+        token.refresh_from_db()
+        self.assertTrue(user.is_active)
+        self.assertIsNotNone(token.used_at)
+
+    def test_verify_email_rejects_expired_token(self):
+        user = User.objects.create_user(
+            username="expired_user",
+            email="expired@example.com",
+            password="StrongPass123!",
+            is_active=False,
+        )
+        token = EmailVerificationToken.objects.create(
+            user=user,
+            email=user.email,
+            purpose=EmailVerificationToken.PURPOSE_REGISTRATION,
+            expires_at=timezone.now() - timedelta(minutes=1),
+        )
+
+        response = self.client.get(reverse("verify_email", kwargs={"token": token.token}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "invalid or expired")
+        user.refresh_from_db()
+        token.refresh_from_db()
+        self.assertFalse(user.is_active)
+        self.assertIsNone(token.used_at)
 
 
 class ProfileDashboardStackToggleTests(TestCase):
