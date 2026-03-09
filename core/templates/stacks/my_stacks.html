@@ -91,7 +91,29 @@
       </div>
     {% endfor %}
   {% else %}
-    <div class="alert alert-info">You have no stacks yet.</div>
+    {% if goal_traits %}
+      <div class="mb-4">
+        <h5 class="text-light mb-1">What's your goal?</h5>
+        <p class="text-muted small mb-3">Pick one to create a starter stack, or name your own above.</p>
+        <div class="row g-2">
+          {% for trait in goal_traits %}
+            <div class="col-6 col-md-4 col-lg-3">
+              <form method="post" class="h-100">
+                {% csrf_token %}
+                <input type="hidden" name="goal_slug" value="{{ trait.slug }}">
+                <button type="submit" name="create_for_goal" class="btn btn-outline-secondary w-100 h-100 py-3 text-start">
+                  <div class="fw-semibold text-light">{{ trait.label }}</div>
+                  {% if trait.description %}
+                    <div class="small text-muted mt-1">{{ trait.description|truncatechars:60 }}</div>
+                  {% endif %}
+                </button>
+              </form>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+    <div class="alert alert-info">You have no stacks yet. Create one above{% if goal_traits %} or choose a goal to get started{% endif %}.</div>
   {% endif %}
 </div>
 {% include "stacks/_share_clipboard_script.html" %}

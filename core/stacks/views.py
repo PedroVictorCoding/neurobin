@@ -415,6 +415,13 @@ class MyStacksView(LoginRequiredMixin, TemplateView):
             context = self.get_context_data(**kwargs)
             context['form'] = form
             return self.render_to_response(context)
+        elif 'create_for_goal' in request.POST:
+            goal_slug = (request.POST.get('goal_slug') or '').strip()
+            trait = StackTrait.objects.filter(slug=goal_slug, is_active=True).first()
+            if trait:
+                stack = Stack.objects.create(user=request.user, name=trait.label)
+                return redirect('stack_detail', stack_id=stack.id)
+            return redirect('my_stacks')
         elif 'delete_stack' in request.POST:
             stack_id = request.POST.get('stack_id')
             stack = Stack.objects.filter(id=stack_id, user=request.user).first()
@@ -449,6 +456,13 @@ class MyStacksView(LoginRequiredMixin, TemplateView):
         )
         for s in context['stacks']:
             s.risk = _safe_get_risk_assessment(s)
+        if not context['stacks']:
+            context['goal_traits'] = list(
+                StackTrait.objects.filter(trait_type='benefit', is_active=True)
+                .order_by('display_order', 'label')[:8]
+            )
+        else:
+            context['goal_traits'] = []
         return context
 
 
@@ -826,6 +840,20 @@ class StackDetailView(LoginRequiredMixin, TemplateView):
         )
 
         stack_compound_ids = [item.compound_id for item in context['items']]
+
+        # Dangerous pair check — surface any active rules where both compounds are in the stack.
+        from .models import StackDangerousPairRule
+        if len(stack_compound_ids) >= 2:
+            context['dangerous_pairs'] = list(
+                StackDangerousPairRule.objects.filter(
+                    is_active=True,
+                    compound_a_id__in=stack_compound_ids,
+                    compound_b_id__in=stack_compound_ids,
+                ).select_related('compound_a', 'compound_b')
+            )
+        else:
+            context['dangerous_pairs'] = []
+
         if stack_compound_ids:
             context['stack_trait_sheet'] = analyze_stack_character_sheet(
                 compound_ids=stack_compound_ids,
@@ -990,8 +1018,23 @@ class StackScheduleView(LoginRequiredMixin, TemplateView):
 
         schedule_entries.sort(key=_entry_time)
 
+        # Adherence summary: scheduled (non-unstacked) entries vs taken ones.
+        scheduled_entries = [
+            e for e in schedule_entries
+            if not (isinstance(e, dict) and e.get('is_unstacked'))
+        ]
+        adherence_taken = sum(
+            1 for e in scheduled_entries
+            if (isinstance(e, dict) and e.get('is_taken')) or (not isinstance(e, dict) and getattr(e, 'is_taken', False))
+        )
+        adherence_due = len(scheduled_entries)
+        adherence_pct = int(adherence_taken / adherence_due * 100) if adherence_due else 0
+
         context['occurrences'] = occurrences[:200]
         context['schedule_entries'] = schedule_entries[:200]
+        context['adherence_taken'] = adherence_taken
+        context['adherence_due'] = adherence_due
+        context['adherence_pct'] = adherence_pct
         context['calendar'] = _build_calendar_context(
             occurrences=occurrences,
             period=period,

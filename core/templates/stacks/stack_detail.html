@@ -109,6 +109,21 @@
     </form>
   </div>
 
+  {% if dangerous_pairs %}
+  <div class="alert alert-danger mb-3 py-2">
+    <strong><i class="fas fa-exclamation-triangle me-1"></i>Dangerous Interactions Detected</strong>
+    <ul class="mb-0 mt-1 ps-3">
+      {% for pair in dangerous_pairs %}
+        <li class="small">
+          <strong>{{ pair.compound_a.name }}</strong> + <strong>{{ pair.compound_b.name }}</strong>
+          <span class="badge bg-danger ms-1">{{ pair.severity }}</span>
+          {% if pair.reason %} — {{ pair.reason }}{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
   {% if stack_risk %}
     {% include "stacks/_risk_panel.html" %}
   {% endif %}

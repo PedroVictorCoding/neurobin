@@ -16,6 +16,21 @@
     Shows scheduled doses from stacks marked <strong>Active</strong>, plus any logged intakes that aren't in a stack for this day. Items without a first time will appear automatically and can be refined in <a href="{% url 'my_stacks' %}">My Stacks</a>.
   </div>
 
+  {% if adherence_due > 0 %}
+  <div class="mb-3 d-flex align-items-center gap-3">
+    <div class="flex-grow-1">
+      <div class="d-flex justify-content-between mb-1">
+        <small class="text-muted">Today's progress</small>
+        <small class="fw-bold {% if adherence_pct == 100 %}text-success{% else %}text-light{% endif %}">{{ adherence_taken }}/{{ adherence_due }}</small>
+      </div>
+      <div class="progress" style="height: 8px;">
+        <div class="progress-bar {% if adherence_pct == 100 %}bg-success{% elif adherence_pct >= 50 %}bg-info{% else %}bg-warning{% endif %}" role="progressbar" style="width: {{ adherence_pct }}%;" aria-valuenow="{{ adherence_pct }}" aria-valuemin="0" aria-valuemax="100"></div>
+      </div>
+    </div>
+    {% if adherence_pct == 100 %}<span class="badge bg-success text-nowrap">All done!</span>{% endif %}
+  </div>
+  {% endif %}
+
   {% if schedule_entries %}
     <div class="table-responsive stack-table d-none d-md-block">
       <table class="table table-dark table-striped align-middle">
