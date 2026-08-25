@@ -68,6 +68,23 @@
         {% endif %}
       </div>
 
+      {% with overload=stack_risk.details.enzymatic_overload %}
+        {% if overload.pathway_count %}
+          <div class="alert {% if overload.level == 'high' %}alert-danger{% elif overload.level == 'moderate' %}alert-warning{% else %}alert-info{% endif %} mb-3">
+            <div class="fw-semibold">Enzymatic overload: {{ overload.level|title }}</div>
+            <div class="small mb-2">{{ overload.pathway_count }} shared CYP pathway{{ overload.pathway_count|pluralize }} detected. {{ overload.disclaimer }}</div>
+            <ul class="mb-0 ps-3 small">
+              {% for pathway in overload.pathways|slice:":5" %}
+                <li>
+                  <strong>{{ pathway.enzyme }}</strong> — {{ pathway.compound_count }} compounds, score {{ pathway.score|floatformat:2 }}:
+                  {% for contributor in pathway.contributors %}{{ contributor.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+      {% endwith %}
+
       <div class="row g-3">
         <div class="col-12 col-lg-6">
           <div class="border border-secondary rounded p-3 h-100" style="background: rgba(0,0,0,0.15);">
