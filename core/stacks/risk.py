@@ -14,7 +14,11 @@ TOX_ENDPOINTS = ("DILI", "AMES", "ClinTox", "Carcinogens_Lagunin")
 ABS_ENDPOINTS = ("Bioavailability_Ma", "HIA_Hou")
 BBB_ENDPOINTS = ("BBB_Martins",)
 RISK_CURVE_GAMMA = 2.2
-STACK_RISK_SCORE_VERSION = "stack-risk-log-v2"
+STACK_RISK_SCORE_VERSION = "stack-risk-log-v3"
+ENZYME_SIGNAL_THRESHOLD = 0.5
+ENZYME_OVERLOAD_MODERATE_THRESHOLD = 0.6
+ENZYME_OVERLOAD_HIGH_THRESHOLD = 0.8
+ENZYME_RISK_WEIGHT = 0.75
 STACK_RISK_LOG_SCALE = 9.0
 STACK_RISK_PEAK_WEIGHT = 0.65
 STACK_RISK_MEAN_WEIGHT = 0.20
@@ -247,6 +251,11 @@ def _summarize_compound(
             "tox_flags": sorted(tox_flags, key=lambda x: -x["score"])[:4],
             "cyp_score": cyp_score,
             "cyp_flags": sorted(cyp_flags, key=lambda x: -x["score"])[:6],
+            "cyp_endpoints": {
+                str(key).upper(): value
+                for key, value in merged_probs.items()
+                if str(key).upper().startswith("CYP")
+            },
             "bbb": bbb,
             "bioavailability": bio,
             "hia": hia,
@@ -257,6 +266,69 @@ def _summarize_compound(
         }
     )
     return out
+
+
+def _assess_enzymatic_overload(compounds: list[dict[str, Any]]) -> dict[str, Any]:
+    """Estimate shared CYP pathway pressure across predicted compounds.
+
+    This is a screening signal, not a pharmacokinetic simulation. It combines
+    independent model probabilities with pathway breadth and only reports an
+    overload when at least two compounds contribute to the same CYP endpoint.
+    """
+    pathways: dict[str, list[dict[str, Any]]] = {}
+    for compound in compounds:
+        endpoints = compound.get("cyp_endpoints")
+        if not isinstance(endpoints, dict):
+            continue
+        for enzyme, value in endpoints.items():
+            probability = _as_prob(value)
+            if probability is None or probability < ENZYME_SIGNAL_THRESHOLD:
+                continue
+            pathways.setdefault(str(enzyme).upper(), []).append(
+                {
+                    "compound_id": compound.get("compound_id"),
+                    "name": compound.get("name"),
+                    "score": probability,
+                }
+            )
+
+    rows: list[dict[str, Any]] = []
+    for enzyme, contributors in pathways.items():
+        if len(contributors) < 2:
+            continue
+        combined_probability = 1.0
+        for contributor in contributors:
+            combined_probability *= 1.0 - float(contributor["score"])
+        combined_probability = 1.0 - combined_probability
+        breadth = min(1.0, (len(contributors) - 1) / 3.0)
+        overload_score = min(1.0, (combined_probability * 0.75) + (breadth * 0.25))
+        level = (
+            "high"
+            if overload_score >= ENZYME_OVERLOAD_HIGH_THRESHOLD
+            else "moderate"
+            if overload_score >= ENZYME_OVERLOAD_MODERATE_THRESHOLD
+            else "low"
+        )
+        rows.append(
+            {
+                "enzyme": enzyme,
+                "score": overload_score,
+                "level": level,
+                "compound_count": len(contributors),
+                "contributors": sorted(contributors, key=lambda row: -float(row["score"])),
+            }
+        )
+
+    rows.sort(key=lambda row: (-float(row["score"]), row["enzyme"]))
+    overall_score = float(rows[0]["score"]) if rows else None
+    return {
+        "score": overall_score,
+        "level": rows[0]["level"] if rows else "none",
+        "pathway_count": len(rows),
+        "pathways": rows,
+        "signal_threshold": ENZYME_SIGNAL_THRESHOLD,
+        "disclaimer": "Screening signal from predicted CYP endpoints; not a clinical interaction or dose model.",
+    }
 
 
 @dataclass(frozen=True)
@@ -307,6 +379,11 @@ def get_or_compute_stack_risk(stack: Stack, items: list[StackItem] | None = None
     # Overall stack risk uses a conservative weighted blend, then log-dampens the high end.
     risks = [c.get("compound_risk") for c in per_compound if isinstance(c.get("compound_risk"), (int, float))]
     risk_score, stack_risk_components = _aggregate_stack_risk(risks)
+    enzymatic_overload = _assess_enzymatic_overload(per_compound)
+    enzyme_score = enzymatic_overload.get("score")
+    if isinstance(enzyme_score, (int, float)):
+        enzyme_risk = _logarithmic_risk_dampening(float(enzyme_score) * ENZYME_RISK_WEIGHT)
+        risk_score = max(risk_score or 0.0, enzyme_risk or 0.0)
     level = _risk_level(risk_score, predicted_count)
 
     top = sorted(
@@ -360,6 +437,7 @@ def get_or_compute_stack_risk(stack: Stack, items: list[StackItem] | None = None
             if any(isinstance(c.get("certainty"), (int, float)) for c in per_compound)
             else None,
         },
+        "enzymatic_overload": enzymatic_overload,
         "top_compounds": top,
         "compounds": compounds_sorted,
     }
