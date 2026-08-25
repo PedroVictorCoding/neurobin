@@ -21,7 +21,11 @@ from compounds.models import (
 from logs.models import IntakeLog
 from stacks.forms_add_compound import AddCompoundForm
 from stacks.models import Stack, StackDangerousPairRule, StackItem
-from stacks.risk import STACK_RISK_SCORE_VERSION, get_or_compute_stack_risk
+from stacks.risk import (
+    STACK_RISK_SCORE_VERSION,
+    _assess_enzymatic_overload,
+    get_or_compute_stack_risk,
+)
 from stacks.trait_engine import grouping_preset_options
 
 
@@ -617,6 +621,38 @@ class StackRiskScoringTests(TestCase):
             refreshed.assessment.details.get('summary', {}).get('score_model_version'),
             STACK_RISK_SCORE_VERSION,
         )
+
+
+class EnzymaticOverloadRiskTests(TestCase):
+    def test_shared_cyp_pathway_is_reported_with_contributors(self):
+        result = _assess_enzymatic_overload(
+            [
+                {
+                    "compound_id": 1,
+                    "name": "Alpha",
+                    "cyp_endpoints": {"CYP3A4_inhibition": 0.8, "CYP2D6": 0.2},
+                },
+                {
+                    "compound_id": 2,
+                    "name": "Beta",
+                    "cyp_endpoints": {"cyp3a4_inhibition": 0.7},
+                },
+            ]
+        )
+
+        self.assertEqual(result["pathway_count"], 1)
+        self.assertEqual(result["pathways"][0]["enzyme"], "CYP3A4_INHIBITION")
+        self.assertEqual(result["pathways"][0]["compound_count"], 2)
+        self.assertGreaterEqual(result["score"], 0.6)
+
+    def test_single_compound_does_not_claim_overload(self):
+        result = _assess_enzymatic_overload(
+            [{"compound_id": 1, "name": "Alpha", "cyp_endpoints": {"CYP3A4": 0.95}}]
+        )
+
+        self.assertEqual(result["level"], "none")
+        self.assertEqual(result["pathway_count"], 0)
+        self.assertIsNone(result["score"])
 
 
 class StackTraitRecommendationTests(TestCase):
