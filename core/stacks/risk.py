@@ -5,7 +5,7 @@ from typing import Any
 
 from django.db import transaction
 
-from compounds.models import CompoundADMETPrediction, CompoundMolPropPrediction
+from compounds.models import CompoundADMETPrediction, CompoundMolPropPrediction, MetabolicInteractionEvidence
 
 from .models import Stack, StackItem, StackRiskAssessment
 
@@ -14,7 +14,7 @@ TOX_ENDPOINTS = ("DILI", "AMES", "ClinTox", "Carcinogens_Lagunin")
 ABS_ENDPOINTS = ("Bioavailability_Ma", "HIA_Hou")
 BBB_ENDPOINTS = ("BBB_Martins",)
 RISK_CURVE_GAMMA = 2.2
-STACK_RISK_SCORE_VERSION = "stack-risk-log-v3"
+STACK_RISK_SCORE_VERSION = "stack-risk-log-v4"
 ENZYME_SIGNAL_THRESHOLD = 0.5
 ENZYME_OVERLOAD_MODERATE_THRESHOLD = 0.6
 ENZYME_OVERLOAD_HIGH_THRESHOLD = 0.8
@@ -118,6 +118,9 @@ def _stack_input_hash(
     compound_ids: list[int],
     admet_rows: dict[int, CompoundADMETPrediction],
     molprop_rows: dict[int, CompoundMolPropPrediction],
+    *,
+    items: list[StackItem] | None = None,
+    profile_revision: int | None = None,
 ) -> str:
     parts: list[str] = []
     for compound_id in sorted(set(compound_ids)):
@@ -131,6 +134,16 @@ def _stack_input_hash(
             parts.append(f"{compound_id}:molprop:{molprop.smiles_sha256}:{molprop.model_version or ''}")
         else:
             parts.append(f"{compound_id}:molprop:none")
+    for item in sorted(items or [], key=lambda row: row.id):
+        parts.append(
+            f"item:{item.id}:{item.dosage_amount}:{item.dosage_unit}:"
+            f"{item.intake_time}:{item.recurrence_interval}:{item.recurrence_unit}"
+        )
+    for evidence in MetabolicInteractionEvidence.objects.filter(
+        compound_id__in=compound_ids, superseded_at__isnull=True,
+    ).order_by('id').values_list('id', 'source_checksum', 'source_version'):
+        parts.append(f"evidence:{evidence[0]}:{evidence[1]}:{evidence[2]}")
+    parts.append(f"profile:{profile_revision or 'none'}")
     raw = "|".join(parts).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
 
@@ -350,7 +363,9 @@ def get_or_compute_stack_risk(stack: Stack, items: list[StackItem] | None = None
     admet_map: dict[int, CompoundADMETPrediction] = {p.compound_id: p for p in admet_qs}
     molprop_map: dict[int, CompoundMolPropPrediction] = {p.compound_id: p for p in molprop_qs}
 
-    input_hash = _stack_input_hash(compound_ids, admet_map, molprop_map)
+    input_hash = _stack_input_hash(
+        compound_ids, admet_map, molprop_map, items=items,
+    )
     existing = getattr(stack, "risk_assessment", None)
     if existing and existing.input_hash == input_hash:
         # Older cached assessments may miss newer structure or use an outdated scoring model.
@@ -380,10 +395,11 @@ def get_or_compute_stack_risk(stack: Stack, items: list[StackItem] | None = None
     risks = [c.get("compound_risk") for c in per_compound if isinstance(c.get("compound_risk"), (int, float))]
     risk_score, stack_risk_components = _aggregate_stack_risk(risks)
     enzymatic_overload = _assess_enzymatic_overload(per_compound)
-    enzyme_score = enzymatic_overload.get("score")
-    if isinstance(enzyme_score, (int, float)):
-        enzyme_risk = _logarithmic_risk_dampening(float(enzyme_score) * ENZYME_RISK_WEIGHT)
-        risk_score = max(risk_score or 0.0, enzyme_risk or 0.0)
+    # v4 deliberately does not let prediction overlap inflate clinical-looking risk.
+    from .metabolic import assess_metabolic_interaction
+    metabolic_interaction = assess_metabolic_interaction(
+        items, predicted_compounds=per_compound, clinical_profile=None,
+    )
     level = _risk_level(risk_score, predicted_count)
 
     top = sorted(
@@ -437,7 +453,8 @@ def get_or_compute_stack_risk(stack: Stack, items: list[StackItem] | None = None
             if any(isinstance(c.get("certainty"), (int, float)) for c in per_compound)
             else None,
         },
-        "enzymatic_overload": enzymatic_overload,
+        "enzymatic_overload": {**enzymatic_overload, "deprecated": True, "affects_risk_score": False},
+        "metabolic_interaction_potential": metabolic_interaction,
         "top_compounds": top,
         "compounds": compounds_sorted,
     }

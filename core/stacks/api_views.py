@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import json
 
 from django.db.models import Count
+from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -19,6 +20,8 @@ from .services import (
     untake_stack_item_occurrence,
 )
 from .trait_engine import analyze_stack_character_sheet, recommend_stack_builds
+from .risk import get_or_compute_stack_risk
+from .metabolic import assess_metabolic_interaction, build_pbpk_export
 
 
 class StackViewSet(viewsets.ModelViewSet):
@@ -33,6 +36,35 @@ class StackViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+    @action(detail=True, methods=['get'])
+    def metabolic_assessment(self, request, pk=None):
+        stack = self.get_object()
+        if stack.user_id != request.user.id:
+            raise PermissionDenied('Clinical-context assessments are owner-only.')
+        result = get_or_compute_stack_risk(stack, list(stack.items.select_related('compound')))
+        try:
+            profile = request.user.clinical_profile
+        except ObjectDoesNotExist:
+            profile = None
+        return Response(assess_metabolic_interaction(
+            stack.items.select_related('compound'),
+            predicted_compounds=result.assessment.details.get('compounds', []),
+            clinical_profile=profile,
+        ))
+
+    @action(detail=True, methods=['get'])
+    def pbpk_export(self, request, pk=None):
+        stack = self.get_object()
+        if stack.user_id != request.user.id:
+            raise PermissionDenied('PBPK exports are owner-only.')
+        result = get_or_compute_stack_risk(stack, list(stack.items.select_related('compound')))
+        assessment = result.assessment.details.get('metabolic_interaction_potential', {})
+        try:
+            profile = request.user.clinical_profile
+        except ObjectDoesNotExist:
+            profile = None
+        return Response(build_pbpk_export(stack, assessment, clinical_profile=profile))
 
 
 class StackItemViewSet(viewsets.ModelViewSet):
