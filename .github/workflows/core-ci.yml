@@ -13,7 +13,7 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_USER: neurobin
-          POSTGRES_PASSWORD: neurobin
+          POSTGRES_PASSWORD: ${{ github.run_id }}
           POSTGRES_DB: neurobin_test
         ports: ['5432:5432']
         options: >-
@@ -21,16 +21,18 @@ jobs:
           --health-timeout 5s --health-retries 10
     env:
       DJANGO_ENV: test
-      SECRET_KEY: ci-only-secret-key-not-for-production
-      DATABASE_URL: postgresql://neurobin:neurobin@127.0.0.1:5432/neurobin_test
+      SECRET_KEY: ${{ github.sha }}
+      DATABASE_URL: postgresql://neurobin:${{ github.run_id }}@127.0.0.1:5432/neurobin_test
       METABOLIC_ASSESSMENT_ENABLED: 'true'
-      CLINICAL_DOCUMENT_KEYS: 'ci:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY='
-      CLINICAL_DOCUMENT_ACTIVE_KEY: ci
       CLINICAL_DOCUMENT_ROOT: /tmp/neurobin-private-clinical
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12', cache: pip}
+      - name: Generate ephemeral clinical-document key
+        run: |
+          echo "CLINICAL_DOCUMENT_KEYS=ci:$(openssl rand -base64 32 | tr '+/' '-_')" >> "$GITHUB_ENV"
+          echo "CLINICAL_DOCUMENT_ACTIVE_KEY=ci" >> "$GITHUB_ENV"
       - run: pip install -r requirements-core.txt pip-audit
       - run: python core/manage.py check --deploy
       - run: python core/manage.py makemigrations --check --dry-run
