@@ -27,7 +27,7 @@ class StackSerializer(serializers.ModelSerializer):
         if view and getattr(view, 'action', None) != 'retrieve':
             return None
         compound_ids = list(obj.items.values_list('compound_id', flat=True))
-        return compute_enzymatic_overload(compound_ids)
+        return {**compute_enzymatic_overload(compound_ids), 'deprecated': True, 'affects_risk_score': False}
 
 
 class PublicStackItemSerializer(serializers.ModelSerializer):

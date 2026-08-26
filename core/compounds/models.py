@@ -6,6 +6,71 @@ from django.utils.text import slugify
 from django.conf import settings
 
 
+class MetabolicInteractionEvidence(models.Model):
+    """Versioned evidence describing a compound's role in a metabolic pathway."""
+    ROLE_CHOICES = [
+        ('substrate', 'Substrate'),
+        ('inhibitor', 'Reversible inhibitor'),
+        ('inducer', 'Inducer'),
+        ('time_dependent_inhibitor', 'Time-dependent inhibitor'),
+    ]
+    STRENGTH_CHOICES = [
+        ('unknown', 'Unknown'), ('weak', 'Weak'), ('moderate', 'Moderate'),
+        ('strong', 'Strong'), ('sensitive', 'Sensitive substrate'),
+    ]
+    EVIDENCE_CHOICES = [
+        ('label_clinical', 'FDA/label clinical'), ('curated_human', 'Curated human'),
+        ('experimental', 'Experimental'), ('consensus', 'Consensus'),
+        ('predicted', 'Predicted'),
+    ]
+
+    compound = models.ForeignKey('Compound', on_delete=models.CASCADE, related_name='metabolic_evidence')
+    enzyme = models.CharField(max_length=32, db_index=True)
+    role = models.CharField(max_length=32, choices=ROLE_CHOICES)
+    strength = models.CharField(max_length=16, choices=STRENGTH_CHOICES, default='unknown')
+    evidence_tier = models.CharField(max_length=24, choices=EVIDENCE_CHOICES)
+    narrow_therapeutic_index = models.BooleanField(default=False)
+    source = models.CharField(max_length=32)
+    source_record_id = models.CharField(max_length=255)
+    source_version = models.CharField(max_length=64)
+    source_url = models.URLField(blank=True)
+    source_checksum = models.CharField(max_length=64)
+    quoted_classification = models.TextField(blank=True)
+    route = models.CharField(max_length=32, blank=True)
+    ki_nm = models.FloatField(null=True, blank=True)
+    ic50_nm = models.FloatField(null=True, blank=True)
+    fraction_metabolized = models.FloatField(null=True, blank=True)
+    half_life_minutes = models.PositiveIntegerField(null=True, blank=True)
+    retrieved_at = models.DateTimeField()
+    superseded_at = models.DateTimeField(null=True, blank=True)
+    raw_payload = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(
+            fields=['source', 'source_record_id', 'source_version'], name='unique_metabolic_source_record'
+        )]
+        indexes = [models.Index(fields=['compound', 'enzyme', 'role'], name='metabolic_compound_role_idx')]
+
+
+class MetabolicImportReview(models.Model):
+    STATUS_CHOICES = [('pending', 'Pending'), ('matched', 'Matched'), ('rejected', 'Rejected')]
+    source = models.CharField(max_length=32)
+    source_version = models.CharField(max_length=64)
+    source_record_id = models.CharField(max_length=255)
+    raw_name = models.CharField(max_length=255)
+    raw_identifiers = models.JSONField(default=dict, blank=True)
+    candidates = models.JSONField(default=list, blank=True)
+    reason = models.CharField(max_length=255)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(
+            fields=['source', 'source_record_id', 'source_version'], name='unique_metabolic_review_record'
+        )]
+
+
 class ActionType(models.Model):
     """Standardized action types for compound-target interactions"""
     name = models.CharField(max_length=100, unique=True, help_text="Action type (e.g., agonist, antagonist, inhibitor)")
