@@ -68,21 +68,23 @@
         {% endif %}
       </div>
 
-      {% with overload=stack_risk.details.enzymatic_overload %}
-        {% if overload.pathway_count %}
-          <div class="alert {% if overload.level == 'high' %}alert-danger{% elif overload.level == 'moderate' %}alert-warning{% else %}alert-info{% endif %} mb-3">
-            <div class="fw-semibold">Enzymatic overload: {{ overload.level|title }}</div>
-            <div class="small mb-2">{{ overload.pathway_count }} shared CYP pathway{{ overload.pathway_count|pluralize }} detected. {{ overload.disclaimer }}</div>
+      {% with metabolic=stack_risk.details.metabolic_interaction_potential %}
+        <div class="alert {% if metabolic.tier == 'high' %}alert-danger{% elif metabolic.tier == 'moderate' %}alert-warning{% else %}alert-info{% endif %} mb-3">
+          <div class="fw-semibold">Metabolic Interaction Potential: {{ metabolic.tier|title }}</div>
+          <div class="small mb-2">{{ metabolic.disclaimer }}</div>
+          {% if metabolic.findings %}
             <ul class="mb-0 ps-3 small">
-              {% for pathway in overload.pathways|slice:":5" %}
+              {% for finding in metabolic.findings|slice:":5" %}
                 <li>
-                  <strong>{{ pathway.enzyme }}</strong> — {{ pathway.compound_count }} compounds, score {{ pathway.score|floatformat:2 }}:
-                  {% for contributor in pathway.contributors %}{{ contributor.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                  <strong>{{ finding.enzyme }} · {{ finding.tier|title }}</strong> — {{ finding.rationale }}
+                  {% if finding.missing_parameters %} Missing: {{ finding.missing_parameters|join:", " }}.{% endif %}
                 </li>
               {% endfor %}
             </ul>
-          </div>
-        {% endif %}
+          {% else %}
+            <div class="small">No supported perpetrator–victim pair was found; absence of a finding does not establish safety.</div>
+          {% endif %}
+        </div>
       {% endwith %}
 
       <div class="row g-3">
