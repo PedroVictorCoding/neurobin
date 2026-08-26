@@ -79,6 +79,70 @@ class UserProfile(models.Model):
         return None
 
 
+class ClinicalProfile(models.Model):
+    """Restricted, user-owned research context; never exposed through public profiles."""
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='clinical_profile')
+    consent_version = models.CharField(max_length=32)
+    consented_at = models.DateTimeField()
+    date_of_birth = models.DateField(null=True, blank=True)
+    sex_at_birth = models.CharField(max_length=16, blank=True)
+    weight_kg = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    height_cm = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    pregnancy_status = models.CharField(max_length=24, blank=True)
+    smoking_status = models.CharField(max_length=24, blank=True)
+    egfr = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    egfr_measured_at = models.DateField(null=True, blank=True)
+    child_pugh_class = models.CharField(max_length=1, blank=True)
+    child_pugh_assessed_at = models.DateField(null=True, blank=True)
+    diagnoses = models.JSONField(default=list, blank=True)
+    provenance = models.JSONField(default=dict, blank=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    revision = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class PharmacogenomicResult(models.Model):
+    profile = models.ForeignKey(ClinicalProfile, on_delete=models.CASCADE, related_name='pharmacogenomic_results')
+    gene = models.CharField(max_length=32)
+    diplotype = models.CharField(max_length=64, blank=True)
+    phenotype = models.CharField(max_length=64, blank=True)
+    provenance = models.JSONField(default=dict, blank=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['profile', 'gene'], name='unique_profile_pgx_gene')]
+
+
+def clinical_document_path(instance, filename):
+    extension = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'bin'
+    return f'private_clinical/{instance.user_id}/{uuid.uuid4().hex}.{extension}'
+
+
+class ClinicalDocument(models.Model):
+    STATUS_CHOICES = [('uploaded', 'Uploaded'), ('review', 'Needs review'), ('confirmed', 'Confirmed'), ('failed', 'Failed')]
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='clinical_documents')
+    file = models.FileField(upload_to=clinical_document_path)
+    sha256 = models.CharField(max_length=64, db_index=True)
+    content_type = models.CharField(max_length=64)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='uploaded')
+    extracted_text = models.TextField(blank=True)
+    extraction_error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ClinicalProfileDraftValue(models.Model):
+    document = models.ForeignKey(ClinicalDocument, on_delete=models.CASCADE, related_name='draft_values')
+    field_name = models.CharField(max_length=64)
+    value = models.JSONField()
+    provenance = models.JSONField(default=dict)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    rejected_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['document', 'field_name'], name='unique_document_draft_field')]
+
+
 class EmailVerificationToken(models.Model):
     PURPOSE_REGISTRATION = "registration"
     PURPOSE_EMAIL_CHANGE = "email_change"
