@@ -7,6 +7,7 @@ from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -22,6 +23,7 @@ from .services import (
 from .trait_engine import analyze_stack_character_sheet, recommend_stack_builds
 from .risk import get_or_compute_stack_risk
 from .metabolic import assess_metabolic_interaction, build_pbpk_export
+from accounts.clinical_feature import metabolic_feature_allowed
 
 
 class StackViewSet(viewsets.ModelViewSet):
@@ -39,6 +41,8 @@ class StackViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def metabolic_assessment(self, request, pk=None):
+        if not metabolic_feature_allowed(request.user):
+            raise NotFound()
         stack = self.get_object()
         if stack.user_id != request.user.id:
             raise PermissionDenied('Clinical-context assessments are owner-only.')
@@ -55,6 +59,8 @@ class StackViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def pbpk_export(self, request, pk=None):
+        if not metabolic_feature_allowed(request.user):
+            raise NotFound()
         stack = self.get_object()
         if stack.user_id != request.user.id:
             raise PermissionDenied('PBPK exports are owner-only.')

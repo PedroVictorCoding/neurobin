@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.utils import timezone
 
 from .models import (
     Compound, 
@@ -19,8 +20,64 @@ from .models import (
     ActionType,
     TargetType,
     CompoundSteroidRating,
+    MetabolicImportReview,
+    MetabolicInteractionEvidence,
+    MetabolicReferenceCase,
+    MetabolicSourceDiff,
+    MetabolicSourceSnapshot,
+    MetabolicValidationRun,
 )
 from research.models import ResearchImportJob
+
+
+@admin.register(MetabolicImportReview)
+class MetabolicImportReviewAdmin(admin.ModelAdmin):
+    list_display = ('source', 'raw_name', 'reason', 'status', 'source_version', 'created_at')
+    list_filter = ('source', 'reason', 'status', 'source_version')
+    search_fields = ('raw_name', 'source_record_id')
+    readonly_fields = ('raw_payload', 'candidates', 'created_at', 'resolved_at')
+    actions = ['approve_selected', 'reject_selected']
+
+    @admin.action(description='Approve selected reviewed records')
+    def approve_selected(self, request, queryset):
+        queryset.update(status='matched', reviewed_by=request.user, resolved_at=timezone.now())
+
+    @admin.action(description='Reject selected reviewed records')
+    def reject_selected(self, request, queryset):
+        queryset.update(status='rejected', reviewed_by=request.user, resolved_at=timezone.now())
+
+
+@admin.register(MetabolicInteractionEvidence)
+class MetabolicInteractionEvidenceAdmin(admin.ModelAdmin):
+    list_display = ('compound', 'enzyme', 'role', 'strength', 'evidence_tier', 'source', 'source_version')
+    list_filter = ('role', 'strength', 'evidence_tier', 'source', 'source_version')
+    search_fields = ('compound__name', 'enzyme', 'source_record_id')
+    readonly_fields = ('raw_payload', 'source_checksum', 'retrieved_at')
+
+
+@admin.register(MetabolicSourceSnapshot)
+class MetabolicSourceSnapshotAdmin(admin.ModelAdmin):
+    list_display = ('source', 'source_version', 'checksum', 'retrieved_at')
+    readonly_fields = ('encrypted_payload', 'manifest', 'checksum', 'retrieved_at')
+
+
+@admin.register(MetabolicSourceDiff)
+class MetabolicSourceDiffAdmin(admin.ModelAdmin):
+    list_display = ('source', 'previous_snapshot', 'current_snapshot', 'created_at')
+    readonly_fields = ('added', 'changed', 'removed', 'created_at')
+
+
+@admin.register(MetabolicReferenceCase)
+class MetabolicReferenceCaseAdmin(admin.ModelAdmin):
+    list_display = ('dataset_version', 'perpetrator', 'victim', 'expected_tier', 'reviewed_by_name', 'pharmacist_approved_at')
+    list_filter = ('dataset_version', 'expected_tier')
+    autocomplete_fields = ('perpetrator', 'victim')
+
+
+@admin.register(MetabolicValidationRun)
+class MetabolicValidationRunAdmin(admin.ModelAdmin):
+    list_display = ('dataset_version', 'case_count', 'high_risk_sensitivity', 'specificity', 'passed_metrics', 'pharmacist_signed_off', 'created_at')
+    readonly_fields = [field.name for field in MetabolicValidationRun._meta.fields]
 
 
 class CompoundSteroidRatingInline(admin.StackedInline):

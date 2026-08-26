@@ -2,6 +2,7 @@ from urllib.parse import urlencode
 from datetime import date, timedelta
 
 from django.shortcuts import render, redirect, get_object_or_404
+from django.http import Http404
 from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import redirect_to_login
@@ -15,6 +16,18 @@ from logs.models import UserGoal, UserGoalCompletion
 from .email_service import issue_registration_verification
 from .models import EmailVerificationToken, UserProfile
 from .forms import StyledUserCreationForm, UserProfileForm
+from .clinical_feature import metabolic_feature_allowed
+from .models import ClinicalDocument, ClinicalProfile
+
+
+@login_required
+def clinical_profile_portal(request):
+    if not metabolic_feature_allowed(request.user):
+        raise Http404()
+    return render(request, 'accounts/clinical_profile.html', {
+        'clinical_profile': ClinicalProfile.objects.filter(user=request.user).first(),
+        'clinical_documents': ClinicalDocument.objects.filter(user=request.user).prefetch_related('draft_values'),
+    })
 
 def register(request):
     if request.method == 'POST':
@@ -306,7 +319,7 @@ def profile_dashboard(request, username=None):
     bloodwork_entries = []
     if has_bloodwork:
         from logs.views import build_bloodwork_entries
-        bloodwork_entries = build_bloodwork_entries(request.user)
+        bloodwork_entries, _marker_trend_data = build_bloodwork_entries(request.user)
 
     allowed_tabs = {'research', 'comments', 'reviews', 'stacks'}
     if is_own_profile:

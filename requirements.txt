@@ -5,7 +5,10 @@ asgiref==3.9.1
 babel==2.18.0
 blinker==1.9.0
 certifi==2025.7.14
+cryptography==46.0.3
 celery==5.4.0
+clamd==1.0.2
+beautifulsoup4==4.14.3
 charset-normalizer==3.4.2
 chemfunc==1.0.12
 chemprop==1.6.1

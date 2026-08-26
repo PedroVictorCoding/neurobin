@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Private Clinical Research Profile{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width:960px">
+  <div class="alert alert-warning"><strong>Research use only.</strong> This profile does not provide medical or dosing advice. Uploaded originals are encrypted, malware-scanned, and automatically purged after 30 days.</div>
+  <h1 class="h3">Private Clinical Research Profile</h1>
+  <form id="clinicalProfileForm" class="card card-body mb-4">
+    {% csrf_token %}
+    <label class="form-label">Consent version</label><input class="form-control mb-2" name="consent_version" value="{{ clinical_profile.consent_version|default:'research-v1' }}" required>
+    <input type="hidden" name="consented_at" value="{% now 'c' %}">
+    <div class="row g-2">
+      <div class="col-md-4"><label class="form-label">Date of birth</label><input type="date" class="form-control" name="date_of_birth" value="{{ clinical_profile.date_of_birth|date:'Y-m-d' }}"></div>
+      <div class="col-md-4"><label class="form-label">Sex at birth</label><input class="form-control" name="sex_at_birth" value="{{ clinical_profile.sex_at_birth }}"></div>
+      <div class="col-md-4"><label class="form-label">Smoking status</label><input class="form-control" name="smoking_status" value="{{ clinical_profile.smoking_status }}"></div>
+      <div class="col-md-3"><label class="form-label">Weight (kg)</label><input type="number" step="0.01" class="form-control" name="weight_kg" value="{{ clinical_profile.weight_kg|default:'' }}"></div>
+      <div class="col-md-3"><label class="form-label">Height (cm)</label><input type="number" step="0.01" class="form-control" name="height_cm" value="{{ clinical_profile.height_cm|default:'' }}"></div>
+      <div class="col-md-3"><label class="form-label">eGFR</label><input type="number" step="0.01" class="form-control" name="egfr" value="{{ clinical_profile.egfr|default:'' }}"></div>
+      <div class="col-md-3"><label class="form-label">Child-Pugh</label><select class="form-select" name="child_pugh_class"><option value="">Unknown</option>{% for c in 'ABC' %}<option value="{{ c }}" {% if clinical_profile.child_pugh_class == c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></div>
+    </div>
+    <button class="btn btn-primary mt-3" type="submit">Save and require verification</button>
+  </form>
+
+  <form id="pgxForm" class="card card-body mb-4">
+    <h2 class="h5">Pharmacogenomics (PGx)</h2>
+    <div class="row g-2">
+      <div class="col-md-4"><label class="form-label">Gene</label><input class="form-control" name="gene" required></div>
+      <div class="col-md-4"><label class="form-label">Diplotype</label><input class="form-control" name="diplotype"></div>
+      <div class="col-md-4"><label class="form-label">Phenotype</label><input class="form-control" name="phenotype"></div>
+    </div>
+    <button class="btn btn-outline-primary mt-3" type="submit">Save as unverified PGx result</button>
+  </form>
+
+  <div class="card card-body mb-4">
+    <h2 class="h5">Upload a report for extraction review</h2>
+    <form id="clinicalDocumentForm"><input class="form-control" type="file" name="file" accept="application/pdf,image/png,image/jpeg" required><button class="btn btn-outline-primary mt-2">Upload to quarantine</button></form>
+  </div>
+  <div class="card card-body">
+    <h2 class="h5">Documents and extracted drafts</h2>
+    {% for document in clinical_documents %}
+      <div class="border rounded p-2 mb-2"><strong>#{{ document.id }}</strong> · {{ document.status }}{% if document.purge_after %} · purge {{ document.purge_after|date:'Y-m-d H:i' }}{% endif %}
+      {% for draft in document.draft_values.all %}<div class="small mt-1">{{ draft.field_name }}: {{ draft.value }} (page {{ draft.provenance.page|default:'?' }})
+        {% if not draft.confirmed_at and not draft.rejected_at %}<button class="btn btn-sm btn-success draft-action" data-document="{{ document.id }}" data-draft="{{ draft.id }}" data-action="confirm">Confirm</button> <button class="btn btn-sm btn-outline-danger draft-action" data-document="{{ document.id }}" data-draft="{{ draft.id }}" data-action="reject">Reject</button>{% endif %}
+      </div>{% endfor %}</div>
+    {% empty %}<p class="text-muted mb-0">No documents.</p>{% endfor %}
+  </div>
+</div>
+<script>
+const csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
+document.getElementById('clinicalProfileForm').addEventListener('submit', async (event) => {
+  event.preventDefault(); const data = Object.fromEntries(new FormData(event.target));
+  Object.keys(data).forEach(k => { if (data[k] === '') delete data[k]; });
+  const response = await fetch('/api/accounts/clinical-profile/', {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrf}, body:JSON.stringify(data)});
+  if (response.ok) location.reload(); else alert('Profile could not be saved.');
+});
+document.getElementById('clinicalDocumentForm').addEventListener('submit', async (event) => {
+  event.preventDefault(); const response = await fetch('/api/accounts/clinical-document/', {method:'POST', headers:{'X-CSRFToken':csrf}, body:new FormData(event.target)});
+  if (response.ok) location.reload(); else alert('Upload failed or scanning is unavailable.');
+});
+document.getElementById('pgxForm').addEventListener('submit', async (event) => {
+  event.preventDefault(); const data = Object.fromEntries(new FormData(event.target));
+  const response = await fetch('/api/accounts/clinical-profile/pgx/', {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrf}, body:JSON.stringify(data)});
+  if (response.ok) { event.target.reset(); alert('PGx result saved as unverified.'); } else alert('PGx result could not be saved.');
+});
+document.querySelectorAll('.draft-action').forEach(button => button.addEventListener('click', async () => {
+  const response = await fetch(`/api/accounts/clinical-document/${button.dataset.document}/${button.dataset.action}/`, {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrf}, body:JSON.stringify({draft_id:button.dataset.draft})});
+  if (response.ok) location.reload(); else alert('Draft review could not be saved.');
+}));
+</script>
+{% endblock %}

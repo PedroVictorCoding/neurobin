@@ -1,0 +1,60 @@
+name: Core CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  django-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: neurobin
+          POSTGRES_PASSWORD: neurobin
+          POSTGRES_DB: neurobin_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U neurobin" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      DJANGO_ENV: test
+      SECRET_KEY: ci-only-secret-key-not-for-production
+      DATABASE_URL: postgresql://neurobin:neurobin@127.0.0.1:5432/neurobin_test
+      METABOLIC_ASSESSMENT_ENABLED: 'true'
+      CLINICAL_DOCUMENT_KEYS: 'ci:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY='
+      CLINICAL_DOCUMENT_ACTIVE_KEY: ci
+      CLINICAL_DOCUMENT_ROOT: /tmp/neurobin-private-clinical
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12', cache: pip}
+      - run: pip install -r requirements-core.txt pip-audit
+      - run: python core/manage.py check --deploy
+      - run: python core/manage.py makemigrations --check --dry-run
+      - run: python core/manage.py migrate --noinput
+      - name: Accounts and privacy tests
+        run: set -o pipefail; timeout 8m python core/manage.py test accounts --verbosity 2 --timing 2>&1 | tee accounts-tests.log
+      - name: Importer, validation, and metabolic tests
+        run: set -o pipefail; timeout 8m python core/manage.py test compounds.test_metabolic_import compounds.test_source_adapters compounds.test_metabolic_validation stacks.test_metabolic_v4 --verbosity 2 --timing 2>&1 | tee metabolic-tests.log
+      - name: Complete stack regression suite
+        run: set -o pipefail; timeout 8m python core/manage.py test stacks --verbosity 2 --timing 2>&1 | tee stacks-tests.log
+      - name: Compile and template checks
+        run: python -m compileall -q core && git diff --check
+      - run: pip-audit -r requirements-core.txt
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with: {name: core-ci-logs, path: '*-tests.log', if-no-files-found: ignore}
+
+  ml-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r ml_requirements.txt
+      - run: python -m compileall -q core/compounds core/molprop_runtime

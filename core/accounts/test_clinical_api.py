@@ -1,6 +1,8 @@
+import tempfile
+
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -9,8 +11,18 @@ from accounts.models import ClinicalDocument, ClinicalProfile, ClinicalProfileDr
 
 class RestrictedClinicalProfileTests(TestCase):
     def setUp(self):
-        self.owner = User.objects.create_user('clinical-owner')
-        self.other = User.objects.create_user('clinical-other')
+        self.private_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.private_dir.cleanup)
+        self.override = override_settings(
+            METABOLIC_ASSESSMENT_ENABLED=True,
+            CLINICAL_DOCUMENT_ROOT=self.private_dir.name,
+            CLINICAL_DOCUMENT_KEYS='test:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+            CLINICAL_DOCUMENT_ACTIVE_KEY='test',
+        )
+        self.override.enable()
+        self.addCleanup(self.override.disable)
+        self.owner = User.objects.create_user('clinical-owner', is_staff=True)
+        self.other = User.objects.create_user('clinical-other', is_staff=True)
         self.profile = ClinicalProfile.objects.create(
             user=self.owner, consent_version='v1', consented_at=timezone.now(), egfr=82,
         )
@@ -25,7 +37,7 @@ class RestrictedClinicalProfileTests(TestCase):
     def test_confirmed_document_value_updates_profile_but_requires_reverification(self):
         document = ClinicalDocument.objects.create(
             user=self.owner, file=SimpleUploadedFile('report.pdf', b'%PDF-test'),
-            sha256='b' * 64, content_type='application/pdf', status='review',
+            sha256='b' * 64, content_type='application/pdf', status='review', encryption_key_version='test',
         )
         draft = ClinicalProfileDraftValue.objects.create(
             document=document, field_name='egfr', value='55', provenance={'page': 1},

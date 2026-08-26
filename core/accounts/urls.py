@@ -6,6 +6,7 @@ from .views import (
     register,
     verify_email,
     verify_email_sent,
+    clinical_profile_portal,
 )
 from django.contrib.auth import views as auth_views
 from .forms import StyledAuthenticationForm
@@ -18,5 +19,6 @@ urlpatterns = [
     path('verify-email/<uuid:token>/', verify_email, name='verify_email'),
     path('profile/', profile_dashboard, name='profile_dashboard'),
     path('profile/edit/', edit_profile, name='edit_profile'),
+    path('profile/clinical/', clinical_profile_portal, name='clinical_profile_portal'),
     path('profile/<str:username>/', profile_dashboard, name='user_profile'),
 ]

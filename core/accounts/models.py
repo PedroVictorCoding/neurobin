@@ -3,6 +3,7 @@ from django.contrib.auth.models import User
 from django.conf import settings
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from .private_storage import clinical_document_storage
 import os
 import uuid
 
@@ -120,15 +121,45 @@ def clinical_document_path(instance, filename):
 
 
 class ClinicalDocument(models.Model):
-    STATUS_CHOICES = [('uploaded', 'Uploaded'), ('review', 'Needs review'), ('confirmed', 'Confirmed'), ('failed', 'Failed')]
+    STATUS_CHOICES = [
+        ('quarantined', 'Quarantined'), ('scanning', 'Scanning'), ('clean', 'Clean'),
+        ('infected', 'Infected'), ('extraction_pending', 'Extraction pending'),
+        ('review', 'Needs review'), ('confirmed', 'Confirmed'), ('failed', 'Failed'),
+        ('purged', 'Purged'),
+    ]
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='clinical_documents')
-    file = models.FileField(upload_to=clinical_document_path)
+    file = models.FileField(upload_to=clinical_document_path, storage=clinical_document_storage)
     sha256 = models.CharField(max_length=64, db_index=True)
     content_type = models.CharField(max_length=64)
-    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='uploaded')
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default='quarantined')
+    encryption_key_version = models.CharField(max_length=32, default='')
+    scan_signature = models.CharField(max_length=255, blank=True)
+    scanned_at = models.DateTimeField(null=True, blank=True)
+    extraction_completed_at = models.DateTimeField(null=True, blank=True)
+    purge_after = models.DateTimeField(null=True, blank=True)
+    purged_at = models.DateTimeField(null=True, blank=True)
     extracted_text = models.TextField(blank=True)
     extraction_error = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ClinicalAuditEvent(models.Model):
+    document = models.ForeignKey(ClinicalDocument, on_delete=models.SET_NULL, null=True, related_name='audit_events')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+    event_type = models.CharField(max_length=48, db_index=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'id']
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValueError('Clinical audit events are immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('Clinical audit events are immutable.')
 
 
 class ClinicalProfileDraftValue(models.Model):

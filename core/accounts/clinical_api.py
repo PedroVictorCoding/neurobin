@@ -1,15 +1,17 @@
 import hashlib
-import io
-import re
-
-from django.core.exceptions import ValidationError
+import os
+from pathlib import Path
+from django.http import FileResponse
 from django.utils import timezone
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import ClinicalDocument, ClinicalProfile, ClinicalProfileDraftValue, PharmacogenomicResult
+from .clinical_feature import MetabolicFeaturePermission
+from .clinical_services import audit, purge_document
+from .private_storage import active_key_version
+from .tasks import scan_clinical_document
 
 
 ALLOWED_CONTENT_TYPES = {'application/pdf', 'image/png', 'image/jpeg'}
@@ -49,7 +51,11 @@ class ClinicalDocumentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ClinicalDocument
-        fields = ['id', 'file', 'sha256', 'content_type', 'status', 'extraction_error', 'created_at', 'draft_values']
+        fields = [
+            'id', 'file', 'sha256', 'content_type', 'status', 'scan_signature', 'scanned_at',
+            'encryption_key_version', 'extraction_error', 'extraction_completed_at',
+            'purge_after', 'purged_at', 'created_at', 'draft_values',
+        ]
         read_only_fields = ['sha256', 'content_type', 'status', 'extraction_error', 'created_at']
         extra_kwargs = {'file': {'write_only': True}}
 
@@ -57,38 +63,8 @@ class ClinicalDocumentSerializer(serializers.ModelSerializer):
         return list(obj.draft_values.values('id', 'field_name', 'value', 'provenance', 'confirmed_at', 'rejected_at'))
 
 
-def _extract_document(upload, content_type):
-    raw = upload.read()
-    upload.seek(0)
-    if content_type == 'application/pdf':
-        from pypdf import PdfReader
-        reader = PdfReader(io.BytesIO(raw))
-        pages = [(index + 1, page.extract_text() or '') for index, page in enumerate(reader.pages)]
-    else:
-        try:
-            import pytesseract
-            from PIL import Image
-            pages = [(1, pytesseract.image_to_string(Image.open(io.BytesIO(raw))))]
-        except Exception as exc:
-            raise ValidationError(f'Image OCR unavailable: {exc}') from exc
-    text = '\n'.join(value for _, value in pages)
-    drafts = []
-    patterns = {
-        'egfr': r'(?i)\beGFR\D{0,20}(\d{1,3}(?:\.\d+)?)',
-        'weight_kg': r'(?i)\bweight\D{0,12}(\d{2,3}(?:\.\d+)?)\s*kg',
-        'height_cm': r'(?i)\bheight\D{0,12}(\d{2,3}(?:\.\d+)?)\s*cm',
-        'child_pugh_class': r'(?i)child[- ]pugh\D{0,12}([ABC])\b',
-    }
-    for field_name, pattern in patterns.items():
-        match = re.search(pattern, text)
-        if match:
-            page = next((number for number, value in pages if match.group(0) in value), 1)
-            drafts.append((field_name, match.group(1), {'page': page, 'matched_text': match.group(0), 'extractor': 'rules-v1'}))
-    return text, drafts
-
-
 class ClinicalProfileViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [MetabolicFeaturePermission]
 
     def _get(self, request):
         return ClinicalProfile.objects.filter(user=request.user).first()
@@ -152,10 +128,37 @@ class ClinicalProfileViewSet(viewsets.ViewSet):
         profile.save(update_fields=['verified_at', 'revision', 'updated_at'])
         return Response(PharmacogenomicResultSerializer(result).data)
 
+    @action(detail=False, methods=['get'])
+    def readiness(self, request):
+        from django.conf import settings
+        from compounds.models import MetabolicSourceSnapshot, MetabolicValidationRun
+        checks = {}
+        try:
+            checks['encryption_key'] = {'ok': bool(active_key_version())}
+        except Exception as exc:
+            checks['encryption_key'] = {'ok': False, 'detail': str(exc)}
+        try:
+            root = Path(settings.CLINICAL_DOCUMENT_ROOT).resolve()
+            root.mkdir(mode=0o700, parents=True, exist_ok=True)
+            checks['private_storage'] = {'ok': root != Path(settings.MEDIA_ROOT).resolve() and os.access(root, os.W_OK)}
+        except Exception as exc:
+            checks['private_storage'] = {'ok': False, 'detail': str(exc)}
+        try:
+            import clamd
+            checks['clamav'] = {'ok': clamd.ClamdUnixSocket(path=settings.CLAMAV_UNIX_SOCKET).ping() == 'PONG'}
+        except Exception as exc:
+            checks['clamav'] = {'ok': False, 'detail': str(exc)}
+        snapshot = MetabolicSourceSnapshot.objects.order_by('-retrieved_at').first()
+        checks['source_snapshot'] = {'ok': bool(snapshot), 'retrieved_at': snapshot.retrieved_at if snapshot else None}
+        validation = MetabolicValidationRun.objects.order_by('-created_at').first()
+        checks['clinical_gate'] = {'ok': bool(validation and validation.passed_metrics and validation.pharmacist_signed_off)}
+        ready = all(row['ok'] for row in checks.values())
+        return Response({'ready': ready, 'checks': checks}, status=200 if ready else 503)
+
 
 class ClinicalDocumentViewSet(viewsets.ModelViewSet):
     serializer_class = ClinicalDocumentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [MetabolicFeaturePermission]
 
     def get_queryset(self):
         return ClinicalDocument.objects.filter(user=self.request.user).prefetch_related('draft_values')
@@ -175,21 +178,29 @@ class ClinicalDocumentViewSet(viewsets.ModelViewSet):
             raise serializers.ValidationError('The file signature does not match its declared type.')
         digest = hashlib.sha256(raw).hexdigest()
         upload.seek(0)
-        document = serializer.save(user=self.request.user, sha256=digest, content_type=content_type)
+        document = serializer.save(
+            user=self.request.user, sha256=digest, content_type=content_type,
+            status='quarantined', encryption_key_version=active_key_version(),
+        )
+        audit(document, 'uploaded', user=self.request.user, metadata={'content_type': content_type, 'size': len(raw)})
         try:
-            text, drafts = _extract_document(upload, content_type)
-            document.extracted_text = text
-            document.status = 'review'
-            document.save(update_fields=['extracted_text', 'status'])
-            for field_name, value, provenance in drafts:
-                ClinicalProfileDraftValue.objects.update_or_create(
-                    document=document, field_name=field_name,
-                    defaults={'value': value, 'provenance': provenance},
-                )
+            scan_clinical_document.delay(document.id)
         except Exception as exc:
-            document.status = 'failed'
-            document.extraction_error = str(exc)
-            document.save(update_fields=['status', 'extraction_error'])
+            purge_document(document, reason='queue_failure')
+            raise serializers.ValidationError('Document scanning is unavailable; upload was discarded.') from exc
+
+    def perform_destroy(self, instance):
+        audit(instance, 'deleted', user=self.request.user)
+        purge_document(instance, reason='user_delete')
+
+    @action(detail=True, methods=['get'])
+    def download(self, request, pk=None):
+        document = self.get_object()
+        if document.status not in {'clean', 'review', 'confirmed'} or not document.scanned_at or not document.file:
+            return Response({'detail': 'Document is not available after a clean scan.'}, status=409)
+        audit(document, 'downloaded', user=request.user)
+        return FileResponse(document.file.open('rb'), content_type=document.content_type, as_attachment=True,
+                            filename=f'clinical-document-{document.id}')
 
     @action(detail=True, methods=['post'])
     def confirm(self, request, pk=None):
@@ -210,6 +221,7 @@ class ClinicalDocumentViewSet(viewsets.ModelViewSet):
         if not document.draft_values.filter(confirmed_at__isnull=True, rejected_at__isnull=True).exists():
             document.status = 'confirmed'
             document.save(update_fields=['status'])
+        audit(document, 'draft_confirmed', user=request.user, metadata={'field_name': draft.field_name})
         return Response(ClinicalProfileSerializer(profile).data)
 
     @action(detail=True, methods=['post'])
@@ -220,4 +232,5 @@ class ClinicalDocumentViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Unknown draft value.'}, status=400)
         draft.rejected_at = timezone.now()
         draft.save(update_fields=['rejected_at'])
+        audit(document, 'draft_rejected', user=request.user, metadata={'field_name': draft.field_name})
         return Response({'draft_id': draft.id, 'rejected': True})

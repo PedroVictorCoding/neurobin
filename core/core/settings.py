@@ -308,6 +308,26 @@ X_FRAME_OPTIONS = os.getenv("X_FRAME_OPTIONS", "DENY")
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# Restricted clinical documents are encrypted and must never be served via MEDIA_URL.
+CLINICAL_DOCUMENT_ROOT = os.getenv('CLINICAL_DOCUMENT_ROOT', str(BASE_DIR.parent / 'private_clinical'))
+CLINICAL_DOCUMENT_KEYS = os.getenv('CLINICAL_DOCUMENT_KEYS', '')
+CLINICAL_DOCUMENT_ACTIVE_KEY = os.getenv('CLINICAL_DOCUMENT_ACTIVE_KEY', '')
+CLINICAL_DOCUMENT_RETENTION_DAYS = int(os.getenv('CLINICAL_DOCUMENT_RETENTION_DAYS', '30'))
+CLAMAV_UNIX_SOCKET = os.getenv('CLAMAV_UNIX_SOCKET', '/run/clamav/clamd.ctl')
+METABOLIC_ASSESSMENT_ENABLED = _env_bool('METABOLIC_ASSESSMENT_ENABLED', False)
+METABOLIC_ASSESSMENT_STAFF_ALLOWLIST = {
+    value.strip() for value in os.getenv('METABOLIC_ASSESSMENT_STAFF_ALLOWLIST', '').split(',') if value.strip()
+}
+
+CELERY_BEAT_SCHEDULE = {
+    'purge-expired-clinical-documents-daily': {
+        'task': 'accounts.tasks.purge_expired_clinical_documents', 'schedule': 86400.0,
+    },
+    'sync-official-metabolic-sources-weekly': {
+        'task': 'compounds.tasks.sync_official_metabolic_sources_task', 'schedule': 604800.0,
+    },
+}
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 

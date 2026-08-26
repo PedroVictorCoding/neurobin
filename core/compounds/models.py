@@ -64,11 +64,62 @@ class MetabolicImportReview(models.Model):
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
+    raw_payload = models.JSONField(default=dict, blank=True)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
 
     class Meta:
         constraints = [models.UniqueConstraint(
             fields=['source', 'source_record_id', 'source_version'], name='unique_metabolic_review_record'
         )]
+
+
+class MetabolicSourceSnapshot(models.Model):
+    source = models.CharField(max_length=32)
+    source_version = models.CharField(max_length=64)
+    source_url = models.URLField()
+    checksum = models.CharField(max_length=64, unique=True)
+    encrypted_payload = models.BinaryField()
+    encryption_key_version = models.CharField(max_length=32)
+    manifest = models.JSONField(default=dict)
+    retrieved_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class MetabolicSourceDiff(models.Model):
+    source = models.CharField(max_length=32)
+    previous_snapshot = models.ForeignKey(MetabolicSourceSnapshot, null=True, on_delete=models.SET_NULL, related_name='+')
+    current_snapshot = models.ForeignKey(MetabolicSourceSnapshot, on_delete=models.CASCADE, related_name='+')
+    added = models.JSONField(default=list)
+    changed = models.JSONField(default=list)
+    removed = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class MetabolicReferenceCase(models.Model):
+    expected_tier_choices = [('high', 'High'), ('moderate', 'Moderate'), ('hypothesis', 'Hypothesis'), ('unknown', 'Unknown')]
+    dataset_version = models.CharField(max_length=32, db_index=True)
+    perpetrator = models.ForeignKey('Compound', on_delete=models.CASCADE, related_name='+')
+    victim = models.ForeignKey('Compound', on_delete=models.CASCADE, related_name='+')
+    expected_tier = models.CharField(max_length=16, choices=expected_tier_choices)
+    expected_mechanism = models.CharField(max_length=64, blank=True)
+    rationale = models.TextField()
+    sources = models.JSONField(default=list)
+    reviewed_by_name = models.CharField(max_length=255, blank=True)
+    pharmacist_approved_at = models.DateTimeField(null=True, blank=True)
+
+
+class MetabolicValidationRun(models.Model):
+    dataset_version = models.CharField(max_length=32)
+    model_version = models.CharField(max_length=64)
+    case_count = models.PositiveIntegerField()
+    high_risk_sensitivity = models.FloatField()
+    specificity = models.FloatField()
+    coverage = models.FloatField()
+    prediction_promotions = models.PositiveIntegerField()
+    confusion_matrix = models.JSONField(default=dict)
+    passed_metrics = models.BooleanField(default=False)
+    pharmacist_signed_off = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class ActionType(models.Model):

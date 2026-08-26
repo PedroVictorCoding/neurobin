@@ -84,6 +84,22 @@
           {% else %}
             <div class="small">No supported perpetrator–victim pair was found; absence of a finding does not establish safety.</div>
           {% endif %}
+          {% if metabolic_feature_enabled %}
+            <div class="mt-2 d-flex gap-2 align-items-center">
+              <a class="btn btn-sm btn-outline-dark" href="{% url 'clinical_profile_portal' %}">Clinical research profile</a>
+              <button class="btn btn-sm btn-outline-dark" type="button" id="pbpkReadinessButton">Check PBPK readiness</button>
+            </div>
+            <div class="small mt-2" id="pbpkReadinessResult" aria-live="polite"></div>
+            <script>
+              document.getElementById('pbpkReadinessButton')?.addEventListener('click', async () => {
+                const output = document.getElementById('pbpkReadinessResult');
+                const response = await fetch('/api/stacks/stack/{{ stack.id }}/pbpk_export/');
+                const data = await response.json();
+                const missing = data.missing_parameters || data.missing || [];
+                output.textContent = `${data.status || 'unknown'}${missing.length ? ' — Missing: ' + missing.join(', ') : ''}. No simulation is run here.`;
+              });
+            </script>
+          {% endif %}
         </div>
       {% endwith %}
 

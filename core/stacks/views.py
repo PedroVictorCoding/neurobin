@@ -25,6 +25,7 @@ from .metrics import compute_enzymatic_overload
 from .models import StackRiskAssessment
 from .models import StackTrait
 from logs.models import IntakeLog
+from accounts.clinical_feature import metabolic_feature_allowed
 import json
 from .services import (
     annotate_occurrences_taken,
@@ -791,6 +792,7 @@ class StackDetailView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['stack'] = self.stack
+        context['metabolic_feature_enabled'] = metabolic_feature_allowed(self.request.user)
         context['items'] = (
             StackItem.objects.filter(stack=self.stack)
             .select_related('compound')

@@ -1,5 +1,5 @@
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -9,9 +9,10 @@ from stacks.metabolic import assess_metabolic_interaction, build_pbpk_export
 from stacks.models import Stack, StackItem
 
 
+@override_settings(METABOLIC_ASSESSMENT_ENABLED=True)
 class MetabolicInteractionV4Tests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user('metabolic-user')
+        self.user = User.objects.create_user('metabolic-user', is_staff=True)
         self.inhibitor = Compound.objects.create(name='Documented Inhibitor')
         self.substrate = Compound.objects.create(name='Sensitive Substrate')
         self.stack = Stack.objects.create(user=self.user, name='Test Stack')
